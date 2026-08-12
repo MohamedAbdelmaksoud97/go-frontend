@@ -1,0 +1,9 @@
+"use client"
+import { useRouter } from "next/navigation"
+import { Building2, Check, Loader2, MapPin } from "lucide-react"
+import { useAppContext } from "@/components/app-context"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+
+export default function SelectContextPage(){const context=useAppContext();const router=useRouter();return <div className="mx-auto max-w-3xl fade-up"><Badge variant="outline">اختيار الفرع</Badge><h1 className="mt-4 text-3xl font-black">أين تريد العمل اليوم؟</h1><p className="mt-2 text-sm leading-7 text-muted-foreground">اختر أحد الفروع المتاحة لحسابك. يمكنك تغييره لاحقًا من الشريط العلوي.</p>{context.loading?<div className="grid place-items-center py-24"><Loader2 className="animate-spin text-primary"/></div>:<div className="mt-7 grid gap-4 sm:grid-cols-2">{context.branches.map(branch=><button key={branch.id} onClick={()=>context.setBranchId(branch.id)} className="text-right"><Card className={context.branchId===branch.id?"border-primary ring-3 ring-primary/10":"transition hover:border-primary"}><CardContent className="flex items-center gap-4 p-5"><span className="grid size-12 place-items-center rounded-2xl bg-primary/15 text-amber-600"><Building2/></span><div><p className="font-black">{branch.nameAr??branch.name??"فرع"}</p><p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground"><MapPin className="size-3"/>متاح لحسابك</p></div>{context.branchId===branch.id&&<span className="mr-auto grid size-7 place-items-center rounded-full bg-primary text-black"><Check className="size-4"/></span>}</CardContent></Card></button>)}</div>}<Button size="lg" className="mt-7 w-full" disabled={!context.branchId} onClick={()=>router.push("/")}>الدخول إلى لوحة التحكم</Button></div>}

@@ -1,0 +1,2050 @@
+[
+  {
+    "path": "/health/live",
+    "method": "get",
+    "operationId": "getLiveness",
+    "secured": false,
+    "idempotent": false,
+    "description": "The HTTP process is alive."
+  },
+  {
+    "path": "/health/ready",
+    "method": "get",
+    "operationId": "getReadiness",
+    "secured": false,
+    "idempotent": false,
+    "description": "All required dependencies are available."
+  },
+  {
+    "path": "/api/v1",
+    "method": "get",
+    "operationId": "getApiMetadata",
+    "secured": false,
+    "idempotent": false,
+    "description": "API version metadata."
+  },
+  {
+    "path": "/api/v1/auth/otp/requests",
+    "method": "post",
+    "operationId": "requestPhoneOtp",
+    "secured": false,
+    "idempotent": false,
+    "description": "Request accepted without account enumeration."
+  },
+  {
+    "path": "/api/v1/auth/otp/verifications",
+    "method": "post",
+    "operationId": "verifyPhoneOtp",
+    "secured": false,
+    "idempotent": false,
+    "description": "Supabase session issued for a provisioned account."
+  },
+  {
+    "path": "/api/v1/auth/mfa/enrollments",
+    "method": "post",
+    "operationId": "enrollTotp",
+    "secured": true,
+    "idempotent": false,
+    "description": "TOTP enrollment created."
+  },
+  {
+    "path": "/api/v1/me",
+    "method": "get",
+    "operationId": "getCurrentAuthorization",
+    "secured": true,
+    "idempotent": false,
+    "description": "Effective scoped permission grants."
+  },
+  {
+    "path": "/api/v1/self/account",
+    "method": "get",
+    "operationId": "getOwnAccountProfile",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authenticated account profile and communication preferences."
+  },
+  {
+    "path": "/api/v1/self/account",
+    "method": "patch",
+    "operationId": "updateOwnAccountProfile",
+    "secured": true,
+    "idempotent": false,
+    "description": "Account profile preferences updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}",
+    "method": "get",
+    "operationId": "getOrganization",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization details."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches",
+    "method": "get",
+    "operationId": "listBranches",
+    "secured": true,
+    "idempotent": false,
+    "description": "Scoped branch list."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches",
+    "method": "post",
+    "operationId": "createBranch",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/roles",
+    "method": "get",
+    "operationId": "listRoles",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization roles."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/roles",
+    "method": "post",
+    "operationId": "createRole",
+    "secured": true,
+    "idempotent": false,
+    "description": "Role created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/role-assignments",
+    "method": "get",
+    "operationId": "listRoleAssignments",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization role assignments and branch scopes."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/role-assignments",
+    "method": "post",
+    "operationId": "createRoleAssignment",
+    "secured": true,
+    "idempotent": false,
+    "description": "Scoped role assignment created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/members",
+    "method": "get",
+    "operationId": "listMembers",
+    "secured": true,
+    "idempotent": false,
+    "description": "Members restricted to the effective branch scope."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/members",
+    "method": "post",
+    "operationId": "registerMember",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member registered without requiring a user account."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}",
+    "method": "get",
+    "operationId": "getMember",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized member details with field-level redaction."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}",
+    "method": "patch",
+    "operationId": "updateMember",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}/guardian-links",
+    "method": "post",
+    "operationId": "linkGuardian",
+    "secured": true,
+    "idempotent": false,
+    "description": "Guardian created or linked to a dependent."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/positions",
+    "method": "get",
+    "operationId": "listWorkforcePositions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization workforce positions."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/positions",
+    "method": "post",
+    "operationId": "createWorkforcePosition",
+    "secured": true,
+    "idempotent": false,
+    "description": "Workforce position created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employees",
+    "method": "get",
+    "operationId": "listEmployees",
+    "secured": true,
+    "idempotent": false,
+    "description": "Employees restricted by active branch assignments."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employees",
+    "method": "post",
+    "operationId": "createEmployee",
+    "secured": true,
+    "idempotent": false,
+    "description": "Employee and initial assignment created atomically."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employees/{employeeId}/assignments",
+    "method": "post",
+    "operationId": "assignEmployee",
+    "secured": true,
+    "idempotent": false,
+    "description": "Time-bounded branch assignment created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/files/upload-requests",
+    "method": "post",
+    "operationId": "requestPrivateFileUpload",
+    "secured": true,
+    "idempotent": false,
+    "description": "Private signed upload URL created after owner authorization."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/files/{fileId}/upload-completions",
+    "method": "post",
+    "operationId": "completePrivateFileUpload",
+    "secured": true,
+    "idempotent": false,
+    "description": "Storage metadata checked; file queued for scanning."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/files/{fileId}/download-url",
+    "method": "get",
+    "operationId": "createPrivateFileDownload",
+    "secured": true,
+    "idempotent": false,
+    "description": "Signed download URL for an authorized clean file."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/activities",
+    "method": "get",
+    "operationId": "listActivities",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization activity catalog."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/activities",
+    "method": "post",
+    "operationId": "createActivity",
+    "secured": true,
+    "idempotent": false,
+    "description": "Activity created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/service-categories",
+    "method": "get",
+    "operationId": "listServiceCategories",
+    "secured": true,
+    "idempotent": false,
+    "description": "Service categories."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/service-categories",
+    "method": "post",
+    "operationId": "createServiceCategory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Service category created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/services",
+    "method": "get",
+    "operationId": "listServices",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization service catalog."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/services",
+    "method": "post",
+    "operationId": "createService",
+    "secured": true,
+    "idempotent": false,
+    "description": "Service created with explicit activity links."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/services/{serviceId}/availabilities",
+    "method": "post",
+    "operationId": "scheduleServiceAvailability",
+    "secured": true,
+    "idempotent": false,
+    "description": "Non-overlapping branch availability version created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/commercial-policies",
+    "method": "get",
+    "operationId": "listCommercialPolicies",
+    "secured": true,
+    "idempotent": false,
+    "description": "Typed policy versions."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/commercial-policies",
+    "method": "post",
+    "operationId": "createCommercialPolicy",
+    "secured": true,
+    "idempotent": false,
+    "description": "Immutable typed policy version created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/packages",
+    "method": "get",
+    "operationId": "listPackages",
+    "secured": true,
+    "idempotent": false,
+    "description": "Commercial packages."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/packages",
+    "method": "post",
+    "operationId": "createPackage",
+    "secured": true,
+    "idempotent": false,
+    "description": "Draft package created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/packages/{packageId}/publications",
+    "method": "post",
+    "operationId": "publishPackage",
+    "secured": true,
+    "idempotent": false,
+    "description": "Draft package published."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/prices",
+    "method": "get",
+    "operationId": "listPrices",
+    "secured": true,
+    "idempotent": false,
+    "description": "Effective-dated price versions."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/prices",
+    "method": "post",
+    "operationId": "createPrice",
+    "secured": true,
+    "idempotent": false,
+    "description": "Base or branch price version created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/promotions",
+    "method": "get",
+    "operationId": "listPromotions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Commercial promotions."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/promotions",
+    "method": "post",
+    "operationId": "createPromotion",
+    "secured": true,
+    "idempotent": false,
+    "description": "Typed promotion created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/quotes",
+    "method": "post",
+    "operationId": "createCommercialQuote",
+    "secured": true,
+    "idempotent": false,
+    "description": "VAT-ready immutable commercial snapshot using branch price override then base price."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions",
+    "method": "get",
+    "operationId": "listSubscriptions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Subscriptions restricted to the effective selling-branch scope."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions",
+    "method": "post",
+    "operationId": "createSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Subscription created with captured commercial and policy snapshots."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}",
+    "method": "get",
+    "operationId": "getSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Subscription lifecycle, periods, freezes, grants, and adjustments."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/activations",
+    "method": "post",
+    "operationId": "activateSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Pending or due scheduled subscription activated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/freezes",
+    "method": "post",
+    "operationId": "freezeSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Subscription frozen under its captured policy snapshot."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/resumptions",
+    "method": "post",
+    "operationId": "resumeSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Subscription resumed into a new discontinuous access period."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/renewals",
+    "method": "post",
+    "operationId": "renewSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "New linked subscription created with a fresh commercial snapshot."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/cancellations",
+    "method": "post",
+    "operationId": "cancelSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Subscription cancelled with an audited reason."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/adjustments",
+    "method": "post",
+    "operationId": "adjustSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Append-only term or visit adjustment recorded."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/orders",
+    "method": "get",
+    "operationId": "listSalesOrders",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped sales order list."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/orders",
+    "method": "post",
+    "operationId": "checkoutOrder",
+    "secured": true,
+    "idempotent": true,
+    "description": "Order, invoice, and pending fulfillment created atomically."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/orders/{orderId}",
+    "method": "get",
+    "operationId": "getOrder",
+    "secured": true,
+    "idempotent": false,
+    "description": "Order with immutable commercial snapshots."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/invoices/{invoiceId}",
+    "method": "get",
+    "operationId": "getInvoice",
+    "secured": true,
+    "idempotent": false,
+    "description": "VAT-ready invoice and derived balance."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/payments",
+    "method": "get",
+    "operationId": "listPayments",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped payment and allocation list."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/payments",
+    "method": "post",
+    "operationId": "recordPayment",
+    "secured": true,
+    "idempotent": true,
+    "description": "Payment, allocations, cash movement, and paid fulfillment recorded atomically."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/payments/{paymentId}/refunds",
+    "method": "post",
+    "operationId": "refundPayment",
+    "secured": true,
+    "idempotent": true,
+    "description": "AAL2-protected refund recorded as a separate transaction."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/payments/{paymentId}",
+    "method": "get",
+    "operationId": "getPayment",
+    "secured": true,
+    "idempotent": false,
+    "description": "Payment, allocation total, and refundable total."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/cash-points",
+    "method": "get",
+    "operationId": "listCashPoints",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch cash points."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/cash-points",
+    "method": "post",
+    "operationId": "createCashPoint",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch cash point created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/cashier-shifts",
+    "method": "get",
+    "operationId": "listCashierShifts",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch cashier shifts and reconciliation totals."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/cashier-shifts",
+    "method": "post",
+    "operationId": "openCashierShift",
+    "secured": true,
+    "idempotent": false,
+    "description": "Exclusive open shift created for a cash point."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/cashier-shifts/{shiftId}/closures",
+    "method": "post",
+    "operationId": "closeCashierShift",
+    "secured": true,
+    "idempotent": false,
+    "description": "AAL2-protected atomic close with expected/actual difference."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/expenses",
+    "method": "get",
+    "operationId": "listExpenses",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch expense list."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/expenses",
+    "method": "post",
+    "operationId": "recordExpense",
+    "secured": true,
+    "idempotent": true,
+    "description": "Expense recorded with idempotency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/expense-categories",
+    "method": "post",
+    "operationId": "createExpenseCategory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Typed expense approval category created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/expenses/{expenseId}/transitions",
+    "method": "post",
+    "operationId": "transitionExpense",
+    "secured": true,
+    "idempotent": false,
+    "description": "Audited submit, approve, pay, or void transition."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/expenses/{expenseId}",
+    "method": "get",
+    "operationId": "getExpense",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped expense and approval snapshot."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/attendance-attempts",
+    "method": "get",
+    "operationId": "listAttendanceAttempts",
+    "secured": true,
+    "idempotent": false,
+    "description": "Append-only attendance attempts restricted to the effective branch scope."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/attendance-attempts",
+    "method": "post",
+    "operationId": "recordManualAttendance",
+    "secured": true,
+    "idempotent": true,
+    "description": "Access decision recorded; accepted visits are consumed in the same transaction."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/attendance-attempts/{attemptId}",
+    "method": "get",
+    "operationId": "getAttendanceAttempt",
+    "secured": true,
+    "idempotent": false,
+    "description": "One authorized historical access decision."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/facilities",
+    "method": "get",
+    "operationId": "listFacilities",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch facility list."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/facilities",
+    "method": "post",
+    "operationId": "createFacility",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-owned facility created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/bookable-resources",
+    "method": "get",
+    "operationId": "listBookableResources",
+    "secured": true,
+    "idempotent": false,
+    "description": "Bookable resources restricted to effective branch scope."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/bookable-resources",
+    "method": "post",
+    "operationId": "createBookableResource",
+    "secured": true,
+    "idempotent": false,
+    "description": "Court, class, or personal-training resource created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/bookable-resources/{resourceId}/availability-rules",
+    "method": "get",
+    "operationId": "listBookingAvailability",
+    "secured": true,
+    "idempotent": false,
+    "description": "Effective-dated weekly availability in branch-local time."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/bookable-resources/{resourceId}/availability-rules",
+    "method": "post",
+    "operationId": "createBookingAvailability",
+    "secured": true,
+    "idempotent": false,
+    "description": "Local weekly availability rule created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/bookable-resources/{resourceId}/blackout-periods",
+    "method": "post",
+    "operationId": "createBookingBlackout",
+    "secured": true,
+    "idempotent": false,
+    "description": "Maintenance or closure period created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/bookable-resources/{resourceId}/session-slots",
+    "method": "get",
+    "operationId": "listOpenSessionSlots",
+    "secured": true,
+    "idempotent": false,
+    "description": "Open class or personal-training slots with remaining-capacity counters."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/bookable-resources/{resourceId}/session-slots",
+    "method": "post",
+    "operationId": "createSessionSlot",
+    "secured": true,
+    "idempotent": false,
+    "description": "Capacity-controlled class or personal-training slot created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reservations",
+    "method": "get",
+    "operationId": "listReservations",
+    "secured": true,
+    "idempotent": false,
+    "description": "Reservations restricted to effective branch scope."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reservations",
+    "method": "post",
+    "operationId": "createManualReservation",
+    "secured": true,
+    "idempotent": true,
+    "description": "Manual reservation created after availability, blackout, overlap, and capacity checks."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reservations/{reservationId}",
+    "method": "get",
+    "operationId": "getReservation",
+    "secured": true,
+    "idempotent": false,
+    "description": "One authorized reservation and captured cancellation policy."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reservations/{reservationId}/cancellations",
+    "method": "post",
+    "operationId": "cancelReservation",
+    "secured": true,
+    "idempotent": false,
+    "description": "Reservation cancelled atomically with capacity release and an eligible Finance refund request."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reservations/{reservationId}/transitions",
+    "method": "post",
+    "operationId": "recordReservationOutcome",
+    "secured": true,
+    "idempotent": false,
+    "description": "Confirmed reservation marked completed or no-show."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant/meal-categories",
+    "method": "get",
+    "operationId": "listRestaurantMealCategories",
+    "secured": true,
+    "idempotent": false,
+    "description": "Restaurant meal categories."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant/meal-categories",
+    "method": "post",
+    "operationId": "createMealCategory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Restaurant meal category created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant/meals",
+    "method": "get",
+    "operationId": "listRestaurantMeals",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization restaurant meal, product, and drink catalog."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant/meals",
+    "method": "post",
+    "operationId": "createRestaurantMeal",
+    "secured": true,
+    "idempotent": false,
+    "description": "Restaurant meal, product, or drink created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant/meal-prices",
+    "method": "get",
+    "operationId": "listRestaurantMealPrices",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch meal price versions."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant/meal-prices",
+    "method": "post",
+    "operationId": "createRestaurantMealPrice",
+    "secured": true,
+    "idempotent": false,
+    "description": "Non-overlapping branch meal price version created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus",
+    "method": "post",
+    "operationId": "createDailyMenu",
+    "secured": true,
+    "idempotent": false,
+    "description": "Unique branch business-date daily menu created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus/{businessDate}",
+    "method": "get",
+    "operationId": "getDailyMenu",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized daily menu with historical meal snapshots."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus/{businessDate}/publications",
+    "method": "post",
+    "operationId": "publishDailyMenu",
+    "secured": true,
+    "idempotent": false,
+    "description": "Draft daily menu published with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant-orders",
+    "method": "get",
+    "operationId": "listRestaurantOrders",
+    "secured": true,
+    "idempotent": false,
+    "description": "Restaurant orders restricted to effective Chef branch scope."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant-orders/{orderId}",
+    "method": "get",
+    "operationId": "getRestaurantOrder",
+    "secured": true,
+    "idempotent": false,
+    "description": "Restaurant-owned preparation order and immutable meal-price snapshots."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant-orders/{orderId}/transitions",
+    "method": "post",
+    "operationId": "transitionRestaurantOrder",
+    "secured": true,
+    "idempotent": false,
+    "description": "Chef advances a paid order through preparing, ready, and completed."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant-orders/{orderId}/cancellations",
+    "method": "post",
+    "operationId": "cancelRestaurantOrder",
+    "secured": true,
+    "idempotent": false,
+    "description": "Pending or confirmed restaurant order cancelled; paid orders create a Finance refund request."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/coaching-specialties",
+    "method": "get",
+    "operationId": "listCoachingSpecialties",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization coaching specialties."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/coaching-specialties",
+    "method": "post",
+    "operationId": "createCoachingSpecialty",
+    "secured": true,
+    "idempotent": false,
+    "description": "Coaching specialty created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainers",
+    "method": "get",
+    "operationId": "listTrainers",
+    "secured": true,
+    "idempotent": false,
+    "description": "Trainer profiles restricted to effective branch assignments."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainers",
+    "method": "post",
+    "operationId": "createTrainer",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization-wide trainer profile created with optional employee linkage."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainers/{trainerId}",
+    "method": "get",
+    "operationId": "getTrainer",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized trainer profile and visible branch assignments."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainers/{trainerId}",
+    "method": "patch",
+    "operationId": "updateTrainer",
+    "secured": true,
+    "idempotent": false,
+    "description": "Trainer profile updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainers/{trainerId}/branch-assignments",
+    "method": "post",
+    "operationId": "assignTrainerToBranch",
+    "secured": true,
+    "idempotent": false,
+    "description": "Time-bounded trainer branch assignment created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainers/{trainerId}/availability-rules",
+    "method": "post",
+    "operationId": "createTrainerAvailability",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-local weekly trainer availability created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainers/{trainerId}/member-assignments",
+    "method": "get",
+    "operationId": "listTrainerMemberAssignments",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped trainer/member assignments."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainers/{trainerId}/member-assignments",
+    "method": "post",
+    "operationId": "assignMemberToTrainer",
+    "secured": true,
+    "idempotent": false,
+    "description": "Simple time-bounded trainer/member assignment created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/measurement-types",
+    "method": "get",
+    "operationId": "listMeasurementTypes",
+    "secured": true,
+    "idempotent": false,
+    "description": "Configurable organization measurement types."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/measurement-types",
+    "method": "post",
+    "operationId": "createMeasurementType",
+    "secured": true,
+    "idempotent": false,
+    "description": "Measurement type and accepted bounds created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/measurement-types/{typeId}",
+    "method": "patch",
+    "operationId": "updateMeasurementType",
+    "secured": true,
+    "idempotent": false,
+    "description": "Measurement type revised without changing historical snapshots."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/measurement-sessions",
+    "method": "get",
+    "operationId": "listMeasurementSessions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Append-only measurement history restricted to effective branch scope."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/measurement-sessions",
+    "method": "post",
+    "operationId": "recordMeasurementSession",
+    "secured": true,
+    "idempotent": false,
+    "description": "Atomic measurement session recorded with type, unit, and value semantics snapshotted."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/measurement-sessions/{sessionId}",
+    "method": "get",
+    "operationId": "getMeasurementSession",
+    "secured": true,
+    "idempotent": false,
+    "description": "One authorized immutable measurement session."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/notification-templates",
+    "method": "get",
+    "operationId": "listNotificationTemplates",
+    "secured": true,
+    "idempotent": false,
+    "description": "Versioned notification templates with variable whitelists."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/notification-templates",
+    "method": "post",
+    "operationId": "createNotificationTemplateVersion",
+    "secured": true,
+    "idempotent": false,
+    "description": "New active SMS template version created and the previous version deactivated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/notifications",
+    "method": "get",
+    "operationId": "listNotifications",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped delivery state without recipient address or rendered message disclosure."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/notifications",
+    "method": "post",
+    "operationId": "queueNotification",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent business SMS intent queued from an approved template."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/notifications/{notificationId}",
+    "method": "get",
+    "operationId": "getNotification",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized redacted notification delivery state."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/files/{fileId}",
+    "method": "get",
+    "operationId": "getFileStatus",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized upload and malware-scan status without storage keys or checksums."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/audit-records",
+    "method": "get",
+    "operationId": "listAuditRecords",
+    "secured": true,
+    "idempotent": false,
+    "description": "Append-only, centrally redacted audit records restricted to effective branch scope."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reports/branch-daily",
+    "method": "get",
+    "operationId": "getBranchDailyReport",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped daily finance, membership, attendance, booking, restaurant, and cash projection with as-of metadata."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reports/branch-snapshots",
+    "method": "get",
+    "operationId": "getBranchSnapshots",
+    "secured": true,
+    "idempotent": false,
+    "description": "Current active members, active subscriptions, and open cash shifts by authorized branch."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reports/package-performance",
+    "method": "get",
+    "operationId": "getPackagePerformanceReport",
+    "secured": true,
+    "idempotent": false,
+    "description": "Top package/service and captured-promotion performance from read models."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reporting-rebuilds",
+    "method": "post",
+    "operationId": "requestReportingRebuild",
+    "secured": true,
+    "idempotent": false,
+    "description": "AAL2-protected durable projection rebuild requested."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reporting-rebuilds/{rebuildId}",
+    "method": "get",
+    "operationId": "getReportingRebuild",
+    "secured": true,
+    "idempotent": false,
+    "description": "Reporting rebuild progress and failure state."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-credentials/barcodes",
+    "method": "post",
+    "operationId": "issuePrintableBarcode",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotently issues a Code 39 member or employee credential and returns printable SVG."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-credentials/barcode-print-batches",
+    "method": "post",
+    "operationId": "createBarcodePrintBatch",
+    "secured": true,
+    "idempotent": false,
+    "description": "Returns up to 100 printable member or employee barcodes."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/online-requests",
+    "method": "get",
+    "operationId": "listOnlineRequests",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped online request approval queue."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/online-requests",
+    "method": "post",
+    "operationId": "createOnlineRequest",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent online request submitted for follow-up."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employee-shifts",
+    "method": "get",
+    "operationId": "listEmployeeShiftRoster",
+    "secured": true,
+    "idempotent": false,
+    "description": "Employee shift roster for a branch and range."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employee-shifts",
+    "method": "post",
+    "operationId": "scheduleEmployeeShift",
+    "secured": true,
+    "idempotent": false,
+    "description": "Non-overlapping employee shift scheduled."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employee-attendance",
+    "method": "get",
+    "operationId": "listEmployeeAttendance",
+    "secured": true,
+    "idempotent": false,
+    "description": "Employee clock-in and clock-out events."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employee-attendance",
+    "method": "post",
+    "operationId": "recordEmployeeAttendance",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent employee attendance event recorded."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/lockers",
+    "method": "get",
+    "operationId": "listLockers",
+    "secured": true,
+    "idempotent": false,
+    "description": "Lockers and active assignments for a branch."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/lockers",
+    "method": "post",
+    "operationId": "createLocker",
+    "secured": true,
+    "idempotent": false,
+    "description": "Locker created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/feedback-cases",
+    "method": "get",
+    "operationId": "listFeedbackCases",
+    "secured": true,
+    "idempotent": false,
+    "description": "Complaints and suggestions queue."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/feedback-cases",
+    "method": "post",
+    "operationId": "createFeedbackCase",
+    "secured": true,
+    "idempotent": false,
+    "description": "Complaint or suggestion created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/other-income",
+    "method": "get",
+    "operationId": "listOtherIncome",
+    "secured": true,
+    "idempotent": false,
+    "description": "Auditable branch other-income records."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/other-income",
+    "method": "post",
+    "operationId": "recordOtherIncome",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent other income recorded; cash creates an atomic cash movement."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/whatsapp-campaigns",
+    "method": "get",
+    "operationId": "listWhatsAppCampaigns",
+    "secured": true,
+    "idempotent": false,
+    "description": "WhatsApp campaign and delivery counts."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/whatsapp-campaigns",
+    "method": "post",
+    "operationId": "createWhatsAppCampaign",
+    "secured": true,
+    "idempotent": false,
+    "description": "Meta template-based WhatsApp campaign draft created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainer-commissions",
+    "method": "get",
+    "operationId": "listTrainerCommissions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Trainer commission ledger by branch."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainer-commissions",
+    "method": "post",
+    "operationId": "accrueTrainerCommission",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent commission accrued from an active plan."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/member-training-plans",
+    "method": "get",
+    "operationId": "listMemberTrainingPlans",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member training plans and exercises."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/member-training-plans",
+    "method": "post",
+    "operationId": "createMemberTrainingPlan",
+    "secured": true,
+    "idempotent": false,
+    "description": "Customized member training plan created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/dashboard/summary",
+    "method": "get",
+    "operationId": "getDashboardSummary",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch operational and financial dashboard summary."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reports/attendance-heatmap",
+    "method": "get",
+    "operationId": "getAttendanceHeatmap",
+    "secured": true,
+    "idempotent": false,
+    "description": "Attendance counts by Riyadh weekday and hour."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reports/member-debts",
+    "method": "get",
+    "operationId": "getMemberDebts",
+    "secured": true,
+    "idempotent": false,
+    "description": "Outstanding member invoice balances by branch."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/lead-sources",
+    "method": "get",
+    "operationId": "listCrmLeadSources",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization lead-source master data."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/lead-sources",
+    "method": "post",
+    "operationId": "createCrmLeadSource",
+    "secured": true,
+    "idempotent": false,
+    "description": "Lead source created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/lead-sources/{sourceId}",
+    "method": "patch",
+    "operationId": "updateCrmLeadSource",
+    "secured": true,
+    "idempotent": false,
+    "description": "Lead source updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/leads",
+    "method": "get",
+    "operationId": "listCrmLeads",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped prospective-member directory."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/leads",
+    "method": "post",
+    "operationId": "createCrmLead",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent prospective member created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/leads/{leadId}",
+    "method": "get",
+    "operationId": "getCrmLead",
+    "secured": true,
+    "idempotent": false,
+    "description": "Lead detail, status history, and follow-up timeline."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/leads/{leadId}",
+    "method": "patch",
+    "operationId": "updateCrmLead",
+    "secured": true,
+    "idempotent": false,
+    "description": "Lead updated with optimistic concurrency and branch authorization."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/leads/{leadId}/transitions",
+    "method": "post",
+    "operationId": "transitionCrmLead",
+    "secured": true,
+    "idempotent": false,
+    "description": "Lead transitioned; conversion references an existing member."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/leads/{leadId}/follow-ups",
+    "method": "get",
+    "operationId": "listCrmLeadFollowUps",
+    "secured": true,
+    "idempotent": false,
+    "description": "Follow-up timeline for one authorized lead."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/leads/{leadId}/follow-ups",
+    "method": "post",
+    "operationId": "createCrmLeadFollowUp",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent follow-up scheduled for a lead."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/follow-ups",
+    "method": "get",
+    "operationId": "listCrmFollowUps",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped scheduled/completed follow-up queue."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/follow-ups/cloud",
+    "method": "get",
+    "operationId": "getCrmFollowUpCloud",
+    "secured": true,
+    "idempotent": false,
+    "description": "Weighted lead-status, source, outcome, and due-bucket terms plus conversion summary."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/follow-ups/{followUpId}",
+    "method": "get",
+    "operationId": "getCrmFollowUp",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized follow-up detail."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/follow-ups/{followUpId}",
+    "method": "patch",
+    "operationId": "updateCrmFollowUp",
+    "secured": true,
+    "idempotent": false,
+    "description": "Scheduled follow-up updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/crm/follow-ups/{followUpId}/transitions",
+    "method": "post",
+    "operationId": "transitionCrmFollowUp",
+    "secured": true,
+    "idempotent": false,
+    "description": "Follow-up completed, cancelled, or marked missed."
+  },
+  {
+    "path": "/api/v1/public/organizations/{organizationId}/online-requests",
+    "method": "post",
+    "operationId": "createPublicOnlineRequest",
+    "secured": false,
+    "idempotent": false,
+    "description": "Rate-limited public request accepted without exposing internal data."
+  },
+  {
+    "path": "/api/v1/self",
+    "method": "get",
+    "operationId": "getSelfServiceContext",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member, guardian, employee and trainer identities linked to the verified account."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/branches",
+    "method": "get",
+    "operationId": "listSelfServiceBranches",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active branches visible to the account."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/activities",
+    "method": "get",
+    "operationId": "listSelfServiceActivities",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active activities for member browsing."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/services",
+    "method": "get",
+    "operationId": "listSelfServiceServices",
+    "secured": true,
+    "idempotent": false,
+    "description": "Services currently available in the selected branch."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/packages",
+    "method": "get",
+    "operationId": "listSelfServicePackages",
+    "secured": true,
+    "idempotent": false,
+    "description": "Published and currently priced packages for the selected branch."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/quotes",
+    "method": "post",
+    "operationId": "quoteSelfServicePurchase",
+    "secured": true,
+    "idempotent": false,
+    "description": "Server-authoritative commercial quote for self-service checkout."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/bookable-resources",
+    "method": "get",
+    "operationId": "listSelfServiceResources",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active bookable resources in a branch."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/bookable-resources/{resourceId}/session-slots",
+    "method": "get",
+    "operationId": "listSelfServiceSessionSlots",
+    "secured": true,
+    "idempotent": false,
+    "description": "Open session slots with remaining capacity."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/daily-menu",
+    "method": "get",
+    "operationId": "getSelfServiceDailyMenu",
+    "secured": true,
+    "idempotent": false,
+    "description": "Published branch daily menu and effective prices."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}",
+    "method": "get",
+    "operationId": "getSelfMember",
+    "secured": true,
+    "idempotent": false,
+    "description": "Self or authorized dependent profile; guardian contact fields are minimized."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/subscriptions",
+    "method": "get",
+    "operationId": "listSelfMemberSubscriptions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Subscriptions for the exact linked member."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/subscriptions/{subscriptionId}/freezes",
+    "method": "post",
+    "operationId": "freezeSelfMemberSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Capability-checked freeze using the captured policy."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/subscriptions/{subscriptionId}/resumptions",
+    "method": "post",
+    "operationId": "resumeSelfMemberSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Capability-checked subscription resumption."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/subscriptions/{subscriptionId}/cancellations",
+    "method": "post",
+    "operationId": "cancelSelfMemberSubscription",
+    "secured": true,
+    "idempotent": false,
+    "description": "Capability-checked audited subscription cancellation."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/orders",
+    "method": "get",
+    "operationId": "listSelfMemberOrders",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member sales orders."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/orders",
+    "method": "post",
+    "operationId": "checkoutSelfMemberOrder",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent self-service checkout with capability enforcement."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/invoices",
+    "method": "get",
+    "operationId": "listSelfMemberInvoices",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member invoices and outstanding amounts."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/attendance",
+    "method": "get",
+    "operationId": "listSelfMemberAttendance",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member attendance decisions."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/reservations",
+    "method": "get",
+    "operationId": "listSelfMemberReservations",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member reservations."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/reservations/{reservationId}/cancellations",
+    "method": "post",
+    "operationId": "cancelSelfMemberReservation",
+    "secured": true,
+    "idempotent": false,
+    "description": "Capability-checked cancellation with the snapshotted refund policy."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/restaurant-orders",
+    "method": "get",
+    "operationId": "listSelfMemberRestaurantOrders",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member restaurant orders and lines."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/measurements",
+    "method": "get",
+    "operationId": "listSelfMemberMeasurements",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member measurement history."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/training-plans",
+    "method": "get",
+    "operationId": "listSelfMemberTrainingPlans",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member training plans and exercise progress."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/training-plans/{planId}/items/{itemId}/transitions",
+    "method": "post",
+    "operationId": "transitionSelfMemberTrainingExercise",
+    "secured": true,
+    "idempotent": false,
+    "description": "Complete or skip an exercise belonging to the member's active plan."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/files",
+    "method": "get",
+    "operationId": "listSelfMemberFiles",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized member file metadata; storage remains private."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/files/upload-requests",
+    "method": "post",
+    "operationId": "createSelfMemberFileUpload",
+    "secured": true,
+    "idempotent": false,
+    "description": "Private signed upload for profile photo or consent."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/files/{fileId}/upload-completions",
+    "method": "post",
+    "operationId": "completeSelfMemberFileUpload",
+    "secured": true,
+    "idempotent": false,
+    "description": "Verify uploaded object metadata and queue scanning."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/files/{fileId}/download-url",
+    "method": "get",
+    "operationId": "createSelfMemberFileDownload",
+    "secured": true,
+    "idempotent": false,
+    "description": "Short-lived private download URL for a clean file."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/barcode",
+    "method": "get",
+    "operationId": "getSelfMemberBarcode",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active member Code 39 credential and SVG."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/feedback-cases",
+    "method": "post",
+    "operationId": "createSelfMemberFeedback",
+    "secured": true,
+    "idempotent": false,
+    "description": "Complaint or suggestion created for the exact linked member."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/employee",
+    "method": "get",
+    "operationId": "getSelfEmployee",
+    "secured": true,
+    "idempotent": false,
+    "description": "Employee linked to the current account."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/employee/shifts",
+    "method": "get",
+    "operationId": "listSelfEmployeeShifts",
+    "secured": true,
+    "idempotent": false,
+    "description": "Employee's own shift roster."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/employee/attendance",
+    "method": "get",
+    "operationId": "listSelfEmployeeAttendance",
+    "secured": true,
+    "idempotent": false,
+    "description": "Employee's own attendance."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/employee/attendance",
+    "method": "post",
+    "operationId": "recordSelfEmployeeAttendance",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent self clock-in or clock-out."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/trainer",
+    "method": "get",
+    "operationId": "getSelfTrainer",
+    "secured": true,
+    "idempotent": false,
+    "description": "Trainer profile linked through the employee account."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/trainer/members",
+    "method": "get",
+    "operationId": "listSelfTrainerMembers",
+    "secured": true,
+    "idempotent": false,
+    "description": "Currently assigned trainer members."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/trainer/schedule",
+    "method": "get",
+    "operationId": "listSelfTrainerSchedule",
+    "secured": true,
+    "idempotent": false,
+    "description": "Trainer session schedule."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/trainer/commissions",
+    "method": "get",
+    "operationId": "listSelfTrainerCommissions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Trainer's own commission ledger."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/trainer/training-plans",
+    "method": "get",
+    "operationId": "listSelfTrainerTrainingPlans",
+    "secured": true,
+    "idempotent": false,
+    "description": "Training plans owned by the trainer."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/trainer/training-plans/{planId}/items/{itemId}/transitions",
+    "method": "post",
+    "operationId": "transitionSelfTrainerTrainingExercise",
+    "secured": true,
+    "idempotent": false,
+    "description": "Complete or skip an exercise in a plan assigned to this trainer."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/trainer/measurement-sessions",
+    "method": "post",
+    "operationId": "recordSelfTrainerMeasurement",
+    "secured": true,
+    "idempotent": false,
+    "description": "Measurement recorded only for a currently assigned member and branch."
+  },
+  {
+    "path": "/api/v1/openapi.json",
+    "method": "get",
+    "operationId": "getOpenApiDocument",
+    "secured": false,
+    "idempotent": false,
+    "description": "OpenAPI 3.1 contract for every registered operation."
+  },
+  {
+    "path": "/hooks/v1/auth/send-sms",
+    "method": "post",
+    "operationId": "handleSupabaseSendSmsHook",
+    "secured": false,
+    "idempotent": false,
+    "description": "Verified Supabase Auth hook dispatched through the OTP SMS provider."
+  },
+  {
+    "path": "/api/v1/auth/mfa/factors",
+    "method": "get",
+    "operationId": "listMfaFactors",
+    "secured": true,
+    "idempotent": false,
+    "description": "TOTP factors for the current Supabase session."
+  },
+  {
+    "path": "/api/v1/auth/mfa/challenges",
+    "method": "post",
+    "operationId": "challengeMfaFactor",
+    "secured": true,
+    "idempotent": false,
+    "description": "MFA challenge created."
+  },
+  {
+    "path": "/api/v1/auth/mfa/verifications",
+    "method": "post",
+    "operationId": "verifyMfaChallenge",
+    "secured": true,
+    "idempotent": false,
+    "description": "MFA challenge verified and an AAL2 session returned."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/permissions",
+    "method": "get",
+    "operationId": "listPermissions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Stable permission-code directory."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/roles/{roleId}/permissions",
+    "method": "put",
+    "operationId": "replaceRolePermissions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Role permission set replaced with AAL2 authorization."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/role-assignments/{assignmentId}/revocations",
+    "method": "post",
+    "operationId": "revokeRoleAssignment",
+    "secured": true,
+    "idempotent": false,
+    "description": "Role assignment revoked."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches/{branchId}",
+    "method": "patch",
+    "operationId": "updateBranch",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}/user-account-links",
+    "method": "post",
+    "operationId": "linkMemberUserAccount",
+    "secured": true,
+    "idempotent": false,
+    "description": "Verified account linked to the member."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}/guardians/{guardianId}/user-account-links",
+    "method": "post",
+    "operationId": "linkGuardianUserAccount",
+    "secured": true,
+    "idempotent": false,
+    "description": "Verified account linked to an authorized guardian."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employees/{employeeId}",
+    "method": "get",
+    "operationId": "getEmployee",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-authorized employee detail."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employees/{employeeId}",
+    "method": "patch",
+    "operationId": "updateEmployee",
+    "secured": true,
+    "idempotent": false,
+    "description": "Employee updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employees/{employeeId}/user-account-links",
+    "method": "post",
+    "operationId": "linkEmployeeUserAccount",
+    "secured": true,
+    "idempotent": false,
+    "description": "Verified account linked to an employee."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/activities/{activityId}",
+    "method": "patch",
+    "operationId": "updateActivity",
+    "secured": true,
+    "idempotent": false,
+    "description": "Activity master data updated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/service-categories/{categoryId}",
+    "method": "patch",
+    "operationId": "updateServiceCategory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Service category updated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/services/{serviceId}",
+    "method": "patch",
+    "operationId": "updateService",
+    "secured": true,
+    "idempotent": false,
+    "description": "Service master data updated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant-orders/meal-plan-redemptions",
+    "method": "post",
+    "operationId": "redeemMealPlan",
+    "secured": true,
+    "idempotent": false,
+    "description": "Meal-plan entitlement reserved for a restaurant order idempotently."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-credentials",
+    "method": "get",
+    "operationId": "listAccessCredentials",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped barcode and device credentials."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-credentials/{id}/revocations",
+    "method": "post",
+    "operationId": "revokeAccessCredential",
+    "secured": true,
+    "idempotent": false,
+    "description": "Access credential revoked with an audited reason."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/online-requests/{id}/transitions",
+    "method": "post",
+    "operationId": "transitionOnlineRequest",
+    "secured": true,
+    "idempotent": false,
+    "description": "Online request approved, rejected, or cancelled."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employee-shifts/{id}/transitions",
+    "method": "post",
+    "operationId": "transitionEmployeeShift",
+    "secured": true,
+    "idempotent": false,
+    "description": "Employee shift lifecycle transitioned."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/lockers/{id}/transitions",
+    "method": "post",
+    "operationId": "transitionLocker",
+    "secured": true,
+    "idempotent": false,
+    "description": "Locker availability status changed."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/locker-assignments",
+    "method": "post",
+    "operationId": "assignLocker",
+    "secured": true,
+    "idempotent": false,
+    "description": "Available locker assigned to a member."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/locker-assignments/{id}/releases",
+    "method": "post",
+    "operationId": "releaseLocker",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active locker assignment released."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/feedback-cases/{id}/transitions",
+    "method": "post",
+    "operationId": "transitionFeedbackCase",
+    "secured": true,
+    "idempotent": false,
+    "description": "Complaint or suggestion lifecycle transitioned."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/other-income-categories",
+    "method": "get",
+    "operationId": "listOtherIncomeCategories",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active other-income categories."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/other-income-categories",
+    "method": "post",
+    "operationId": "createOtherIncomeCategory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Other-income category created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/other-income/{id}/voids",
+    "method": "post",
+    "operationId": "voidOtherIncome",
+    "secured": true,
+    "idempotent": false,
+    "description": "Other-income entry voided with an audited reason."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/whatsapp-campaigns/{id}/queue",
+    "method": "post",
+    "operationId": "queueWhatsAppCampaign",
+    "secured": true,
+    "idempotent": false,
+    "description": "WhatsApp campaign queued for background delivery."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainer-commission-plans",
+    "method": "get",
+    "operationId": "listTrainerCommissionPlans",
+    "secured": true,
+    "idempotent": false,
+    "description": "Trainer commission plans."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainer-commission-plans",
+    "method": "post",
+    "operationId": "createTrainerCommissionPlan",
+    "secured": true,
+    "idempotent": false,
+    "description": "Trainer commission plan created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainer-commissions/{id}/transitions",
+    "method": "post",
+    "operationId": "transitionTrainerCommission",
+    "secured": true,
+    "idempotent": false,
+    "description": "Trainer commission approved, paid, or voided."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/training-plan-templates",
+    "method": "get",
+    "operationId": "listTrainingPlanTemplates",
+    "secured": true,
+    "idempotent": false,
+    "description": "Training plan templates and exercises."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/training-plan-templates",
+    "method": "post",
+    "operationId": "createTrainingPlanTemplate",
+    "secured": true,
+    "idempotent": false,
+    "description": "Training plan template created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/member-training-plans/{id}/transitions",
+    "method": "post",
+    "operationId": "transitionMemberTrainingPlan",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member training plan lifecycle transitioned."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/member-training-plans/{id}/items/{itemId}/transitions",
+    "method": "post",
+    "operationId": "transitionMemberTrainingPlanItem",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member training exercise completed or skipped."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reports/subscription-status-chart",
+    "method": "get",
+    "operationId": "getSubscriptionStatusChart",
+    "secured": true,
+    "idempotent": false,
+    "description": "Subscription status distribution by authorized branch."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reports/service-activity-chart",
+    "method": "get",
+    "operationId": "getServiceActivityChart",
+    "secured": true,
+    "idempotent": false,
+    "description": "Service activity counts for dashboard charts."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reports/freeze-trend",
+    "method": "get",
+    "operationId": "getFreezeTrend",
+    "secured": true,
+    "idempotent": false,
+    "description": "Subscription freeze trend by business date."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/user-accounts",
+    "method": "get",
+    "operationId": "listUserAccounts",
+    "secured": true,
+    "idempotent": false,
+    "description": "Organization-linked internal user accounts."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/user-accounts",
+    "method": "post",
+    "operationId": "provisionUserAccount",
+    "secured": true,
+    "idempotent": false,
+    "description": "Supabase Auth user and pending internal account provisioned."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/invoices",
+    "method": "get",
+    "operationId": "listInvoices",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped invoice list."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/refunds",
+    "method": "get",
+    "operationId": "listRefunds",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped refunds."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/files",
+    "method": "get",
+    "operationId": "listFiles",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-safe file metadata list."
+  }
+]
