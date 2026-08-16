@@ -461,7 +461,7 @@
     "operationId": "cancelSubscription",
     "secured": true,
     "idempotent": false,
-    "description": "Subscription cancelled with an audited reason."
+    "description": "Schedules cancellation at term end or cancels immediately under the captured policy; prorated refunds remain approval requests."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/adjustments",
@@ -814,6 +814,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Authorized daily menu with historical meal snapshots."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus/{businessDate}",
+    "method": "put",
+    "operationId": "reviseDailyMenu",
+    "secured": true,
+    "idempotent": false,
+    "description": "Draft daily menu revised with optimistic concurrency."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus/{businessDate}/publications",

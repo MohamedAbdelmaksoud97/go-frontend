@@ -80,11 +80,11 @@ export const workflows: Record<string, Workflow> = {
     body: (v, c) => ({ branchId: c.branchId, memberId: v.memberId, resourceId: v.resourceId, type: "SESSION", startsAt: new Date(String(v.startsAt)).toISOString(), seats: Number(v.seats) }),
   },
   recordPayment: {
-    title: "تسجيل دفعة", description: "اختر الفاتورة وطريقة الدفع. المبلغ يُكتب بالريال السعودي.", submitLabel: "تسجيل الدفعة", successMessage: "تم تسجيل الدفعة بنجاح.", confirm: "راجع المبلغ وطريقة الدفع قبل التأكيد؛ سيُضاف التحصيل إلى السجل المالي.",
+    title: "تسجيل دفعة غير نقدية", description: "للتحويل أو البطاقة. أما النقد فيُسجل من نقطة البيع لربطه بالصندوق والوردية.", submitLabel: "تسجيل الدفعة", successMessage: "تم تسجيل الدفعة بنجاح.", confirm: "راجع المبلغ وطريقة الدفع قبل التأكيد؛ سيُضاف التحصيل إلى السجل المالي.",
     fields: [
       { name: "invoiceId", label: "الفاتورة", type: "reference", source: invoices, required: true },
       { name: "amount", label: "المبلغ (ر.س)", type: "number", min: "0.01", required: true, placeholder: "0.00" },
-      { name: "method", label: "طريقة الدفع", type: "select", required: true, options: [{ value: "CARD", label: "بطاقة بنكية" }, { value: "CASH", label: "نقدًا" }, { value: "BANK_TRANSFER", label: "تحويل بنكي" }] },
+      { name: "method", label: "طريقة الدفع", type: "select", required: true, options: [{ value: "CARD", label: "بطاقة بنكية" }, { value: "BANK_TRANSFER", label: "تحويل بنكي" }] },
       { name: "externalReference", label: "مرجع الدفع", placeholder: "اختياري" },
     ], initial: () => ({ invoiceId: "", amount: "", method: "CARD", externalReference: "" }),
     body: (v, c) => { const amountMinor = String(Math.round(Number(v.amount) * 100)); return { collectionBranchId: c.branchId, method: v.method, amountMinor, allocations: [{ invoiceId: v.invoiceId, amountMinor }], externalReference: v.externalReference || undefined } },

@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
-  Barcode, Bell, Building2, CalendarDays, ChevronDown, ClipboardList, CreditCard, FileText,
+  Barcode, Bell, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, CreditCard, FileText,
   Dumbbell, LayoutDashboard, LogOut, Menu, Moon, Search, Settings,
   ShieldCheck, Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
 } from "lucide-react"
@@ -26,6 +26,7 @@ const navGroups = [
     { href: "/files", label: "الملفات", icon: FileText, permissions:["files.read","files.manage"] },
   ]},
   { label: "الأعمال", items: [
+    { href: "/cashier", label: "نقطة البيع", icon: CircleDollarSign, permissions:["sales.checkout","finance.payments.record","finance.cash-shifts.manage"] },
     { href: "/finance", label: "المبيعات والمالية", icon: WalletCards, permissions:["finance.invoices.read","sales.read"] },
     { href: "/crm", label: "العملاء المحتملون", icon: Zap, permissions:["crm.leads.read"] },
     { href: "/restaurant", label: "المطعم", icon: Utensils, permissions:["restaurant.orders.read"] },

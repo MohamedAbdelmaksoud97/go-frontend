@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { BarChart3, ChevronLeft, ChevronRight, Download, Eye, MoreHorizontal, Plus, Search, SlidersHorizontal, Sparkles, X } from "lucide-react"
+import { BarChart3, ChevronLeft, ChevronRight, Download, Eye, MoreHorizontal, Plus, Search, ShieldAlert, SlidersHorizontal, Sparkles, X } from "lucide-react"
 import type { SectionConfig } from "@/lib/sections"
 import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +13,7 @@ import { endpoints } from "@/lib/endpoint-catalog"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { ActionDialog } from "@/components/action-dialog"
+import { operationPermissions } from "@/lib/permissions"
 
 type BranchLookup = { id: string; nameAr?: string; name?: string }
 type ApiRecord = Record<string, unknown>
@@ -32,6 +33,10 @@ export function ResourcePage({ config }: { config: SectionConfig }) {
   const [knownPages, setKnownPages] = useState(0)
   const pageCache = useRef<Array<{ rows: string[][]; records: ApiRecord[]; nextCursor?: string }>>([])
   const listOperation = endpoints.find(item => item.operationId === config.listOperationId)
+  const listPermission = operationPermissions[config.listOperationId]
+  const createPermission = config.createOperationId === undefined ? undefined : operationPermissions[config.createOperationId]
+  const canRead = listPermission === undefined || context.canAccess([listPermission])
+  const canCreate = createPermission !== undefined && context.canAccess([createPermission])
   const statuses = useMemo(() => config.statusIndex === undefined ? [] : [...new Set(serverRows.map(row => row[config.statusIndex!]).filter(Boolean))], [config.statusIndex, serverRows])
   const rows = useMemo(() => serverRows.filter(row => (config.listOperationId === "listMembers" || row.some(cell => cell.toLowerCase().includes(query.toLowerCase()))) && (!status || config.statusIndex === undefined || row[config.statusIndex] === status)), [config.listOperationId, config.statusIndex, query, serverRows, status])
 
@@ -76,14 +81,16 @@ export function ResourcePage({ config }: { config: SectionConfig }) {
     const link = document.createElement("a"); link.href = url; link.download = `go-${config.listOperationId}.csv`; link.click(); URL.revokeObjectURL(url)
   }
 
+  if (!canRead) return <div className="fade-up"><Card><CardContent className="grid min-h-72 place-items-center p-8 text-center"><div><span className="mx-auto grid size-12 place-items-center rounded-2xl bg-amber-500/10 text-amber-700"><ShieldAlert /></span><h1 className="mt-4 text-xl font-black">لا تملك صلاحية هذه المساحة</h1><p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">صلاحية العرض مطلوبة قبل تحميل البيانات. اطلب من المدير تعيينها لك على الفرع المناسب.</p></div></CardContent></Card></div>
+
   return <div className="fade-up">
-    <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/8 text-amber-700 dark:text-primary">{config.eyebrow}</Badge><h1 className="text-2xl font-black tracking-tight sm:text-3xl">{config.title}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{config.description}</p></div><div className="flex gap-2"><Button size="lg" variant="outline" onClick={exportCsv} disabled={!rows.length}><Download />تصدير</Button>{config.createOperationId && <Button size="lg" className="brand-shadow" onClick={() => setShowAction(true)}><Plus />{config.action}</Button>}</div></div>
+    <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/8 text-amber-700 dark:text-primary">{config.eyebrow}</Badge><h1 className="text-2xl font-black tracking-tight sm:text-3xl">{config.title}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{config.description}</p></div><div className="flex gap-2"><Button size="lg" variant="outline" onClick={exportCsv} disabled={!rows.length}><Download />تصدير</Button>{canCreate && <Button size="lg" className="brand-shadow" onClick={() => setShowAction(true)}><Plus />{config.action}</Button>}</div></div>
     <section className="grid gap-4 md:grid-cols-3">{config.metrics.map((metric, index) => <Card key={metric.label}><CardContent className="flex items-center gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-xl ${index === 0 ? "bg-primary/15 text-amber-600" : index === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{index === 0 ? <BarChart3 /> : index === 1 ? <Sparkles /> : <SlidersHorizontal />}</span><div><p className="text-[11px] font-semibold text-muted-foreground">{metricLabel(config.listOperationId, index, metric.label)}</p><p className="mt-1 text-xl font-black">{metricValue(config.listOperationId, index, serverRecords)}</p><p className="mt-1 text-[9px] text-muted-foreground">{metricNote(serverRecords.length, metric.note)}</p></div></CardContent></Card>)}</section>
     <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}</div>
       <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="w-10 px-4"><span className="sr-only">عرض التفاصيل</span></th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : cell}</td>)}<td className="px-4"><Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow(row)}><MoreHorizontal /></Button></td></tr>)}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
       <div className="flex items-center justify-between border-t p-4"><p className="text-[10px] text-muted-foreground">عرض {rows.length} سجلًا · الصفحة {page + 1}</p><div className="flex items-center gap-1"><Button variant="outline" size="icon-sm" disabled={page === 0 || loading} aria-label="الصفحة السابقة" onClick={() => void loadPage(page - 1)}><ChevronRight /></Button>{Array.from({ length: knownPages }, (_, index) => <Button key={index} variant={index === page ? "default" : "outline"} size="icon-sm" disabled={loading} aria-label={`الصفحة ${index + 1}`} onClick={() => void loadPage(index)}>{index + 1}</Button>)}<Button variant="outline" size="icon-sm" disabled={loading || !pageCache.current[page]?.nextCursor} aria-label="الصفحة التالية" onClick={() => void loadPage(page + 1)}><ChevronLeft /></Button></div></div>
     </Card>
-    {showAction && config.createOperationId && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} />}
+    {showAction && config.createOperationId && canCreate && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} />}
     {selectedRow && <RecordPreview columns={config.columns} row={selectedRow} statusIndex={config.statusIndex} onClose={() => setSelectedRow(undefined)} />}
   </div>
 }

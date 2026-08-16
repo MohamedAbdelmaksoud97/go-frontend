@@ -7,8 +7,9 @@ import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { MemberDailyMenu } from "@/components/member-daily-menu"
 
-type MemberLink={memberId:string;displayName?:string;memberName?:string;relationship?:string;canView?:boolean;canBook?:boolean;canManageMembership?:boolean}
+type MemberLink={organizationId?:string;memberId:string;registrationBranchId?:string;displayName?:string;memberName?:string;relationship?:string;canView?:boolean;canBook?:boolean;canManageMembership?:boolean}
 type SelfContext={account?:{displayName?:string};memberLinks?:MemberLink[];members?:MemberLink[];employeeLinks?:unknown[];employees?:unknown[];trainerLinks?:unknown[]}
 
 export default function SelfServicePage(){
@@ -21,6 +22,7 @@ export default function SelfServicePage(){
   <Card><CardContent className="p-5"><span className="grid size-11 place-items-center rounded-xl bg-blue-500/10 text-blue-600"><BriefcaseBusiness/></span><h2 className="mt-4 font-black">عملي اليوم</h2><p className="mt-1 text-[10px] leading-5 text-muted-foreground">مواعيد المناوبة والحضور والانصراف</p><Link href="/staff"><Button variant="outline" className="mt-5 w-full">عرض جدول العمل</Button></Link></CardContent></Card>
   <Card><CardContent className="p-5"><span className="grid size-11 place-items-center rounded-xl bg-violet-500/10 text-violet-600"><Dumbbell/></span><h2 className="mt-4 font-black">مساحة المدرب</h2><p className="mt-1 text-[10px] leading-5 text-muted-foreground">جلسات اليوم والأعضاء وخطط التدريب</p><Link href="/staff"><Button variant="outline" className="mt-5 w-full">عرض جدول التدريب</Button></Link></CardContent></Card>
   </section>
+  {members.filter(member=>member.canBook).map(member=><MemberDailyMenu key={`menu-${member.memberId}`} organizationId={member.organizationId} memberId={member.memberId} branchId={member.registrationBranchId}/>) }
   <section className="mt-5 grid gap-3 sm:grid-cols-3"><Link href="/barcodes"><Card className="transition hover:border-primary"><CardContent className="flex items-center gap-3 p-4"><Barcode className="text-amber-600"/><div><p className="text-xs font-black">بطاقة الدخول</p><p className="mt-1 text-[10px] text-muted-foreground">عرض البطاقة وطباعتها</p></div></CardContent></Card></Link><Link href="/finance"><Card className="transition hover:border-primary"><CardContent className="flex items-center gap-3 p-4"><WalletCards className="text-emerald-600"/><div><p className="text-xs font-black">الفواتير والمدفوعات</p><p className="mt-1 text-[10px] text-muted-foreground">متابعة الرصيد والفواتير</p></div></CardContent></Card></Link><Link href="/bookings"><Card className="transition hover:border-primary"><CardContent className="flex items-center gap-3 p-4"><CalendarDays className="text-violet-600"/><div><p className="text-xs font-black">مواعيدي</p><p className="mt-1 text-[10px] text-muted-foreground">الحصص والحجوزات القادمة</p></div></CardContent></Card></Link></section>
  </>}</div>
 }
