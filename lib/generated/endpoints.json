@@ -72,14 +72,6 @@
     "description": "Supabase session refreshed through the backend."
   },
   {
-    "path": "/api/v1/auth/mfa/enrollments",
-    "method": "post",
-    "operationId": "enrollTotp",
-    "secured": true,
-    "idempotent": false,
-    "description": "TOTP enrollment created."
-  },
-  {
     "path": "/api/v1/me",
     "method": "get",
     "operationId": "getCurrentAuthorization",
@@ -1744,30 +1736,6 @@
     "description": "Verified Supabase Auth hook dispatched through the OTP SMS provider."
   },
   {
-    "path": "/api/v1/auth/mfa/factors",
-    "method": "get",
-    "operationId": "listMfaFactors",
-    "secured": true,
-    "idempotent": false,
-    "description": "TOTP factors for the current Supabase session."
-  },
-  {
-    "path": "/api/v1/auth/mfa/challenges",
-    "method": "post",
-    "operationId": "challengeMfaFactor",
-    "secured": true,
-    "idempotent": false,
-    "description": "MFA challenge created."
-  },
-  {
-    "path": "/api/v1/auth/mfa/verifications",
-    "method": "post",
-    "operationId": "verifyMfaChallenge",
-    "secured": true,
-    "idempotent": false,
-    "description": "MFA challenge verified and an AAL2 session returned."
-  },
-  {
     "path": "/api/v1/organizations/{organizationId}/permissions",
     "method": "get",
     "operationId": "listPermissions",
@@ -1781,7 +1749,7 @@
     "operationId": "replaceRolePermissions",
     "secured": true,
     "idempotent": false,
-    "description": "Role permission set replaced with AAL2 authorization."
+    "description": "Role permission set replaced."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/role-assignments/{assignmentId}/revocations",

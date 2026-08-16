@@ -1,3 +1,7 @@
+"use client"
+
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Activity, ArrowLeft, ArrowUpLeft, CalendarCheck2, CircleDollarSign, Clock3, CreditCard, ScanLine, TrendingUp, UserPlus, Users } from "lucide-react"
 import { PageHeading } from "@/components/page-heading"
 import { StatusBadge } from "@/components/status-badge"
@@ -5,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { useAppContext } from "@/components/app-context"
 
 const stats = [
   {label:"إجمالي الأعضاء",value:"2,847",note:"+124 هذا الشهر",change:"+12.5%",icon:Users,color:"bg-blue-500/10 text-blue-600"},
@@ -43,6 +48,12 @@ function RevenueChart() {
 }
 
 export default function DashboardPage() {
+ const context=useAppContext()
+ const router=useRouter()
+ const canViewDashboard=context.canAccess(["reporting.read"])
+ const fallbackDestination=context.canAccess(["restaurant.orders.read"]) ? "/restaurant" : context.canAccess(["sales.checkout","finance.payments.record"]) ? "/cashier" : context.canAccess(["members.read"]) ? "/members" : context.canAccess(["workforce.read","coaching.read"]) ? "/staff" : context.canAccess(["organization.read","catalog.read","commercial.read","iam.roles.read"]) ? "/master-data" : "/self-service"
+ useEffect(()=>{if(!context.loading&&!canViewDashboard)router.replace(fallbackDestination)},[canViewDashboard,context.loading,fallbackDestination,router])
+ if(context.loading||!canViewDashboard)return <div className="grid min-h-[55vh] place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent"/></div>
  return <div className="fade-up">
   <PageHeading eyebrow="الأربعاء، 12 أغسطس 2026" title="صباح الخير، محمد 👋" description="إليك ملخص أداء النادي اليوم وأهم الأنشطة التي تحتاج إلى انتباهك." action="تسجيل عضو جديد" actionHref="/members" />
 

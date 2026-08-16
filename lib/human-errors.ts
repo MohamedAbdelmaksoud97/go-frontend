@@ -1,6 +1,7 @@
 import { ApiError } from "@/lib/api-client"
 
 const messages: Record<string, string> = {
+  system_role_immutable: "دور مسؤول النظام محمي ولا يمكن تعديل صلاحياته. أنشئ دورًا مخصصًا أو عدّل دورًا آخر.",
   permission_denied: "لا تملك الصلاحية اللازمة لإتمام هذا الإجراء.",
   account_profile_conflict: "تم تحديث الحساب من مكان آخر. حدّث الصفحة ثم حاول مجددًا.",
   crm_lead_contact_required: "أدخل رقم جوال أو بريدًا إلكترونيًا على الأقل.",
@@ -9,6 +10,7 @@ const messages: Record<string, string> = {
   crm_converted_member_required: "اختر العضو الذي تم تحويله.",
   crm_follow_up_outcome_required: "اختر نتيجة المتابعة.",
   idempotency_conflict: "تغيّرت بيانات الطلب. أغلق النافذة وحاول مرة أخرى.",
+  request_validation_failed: "تعذر حفظ التعديل لأن بيانات القائمة تغيّرت بصورة غير متوقعة. حدّث الصفحة ثم حاول مرة أخرى.",
 }
 
 export function humanError(error: unknown, fallback = "تعذر إكمال الإجراء. حاول مرة أخرى.") {

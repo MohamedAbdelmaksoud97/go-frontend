@@ -21,7 +21,7 @@ type Field = {
   type?: "text" | "number" | "datetime-local" | "textarea" | "select" | "checkbox" | "multi"
   required?: boolean
   options?: Array<{ value: string; label: string }>
-  source?: "activities" | "categories" | "services" | "packages" | "permissions" | "branches" | "meals" | "facilities" | "policies"
+  source?: "activities" | "categories" | "services" | "packages" | "permissions" | "branches" | "meals" | "facilities" | "policies" | "accounts" | "roles"
   sourceFilter?: { key: string; value: string }
   hint?: string
   visibleWhen?: { field: string; values: string[] }
@@ -43,6 +43,7 @@ type MasterConfig = {
   createBody?: (values: Values) => Record<string, unknown>
   editBody?: (values: Values, item: RecordItem) => Record<string, unknown>
   branchScoped?: boolean
+  authorizationBranchScoped?: boolean
 }
 
 const isoNow = () => new Date().toISOString()
@@ -112,6 +113,12 @@ const configs: MasterConfig[] = [
     createBody: values => ({ name: values.name, description: values.description || undefined, permissions: asArray(values.permissions) }), editBody: values => ({ permissions: asArray(values.permissions) }), updateMethod: "PUT",
   },
   {
+    id: "role-assignments", label: "توزيع الموظفين على الفروع", description: "اربط كل موظف بدوره وفروع عمله. System Administrator فقط يملك نطاق النادي كاملًا.", permission: "iam.roles.read", managePermission: "iam.assignments.manage", path: "/organizations/{organizationId}/role-assignments", createPath: "/organizations/{organizationId}/role-assignments",
+    columns: [{ label: "الحساب", key: "userAccountId" }, { label: "الدور", key: "roleName" }, { label: "نطاق العمل", key: "scopeType" }, { label: "الفروع", key: "branchIds" }, { label: "الحالة", key: "status" }],
+    createFields: [{ name: "userAccountId", label: "حساب الموظف", type: "select", source: "accounts", required: true }, { name: "roleId", label: "الدور", type: "select", source: "roles", required: true }, { name: "scopeType", label: "نطاق العمل", type: "select", required: true, options: [{ value: "SELECTED_BRANCHES", label: "فروع محددة للموظف" }, { value: "ORGANIZATION", label: "كل النادي — System Administrator فقط" }] }, { name: "branchIds", label: "فروع عمل الموظف", type: "multi", source: "branches", visibleWhen: { field: "scopeType", values: ["SELECTED_BRANCHES"] }, hint: "اختر فرعًا واحدًا على الأقل. يمكن اختيار أكثر من فرع للموظف الذي يعمل بينها." }],
+    initial: { scopeType: "SELECTED_BRANCHES" }, createBody: values => ({ userAccountId: values.userAccountId, roleId: values.roleId, scopeType: values.scopeType, branchIds: asArray(values.branchIds) }),
+  },
+  {
     id: "cash-points", label: "نقاط التحصيل", description: "الصناديق ونقاط البيع الخاصة بالفرع المحدد حاليًا.", permission: "finance.cash-points.manage", managePermission: "finance.cash-points.manage", path: "/organizations/{organizationId}/cash-points", createPath: "/organizations/{organizationId}/cash-points", branchScoped: true,
     columns: [{ label: "الرمز", key: "code" }, { label: "اسم نقطة التحصيل", key: "name" }, { label: "الحالة", key: "status" }],
     createFields: [{ name: "code", label: "رمز نقطة التحصيل", required: true }, { name: "name", label: "اسم نقطة التحصيل", required: true }],
@@ -150,13 +157,13 @@ const configs: MasterConfig[] = [
     createBody: values => ({ templateKey: values.templateKey, language: values.language, body: values.body, allowedVariables: String(values.variables ?? "").split(",").map(value => value.trim()).filter(Boolean) }),
   },
   {
-    id: "meal-categories", label: "تصنيفات المطعم", description: "تصنيفات الوجبات والمنتجات في المطعم.", permission: "restaurant.catalog.read", managePermission: "restaurant.catalog.manage", path: "/organizations/{organizationId}/restaurant/meal-categories", createPath: "/organizations/{organizationId}/restaurant/meal-categories",
+    id: "meal-categories", label: "تصنيفات المطعم", description: "تصنيفات الوجبات والمنتجات في المطعم على مستوى النادي.", permission: "restaurant.catalog.read", managePermission: "restaurant.catalog.manage", path: "/organizations/{organizationId}/restaurant/meal-categories", createPath: "/organizations/{organizationId}/restaurant/meal-categories", authorizationBranchScoped: true,
     columns: [{ label: "الرمز", key: "code" }, { label: "التصنيف", key: "name" }], createFields: [{ name: "code", label: "رمز التصنيف", required: true }, { name: "name", label: "اسم التصنيف", required: true }],
   },
 ]
 
 const navigationGroups = [
-  { label: "النادي والصلاحيات", ids: ["branches", "roles", "positions"] },
+  { label: "النادي والصلاحيات", ids: ["branches", "roles", "role-assignments", "positions"] },
   { label: "الخدمات والتسعير", ids: ["activities", "categories", "services", "packages", "prices", "promotions", "commercial-policies"] },
   { label: "المرافق والتشغيل", ids: ["facilities", "bookable-resources", "cash-points", "lockers"] },
   { label: "التدريب", ids: ["measurement-types"] },
@@ -173,6 +180,7 @@ function text(value: unknown, key?: string) {
   if (key === "durationDays") return `${value} يوم`
   if (key === "benefitValue") return money(value)
   if (key === "benefitType") return ({ PERCENTAGE: "خصم نسبة", FIXED_DISCOUNT: "خصم مبلغ", FIXED_FINAL_PRICE: "سعر نهائي" } as Record<string, string>)[String(value)] ?? String(value)
+  if (key === "scopeType") return ({ ORGANIZATION: "كل النادي", SELECTED_BRANCHES: "فروع محددة" } as Record<string, string>)[String(value)] ?? String(value)
   if (key === "eligibility") return ({ EVERYONE: "الجميع", NEW_MEMBER: "أعضاء جدد", FORMER_MEMBER: "أعضاء سابقون", PROMO_CODE: "بكود العرض" } as Record<string, string>)[String(value)] ?? String(value)
   if (key === "policyType") return ({ FREEZE: "تجميد الاشتراك", CANCELLATION: "إلغاء الاشتراك", RENEWAL: "تجديد الاشتراك", BOOKING_CANCELLATION: "إلغاء الحجز" } as Record<string, string>)[String(value)] ?? String(value)
   if (key === "type") return ({ COURT: "ملعب", CLASS: "حصة جماعية", PERSONAL_TRAINING: "تدريب شخصي" } as Record<string, string>)[String(value)] ?? String(value)
@@ -202,14 +210,14 @@ export function MasterDataPage() {
 
   const load = useCallback(async () => {
     if (!active || !context.organizationId || !hasRuntimeApi()) { setItems([]); return }
-    setLoading(true); setError("")
+    setLoading(true); setError(""); setItems([])
     try {
       const path = new URL(active.path.replace("{organizationId}", context.organizationId), "http://local")
-      if (active.branchScoped && context.branchId) path.searchParams.set("branchId", context.branchId)
+      if ((active.branchScoped || active.authorizationBranchScoped) && context.branchId) path.searchParams.set("branchId", context.branchId)
       const response = await apiRequest<unknown>(`${path.pathname}${path.search}`)
       setItems(listOf(response.data))
     }
-    catch (reason) { setError(humanError(reason, "تعذر تحميل بيانات الإدارة.")) }
+    catch (reason) { setItems([]); setError(humanError(reason, "تعذر تحميل بيانات الإدارة.")) }
     finally { setLoading(false) }
   }, [active, context.branchId, context.organizationId])
   useEffect(() => { const frame = requestAnimationFrame(() => { void load() }); return () => cancelAnimationFrame(frame) }, [load])
@@ -299,7 +307,7 @@ function MasterForm({ config, mode, item, organizationId, branchId, references, 
     const missingSources = requiredSources.filter(source => !references[sourceKey(source)])
     if (missingSources.length === 0) return
     let cancelled = false
-    const paths: Record<NonNullable<Field["source"]>, string> = { activities: "/organizations/{organizationId}/activities", categories: "/organizations/{organizationId}/service-categories", services: "/organizations/{organizationId}/services", packages: "/organizations/{organizationId}/packages", permissions: "/organizations/{organizationId}/permissions", branches: "/organizations/{organizationId}/branches", meals: "/organizations/{organizationId}/restaurant/meals", facilities: "/organizations/{organizationId}/facilities", policies: "/organizations/{organizationId}/commercial-policies" }
+    const paths: Record<NonNullable<Field["source"]>, string> = { activities: "/organizations/{organizationId}/activities", categories: "/organizations/{organizationId}/service-categories", services: "/organizations/{organizationId}/services", packages: "/organizations/{organizationId}/packages", permissions: "/organizations/{organizationId}/permissions", branches: "/organizations/{organizationId}/branches", meals: "/organizations/{organizationId}/restaurant/meals", facilities: "/organizations/{organizationId}/facilities", policies: "/organizations/{organizationId}/commercial-policies", accounts: "/organizations/{organizationId}/user-accounts", roles: "/organizations/{organizationId}/roles" }
     void Promise.all(missingSources.map(async source => {
       const path = new URL(paths[source].replace("{organizationId}", organizationId), "http://local")
       if (source === "facilities" && branchId) path.searchParams.set("branchId", branchId)
@@ -310,7 +318,7 @@ function MasterForm({ config, mode, item, organizationId, branchId, references, 
     }).catch(() => undefined)
     return () => { cancelled = true }
   }, [branchId, organizationId, references, requiredSources, setReferences])
-  async function submit(event: React.FormEvent) { event.preventDefault(); if (!organizationId) return; if (config.id === "promotions" && asArray(values.packageIds).length + asArray(values.serviceIds).length === 0) { setError("اختر باقة واحدة أو خدمة واحدة على الأقل ليُطبق عليها العرض."); return } setSaving(true); setError(""); try { let body: Record<string, unknown>; if (mode === "create") body = config.createBody ? config.createBody(values) : Object.fromEntries(Object.entries(values).filter(([, value]) => value !== "")); else body = config.editBody ? config.editBody(values, item ?? {}) : { ...Object.fromEntries(Object.entries(values).filter(([, value]) => value !== "")), expectedVersion: Number(item?.version ?? 1) }; if (mode === "create" && config.branchScoped) body = { ...body, branchId }; const path = (mode === "create" ? config.createPath : config.updatePath?.(itemId(item ?? {})))?.replace("{organizationId}", organizationId); if (!path) throw new Error("مسار الحفظ غير متاح"); await apiRequest(path, { method: mode === "create" ? "POST" : config.updateMethod ?? "PATCH", body: JSON.stringify(body), idempotencyKey: mode === "create" ? createIdempotencyKey() : undefined }); onSaved() } catch (reason) { setError(humanError(reason, "تعذر حفظ التغييرات.")) } finally { setSaving(false) } }
+  async function submit(event: React.FormEvent) { event.preventDefault(); if (!organizationId) return; if (config.id === "promotions" && asArray(values.packageIds).length + asArray(values.serviceIds).length === 0) { setError("اختر باقة واحدة أو خدمة واحدة على الأقل ليُطبق عليها العرض."); return } if (config.id === "role-assignments" && values.scopeType === "SELECTED_BRANCHES" && asArray(values.branchIds).length === 0) { setError("اختر فرع عمل واحدًا على الأقل للموظف."); return } setSaving(true); setError(""); try { let body: Record<string, unknown>; if (mode === "create") body = config.createBody ? config.createBody(values) : Object.fromEntries(Object.entries(values).filter(([, value]) => value !== "")); else body = config.editBody ? config.editBody(values, item ?? {}) : { ...Object.fromEntries(Object.entries(values).filter(([, value]) => value !== "")), expectedVersion: Number(item?.version ?? 1) }; if (mode === "create" && config.branchScoped) body = { ...body, branchId }; const path = (mode === "create" ? config.createPath : config.updatePath?.(itemId(item ?? {})))?.replace("{organizationId}", organizationId); if (!path) throw new Error("مسار الحفظ غير متاح"); await apiRequest(path, { method: mode === "create" ? "POST" : config.updateMethod ?? "PATCH", body: JSON.stringify(body), idempotencyKey: mode === "create" ? createIdempotencyKey() : undefined }); onSaved() } catch (reason) { setError(humanError(reason, "تعذر حفظ التغييرات.")) } finally { setSaving(false) } }
   return <div className="fixed inset-0 z-[80] grid place-items-end bg-black/60 backdrop-blur-sm sm:place-items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section role="dialog" aria-modal="true" aria-labelledby="master-form-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:max-w-2xl sm:rounded-[28px]"><header className="sticky top-0 z-10 flex items-start border-b bg-card/95 p-5 backdrop-blur"><div><p className="text-[11px] font-bold text-amber-700">البيانات الرئيسية</p><h2 id="master-form-title" className="mt-1 text-xl font-black">{mode === "create" ? `إضافة ${config.label}` : `تعديل ${config.label}`}</h2></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} aria-label="إغلاق"><X /></Button></header><form onSubmit={submit} className="p-5 sm:p-6"><div className="grid gap-5 sm:grid-cols-2">{visibleFields.map(field => { const source = config.id === "prices" && field.name === "targetId" ? values.targetType === "SERVICE" ? "services" : "packages" : field.source; const referenceKey = source === "facilities" ? `facilities:${branchId}` : source; const choices = (referenceKey ? references[referenceKey] ?? [] : []).filter(choice => !field.sourceFilter || choice[field.sourceFilter.key] === field.sourceFilter.value); return <MasterField key={field.name} field={field} value={values[field.name]} choices={choices} onChange={value => setValues(current => ({ ...current, [field.name]: value }))} /> })}</div>{error && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}<footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>إلغاء</Button><Button type="submit" className="sm:mr-auto" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Check />}حفظ التغييرات</Button></footer></form></section></div>
 }
 
@@ -362,7 +370,7 @@ function PermissionPicker({ field, value, choices, onChange }: { field: Field; v
 }
 
 function MasterField({ field, value, choices, onChange }: { field: Field; value: Value | undefined; choices: RecordItem[]; onChange: (value: Value) => void }) {
-  const choicesFor = choices.map(choice => ({ value: itemId(choice) || String(choice.code ?? choice.permission ?? ""), label: String(choice.name ?? choice.code ?? choice.permission ?? choice.id ?? "سجل") })).filter(choice => choice.value)
+  const choicesFor = choices.map(choice => ({ value: itemId(choice) || String(choice.code ?? choice.permission ?? ""), label: String(choice.name ?? choice.displayName ?? choice.email ?? choice.phoneE164 ?? choice.roleName ?? choice.code ?? choice.permission ?? choice.id ?? "سجل") })).filter(choice => choice.value)
   if (field.type === "checkbox") return <label className="flex cursor-pointer items-center gap-3 rounded-xl border p-4 text-xs font-bold sm:col-span-2"><input type="checkbox" className="size-4 accent-amber-500" checked={Boolean(value)} onChange={event => onChange(event.target.checked)} />{field.label}</label>
   if (field.source === "permissions") return <PermissionPicker field={field} value={value} choices={choices} onChange={onChange} />
   if (field.type === "multi") { const selected = asArray(value); return <fieldset className="sm:col-span-2"><legend className="text-xs font-bold">{field.label}{field.required && <span className="mr-1 text-destructive">*</span>}</legend><div className="mt-2 grid max-h-44 gap-2 overflow-y-auto rounded-xl border p-3 sm:grid-cols-2">{choicesFor.length ? choicesFor.map(choice => <label key={choice.value} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-secondary"><input type="checkbox" className="accent-amber-500" checked={selected.includes(choice.value)} onChange={event => onChange(event.target.checked ? [...selected, choice.value] : selected.filter(id => id !== choice.value))} />{choice.label}</label>) : <p className="text-xs text-muted-foreground">لا توجد خيارات متاحة بعد.</p>}</div>{field.hint && <span className="mt-2 block text-[10px] text-muted-foreground">{field.hint}</span>}</fieldset> }

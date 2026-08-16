@@ -39,6 +39,8 @@ const resources: ReferenceSource = { path: c => `/organizations/${c.organization
 const invoices: ReferenceSource = { path: c => `/organizations/${c.organizationId}/invoices?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["invoiceNumber", "number"], subtitleKeys: ["buyerName", "outstandingMinor"] }
 const positions: ReferenceSource = { path: c => `/organizations/${c.organizationId}/positions?limit=100`, labelKeys: ["nameAr", "positionName", "name"], subtitleKeys: ["code"] }
 const meals: ReferenceSource = { path: c => `/organizations/${c.organizationId}/restaurant/meals?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "mealName", "name"], subtitleKeys: ["categoryName"] }
+const roles: ReferenceSource = { path: c => `/organizations/${c.organizationId}/roles`, labelKeys: ["name"], subtitleKeys: ["systemKey"] }
+const branches: ReferenceSource = { path: c => `/organizations/${c.organizationId}/branches`, labelKeys: ["nameAr", "name"], subtitleKeys: ["code"] }
 
 export const workflows: Record<string, Workflow> = {
   registerMember: {
@@ -122,8 +124,8 @@ export const workflows: Record<string, Workflow> = {
     fields: [{ name: "reason", label: "سبب التحديث", type: "textarea", required: true, placeholder: "اكتب سبب طلب التحديث" }], initial: () => ({ reason: "" }), body: v => ({ reason: v.reason }),
   },
   provisionUserAccount: {
-    title: "إضافة حساب موظف", description: "أنشئ حساب دخول جديدًا، ثم حدّد صلاحياته من صفحة الأدوار.", submitLabel: "إنشاء الحساب", successMessage: "تم إنشاء الحساب، ويمكنك الآن إسناد الصلاحيات المناسبة.",
-    fields: [{ name: "email", label: "البريد الإلكتروني للموظف", type: "email", required: true, placeholder: "name@example.com" }, { name: "password", label: "كلمة المرور المؤقتة", type: "password", required: true, hint: "12 حرفًا على الأقل؛ لا تُحفظ أو تُعرض بعد الإرسال." }, { name: "requiresMfa", label: "طلب تحقق إضافي عند الإجراءات الحساسة", type: "checkbox" }],
-    initial: () => ({ email: "", password: "", requiresMfa: true }), body: v => ({ loginMethod: "STAFF_EMAIL_PASSWORD", email: v.email, password: v.password, requiresMfa: Boolean(v.requiresMfa) }),
+    title: "إضافة حساب موظف", description: "أنشئ الحساب واربطه بالدور والفرع في خطوة واحدة. كل الأدوار مرتبطة بفرع محدد؛ System Administrator فقط يغطي النادي كاملًا.", submitLabel: "إنشاء الحساب", successMessage: "تم إنشاء الحساب وربطه بنطاق عمله.",
+    fields: [{ name: "email", label: "البريد الإلكتروني للموظف", type: "email", required: true, placeholder: "name@example.com" }, { name: "password", label: "كلمة المرور المؤقتة", type: "password", required: true, hint: "12 حرفًا على الأقل؛ لا تُحفظ أو تُعرض بعد الإرسال." }, { name: "roleId", label: "الدور الوظيفي", type: "reference", source: roles, required: true }, { name: "branchId", label: "فرع عمل الموظف", type: "reference", source: branches, hint: "مطلوب لكل دور عدا System Administrator؛ اتركه فارغًا عند اختيار System Administrator فقط." }],
+    initial: () => ({ email: "", password: "", roleId: "", branchId: "" }), body: v => ({ loginMethod: "STAFF_EMAIL_PASSWORD", email: v.email, password: v.password, roleId: v.roleId, branchId: v.branchId || undefined }),
   },
 }

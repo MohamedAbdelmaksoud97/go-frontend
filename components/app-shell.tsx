@@ -6,7 +6,7 @@ import { useEffect, useState } from "react"
 import {
   Barcode, Bell, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, CreditCard, FileText,
   Dumbbell, LayoutDashboard, LogOut, Menu, Moon, Search, Settings,
-  ShieldCheck, Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
+  Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
 } from "lucide-react"
 import { BrandLogo } from "@/components/brand-logo"
 import { useAppContext } from "@/components/app-context"
@@ -39,7 +39,6 @@ const navGroups = [
   { label: "مساحتي", items: [
     { href: "/self-service", label: "الخدمة الذاتية", icon: UserCircle2, permissions:[] },
     { href: "/account", label: "إعدادات الحساب", icon: Settings, permissions:[] },
-    { href: "/mfa", label: "أمان الحساب", icon: ShieldCheck, permissions:[] },
   ]},
 ]
 
@@ -51,6 +50,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [dark, setDark] = useState(false)
   const [notices, setNotices] = useState(false)
   const [globalSearch, setGlobalSearch] = useState("")
+  const accountName = context.account?.displayName?.trim() || "الحساب"
+  const accountSubtitle = context.canAccess(["iam.roles.manage"]) ? "مسؤول النظام" : "حساب موظف"
+  const currentBranch=context.branches.find(branch=>branch.id===context.branchId)
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setDark(document.documentElement.classList.contains("dark")))
@@ -65,6 +67,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   function submitSearch(event:React.FormEvent){event.preventDefault();const value=globalSearch.trim().toLowerCase();if(!value)return;const destinations=[{terms:["عضو","أعضاء","member"],href:"/members"},{terms:["اشتراك","باقة","subscription"],href:"/subscriptions"},{terms:["حضور","دخول","attendance"],href:"/attendance"},{terms:["حجز","موعد","booking"],href:"/bookings"},{terms:["فاتورة","دفعة","مالية","invoice"],href:"/finance"},{terms:["عميل","متابعة"],href:"/crm"},{terms:["مطعم","وجبة"],href:"/restaurant"},{terms:["موظف","مدرب"],href:"/staff"},{terms:["تقرير"],href:"/reports"}];router.push(destinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??"/members")}
+
+  if (context.loading) return <div dir="rtl" className="grid min-h-screen place-items-center bg-background"><div className="text-center"><span className="mx-auto block size-10 animate-spin rounded-full border-4 border-primary border-t-transparent"/><p className="mt-4 text-sm font-semibold text-muted-foreground">جارٍ تحميل مساحة العمل الآمنة…</p></div></div>
 
   return <div dir="rtl" className="min-h-screen max-w-[100vw] overflow-x-hidden bg-background">
     {open && <button className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm lg:hidden" onClick={() => setOpen(false)} aria-label="إغلاق القائمة" />}
@@ -91,8 +95,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
       <div className="border-t border-sidebar-border p-3">
         <div className="flex items-center gap-3 rounded-xl bg-sidebar-accent/60 p-3">
-          <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary font-extrabold text-black">م</div>
-          <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">محمد العتيبي</p><p className="mt-1 truncate text-[10px] text-sidebar-foreground/45">مدير فرع الزلفي</p></div>
+          <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary font-extrabold text-black">{accountName.slice(0, 1)}</div>
+          <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{accountName}</p><p className="mt-1 truncate text-[10px] text-sidebar-foreground/45">{accountSubtitle}</p></div>
           <button onClick={async()=>{await clearSession();router.push('/login')}} aria-label="تسجيل الخروج" className="text-sidebar-foreground/45 transition hover:text-primary"><LogOut className="size-4" /></button>
         </div>
       </div>
@@ -108,7 +112,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mr-auto flex items-center gap-2">
           <button className="hidden items-center gap-2 rounded-xl border bg-card px-3 py-2 text-right sm:flex" aria-label="تغيير الفرع" onClick={()=>router.push('/select-context')}>
             <span className="grid size-7 place-items-center rounded-lg bg-primary/15 text-amber-600"><Building2 className="size-4" /></span>
-            <span><span className="block text-[9px] text-muted-foreground">الفرع الحالي</span><span className="block text-xs font-bold">{context.branches.find(branch=>branch.id===context.branchId)?.nameAr??context.branches.find(branch=>branch.id===context.branchId)?.name??"فرع الزلفي الرئيسي"}</span></span>
+            <span><span className="block text-[9px] text-muted-foreground">الفرع الحالي</span><span className="block text-xs font-bold">{currentBranch?.nameAr??currentBranch?.name??(context.loading?"جارٍ تحميل الفروع…":"لم يُحدد فرع")}</span></span>
             <ChevronDown className="size-3 text-muted-foreground" />
           </button>
           <Button variant="outline" size="icon" onClick={toggleTheme} aria-label={dark ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"}>{dark ? <Sun /> : <Moon />}</Button>

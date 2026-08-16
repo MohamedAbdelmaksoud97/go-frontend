@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2, Save, ShieldCheck, UserCircle2 } from "lucide-react"
+import { Loader2, Save, UserCircle2 } from "lucide-react"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +17,6 @@ type Profile = {
   preferredTimezone: string
   smsNotificationsEnabled: boolean
   whatsappNotificationsEnabled: boolean
-  requiresMfa?: boolean
   version: number
 }
 
@@ -28,7 +27,6 @@ const demo: Profile = {
   preferredTimezone: "Asia/Riyadh",
   smsNotificationsEnabled: true,
   whatsappNotificationsEnabled: false,
-  requiresMfa: false,
   version: 1,
 }
 
@@ -50,10 +48,9 @@ export default function AccountPage() {
     setMessage("")
     try {
       if (hasRuntimeApi()) {
-        const { phoneE164, email, requiresMfa, version, ...body } = profile
+        const { phoneE164, email, version, ...body } = profile
         void phoneE164
         void email
-        void requiresMfa
         const response = await apiRequest<Profile>("/self/account", { method: "PATCH", body: JSON.stringify({ ...body, expectedVersion: version }) })
         setProfile(response.data)
       }
@@ -76,7 +73,6 @@ export default function AccountPage() {
       <Card className="mt-7">
         <CardHeader>
           <CardTitle>الملف الشخصي</CardTitle>
-          <Badge variant={profile.requiresMfa ? "success" : "warning"}><ShieldCheck />{profile.requiresMfa ? "حماية إضافية مفعّلة" : "حماية أساسية"}</Badge>
         </CardHeader>
         <CardContent className="grid gap-5 sm:grid-cols-2">
           <label className="text-xs font-bold">الاسم المعروض<Input className="mt-2" value={profile.displayName} onChange={(event) => setProfile((current) => ({ ...current, displayName: event.target.value }))} /></label>
