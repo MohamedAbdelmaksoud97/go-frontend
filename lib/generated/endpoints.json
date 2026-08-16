@@ -40,6 +40,38 @@
     "description": "Supabase session issued for a provisioned account."
   },
   {
+    "path": "/api/v1/auth/staff/password/sign-ins",
+    "method": "post",
+    "operationId": "signInStaffWithPassword",
+    "secured": false,
+    "idempotent": false,
+    "description": "Staff email/password session issued without exposing Supabase to the browser."
+  },
+  {
+    "path": "/api/v1/auth/member/password/sign-ins",
+    "method": "post",
+    "operationId": "signInMemberWithPassword",
+    "secured": false,
+    "idempotent": false,
+    "description": "Member or guardian phone/password session issued."
+  },
+  {
+    "path": "/api/v1/auth/member/test-email/password/sign-ins",
+    "method": "post",
+    "operationId": "signInMemberWithTestEmailPassword",
+    "secured": false,
+    "idempotent": false,
+    "description": "Development-only member or guardian email/password session issued when explicitly enabled."
+  },
+  {
+    "path": "/api/v1/auth/sessions/refreshes",
+    "method": "post",
+    "operationId": "refreshAuthSession",
+    "secured": false,
+    "idempotent": false,
+    "description": "Supabase session refreshed through the backend."
+  },
+  {
     "path": "/api/v1/auth/mfa/enrollments",
     "method": "post",
     "operationId": "enrollTotp",
@@ -2021,7 +2053,7 @@
     "operationId": "provisionUserAccount",
     "secured": true,
     "idempotent": false,
-    "description": "Supabase Auth user and pending internal account provisioned."
+    "description": "Active password account provisioned; staff use email and members use phone."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/invoices",

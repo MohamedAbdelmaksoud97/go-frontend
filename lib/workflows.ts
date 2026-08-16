@@ -8,7 +8,7 @@ export type ReferenceSource = {
 export type WorkflowField = {
   name: string
   label: string
-  type?: "text" | "tel" | "email" | "date" | "datetime-local" | "number" | "textarea" | "select" | "reference" | "checkbox"
+  type?: "text" | "tel" | "email" | "password" | "date" | "datetime-local" | "number" | "textarea" | "select" | "reference" | "checkbox"
   placeholder?: string
   hint?: string
   required?: boolean
@@ -123,7 +123,7 @@ export const workflows: Record<string, Workflow> = {
   },
   provisionUserAccount: {
     title: "إضافة حساب موظف", description: "أنشئ حساب دخول جديدًا، ثم حدّد صلاحياته من صفحة الأدوار.", submitLabel: "إنشاء الحساب", successMessage: "تم إنشاء الحساب، ويمكنك الآن إسناد الصلاحيات المناسبة.",
-    fields: [{ name: "displayName", label: "اسم المستخدم", required: true }, { name: "phoneE164", label: "رقم الجوال", type: "tel", required: true, placeholder: "+966 5X XXX XXXX" }, { name: "requiresMfa", label: "طلب تحقق إضافي عند الإجراءات الحساسة", type: "checkbox" }],
-    initial: () => ({ displayName: "", phoneE164: "+9665", requiresMfa: true }), body: v => ({ displayName: v.displayName, phoneE164: v.phoneE164, requiresMfa: Boolean(v.requiresMfa) }),
+    fields: [{ name: "email", label: "البريد الإلكتروني للموظف", type: "email", required: true, placeholder: "name@example.com" }, { name: "password", label: "كلمة المرور المؤقتة", type: "password", required: true, hint: "12 حرفًا على الأقل؛ لا تُحفظ أو تُعرض بعد الإرسال." }, { name: "requiresMfa", label: "طلب تحقق إضافي عند الإجراءات الحساسة", type: "checkbox" }],
+    initial: () => ({ email: "", password: "", requiresMfa: true }), body: v => ({ loginMethod: "STAFF_EMAIL_PASSWORD", email: v.email, password: v.password, requiresMfa: Boolean(v.requiresMfa) }),
   },
 }

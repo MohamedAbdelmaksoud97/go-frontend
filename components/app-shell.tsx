@@ -33,7 +33,7 @@ const navGroups = [
   ]},
   { label: "الإدارة", items: [
     { href: "/reports", label: "التقارير", icon: ClipboardList, permissions:["reporting.read"] },
-    { href: "/settings", label: "الإعدادات والصلاحيات", icon: Settings, permissions:["organization.read","iam.roles.read"] },
+    { href: "/master-data", label: "البيانات الرئيسية", icon: Settings, permissions:["organization.read","catalog.read","commercial.read","iam.roles.read","workforce.read","bookings.read","restaurant.catalog.read"] },
   ]},
   { label: "مساحتي", items: [
     { href: "/self-service", label: "الخدمة الذاتية", icon: UserCircle2, permissions:[] },
