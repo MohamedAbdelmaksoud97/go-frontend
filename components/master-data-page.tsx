@@ -21,7 +21,7 @@ type Field = {
   type?: "text" | "number" | "datetime-local" | "textarea" | "select" | "checkbox" | "multi"
   required?: boolean
   options?: Array<{ value: string; label: string }>
-  source?: "activities" | "categories" | "services" | "packages" | "permissions" | "branches" | "meals" | "facilities" | "policies" | "accounts" | "roles"
+  source?: "activities" | "categories" | "services" | "packages" | "permissions" | "branches" | "meals" | "facilities" | "policies" | "accounts" | "roles" | "retailCategories" | "retailProducts"
   sourceFilter?: { key: string; value: string }
   hint?: string
   visibleWhen?: { field: string; values: string[] }
@@ -114,7 +114,7 @@ const configs: MasterConfig[] = [
   },
   {
     id: "role-assignments", label: "توزيع الموظفين على الفروع", description: "اربط كل موظف بدوره وفروع عمله. System Administrator فقط يملك نطاق النادي كاملًا.", permission: "iam.roles.read", managePermission: "iam.assignments.manage", path: "/organizations/{organizationId}/role-assignments", createPath: "/organizations/{organizationId}/role-assignments",
-    columns: [{ label: "الحساب", key: "userAccountId" }, { label: "الدور", key: "roleName" }, { label: "نطاق العمل", key: "scopeType" }, { label: "الفروع", key: "branchIds" }, { label: "الحالة", key: "status" }],
+    columns: [{ label: "الموظف / الحساب", key: "accountName" }, { label: "الدور", key: "roleName" }, { label: "نطاق العمل", key: "scopeType" }, { label: "الفروع", key: "branchNames" }, { label: "الحالة", key: "status" }],
     createFields: [{ name: "userAccountId", label: "حساب الموظف", type: "select", source: "accounts", required: true }, { name: "roleId", label: "الدور", type: "select", source: "roles", required: true }, { name: "scopeType", label: "نطاق العمل", type: "select", required: true, options: [{ value: "SELECTED_BRANCHES", label: "فروع محددة للموظف" }, { value: "ORGANIZATION", label: "كل النادي — System Administrator فقط" }] }, { name: "branchIds", label: "فروع عمل الموظف", type: "multi", source: "branches", visibleWhen: { field: "scopeType", values: ["SELECTED_BRANCHES"] }, hint: "اختر فرعًا واحدًا على الأقل. يمكن اختيار أكثر من فرع للموظف الذي يعمل بينها." }],
     initial: { scopeType: "SELECTED_BRANCHES" }, createBody: values => ({ userAccountId: values.userAccountId, roleId: values.roleId, scopeType: values.scopeType, branchIds: asArray(values.branchIds) }),
   },
@@ -157,6 +157,38 @@ const configs: MasterConfig[] = [
     createBody: values => ({ templateKey: values.templateKey, language: values.language, body: values.body, allowedVariables: String(values.variables ?? "").split(",").map(value => value.trim()).filter(Boolean) }),
   },
   {
+    id: "retail-categories", label: "تصنيفات المتجر", description: "تصنيفات مستقلة لمنتجات البيع مثل الملابس والمكملات والمشروبات.", permission: "retail.catalog.read", managePermission: "retail.catalog.manage", path: "/organizations/{organizationId}/retail/categories", createPath: "/organizations/{organizationId}/retail/categories",
+    columns: [{ label: "الرمز", key: "code" }, { label: "التصنيف", key: "name" }, { label: "الحالة", key: "status" }],
+    createFields: [{ name: "code", label: "رمز التصنيف", required: true }, { name: "name", label: "اسم التصنيف", required: true }],
+  },
+  {
+    id: "retail-products", label: "منتجات المتجر", description: "تعريف المنتجات والباركود ووحدة البيع مرة واحدة على مستوى النادي.", permission: "retail.catalog.read", managePermission: "retail.catalog.manage", path: "/organizations/{organizationId}/retail/products", createPath: "/organizations/{organizationId}/retail/products",
+    columns: [{ label: "الرمز", key: "code" }, { label: "الباركود", key: "barcode" }, { label: "المنتج", key: "name" }, { label: "التصنيف", key: "categoryName" }, { label: "الوحدة", key: "unit" }, { label: "الحالة", key: "status" }],
+    createFields: [{ name: "categoryId", label: "التصنيف", type: "select", source: "retailCategories", required: true }, { name: "code", label: "رمز المنتج", required: true }, { name: "barcode", label: "الباركود", hint: "يمكن مسحه بقارئ الباركود في نقطة البيع." }, { name: "name", label: "اسم المنتج", required: true }, { name: "unit", label: "وحدة البيع", type: "select", required: true, options: [{ value: "UNIT", label: "قطعة" }, { value: "PAIR", label: "زوج" }, { value: "BOTTLE", label: "زجاجة" }, { value: "CAN", label: "علبة" }, { value: "PACK", label: "عبوة" }, { value: "BOX", label: "صندوق" }, { value: "KG", label: "كيلوجرام" }] }, { name: "description", label: "الوصف", type: "textarea" }],
+    initial: { unit: "UNIT" },
+  },
+  {
+    id: "retail-prices", label: "أسعار منتجات المتجر", description: "سعر بيع مستقل لكل فرع مع بيان الضريبة وتاريخ بدء التطبيق.", permission: "retail.catalog.read", managePermission: "retail.pricing.manage", path: "/organizations/{organizationId}/retail/prices", createPath: "/organizations/{organizationId}/retail/prices", branchScoped: true,
+    columns: [{ label: "المنتج", key: "productName" }, { label: "السعر", key: "amountMinor" }, { label: "الضريبة", key: "taxRateBps" }, { label: "شامل الضريبة", key: "taxInclusive" }, { label: "ساري من", key: "validFrom" }],
+    createFields: [{ name: "productId", label: "المنتج", type: "select", source: "retailProducts", required: true }, { name: "amount", label: "سعر البيع بالريال", type: "number", required: true }, { name: "taxRate", label: "نسبة الضريبة %", type: "number", required: true }, { name: "taxInclusive", label: "السعر المدخل شامل الضريبة", type: "checkbox" }],
+    initial: { taxRate: "15", taxInclusive: true },
+    createBody: values => ({ productId: values.productId, amountMinor: String(Math.round(number(values.amount) * 100)), taxRateBps: Math.round(number(values.taxRate) * 100), taxInclusive: Boolean(values.taxInclusive), validFrom: isoNow() }),
+  },
+  {
+    id: "retail-inventory", label: "مخزون المتجر", description: "استلام وتسوية مخزون المنتجات في الفرع الحالي مع منع البيع فوق الرصيد المتاح.", permission: "retail.inventory.read", managePermission: "retail.inventory.manage", path: "/organizations/{organizationId}/retail/inventory", createPath: "/organizations/{organizationId}/retail/stock-adjustments", branchScoped: true,
+    columns: [{ label: "المنتج", key: "productName" }, { label: "الرصيد الفعلي", key: "quantityOnHand" }, { label: "محجوز", key: "quantityReserved" }, { label: "متاح للبيع", key: "quantityAvailable" }, { label: "حد إعادة الطلب", key: "reorderLevel" }, { label: "حالة المخزون", key: "stockStatus" }],
+    createFields: [{ name: "productId", label: "المنتج", type: "select", source: "retailProducts", required: true }, { name: "movementType", label: "نوع الحركة", type: "select", required: true, options: [{ value: "RECEIPT", label: "استلام بضاعة" }, { value: "RETURN", label: "مرتجع عميل سليم" }, { value: "ADJUSTMENT_IN", label: "تسوية بالزيادة" }, { value: "ADJUSTMENT_OUT", label: "تسوية بالنقص" }] }, { name: "quantity", label: "الكمية", type: "number", required: true }, { name: "reorderLevel", label: "حد إعادة الطلب", type: "number" }, { name: "notes", label: "سبب الحركة / رقم المستند", type: "textarea", required: true }],
+    initial: { movementType: "RECEIPT", quantity: "1" },
+    createBody: values => ({ productId: values.productId, movementType: values.movementType, quantity: number(values.quantity), reorderLevel: values.reorderLevel === "" ? undefined : number(values.reorderLevel), notes: values.notes }),
+  },
+  {
+    id: "expense-categories", label: "تصنيفات المصروفات", description: "تصنيف المصروفات وتحديد الحد الذي يستلزم اعتمادًا إداريًا قبل السداد.", permission: "finance.expenses.read", managePermission: "finance.expenses.manage", path: "/organizations/{organizationId}/expense-categories", createPath: "/organizations/{organizationId}/expense-categories",
+    columns: [{ label: "الرمز", key: "code" }, { label: "التصنيف", key: "name" }, { label: "حد طلب الاعتماد", key: "approvalThresholdMinor" }, { label: "الحالة", key: "status" }],
+    createFields: [{ name: "code", label: "رمز التصنيف", required: true }, { name: "name", label: "اسم التصنيف", required: true }, { name: "approvalThreshold", label: "يتطلب اعتمادًا من مبلغ (ر.س)", type: "number", required: true }],
+    initial: { approvalThreshold: "0" },
+    createBody: values => ({ code: values.code, name: values.name, approvalThresholdMinor: String(Math.round(number(values.approvalThreshold) * 100)) }),
+  },
+  {
     id: "meal-categories", label: "تصنيفات المطعم", description: "تصنيفات الوجبات والمنتجات في المطعم على مستوى النادي.", permission: "restaurant.catalog.read", managePermission: "restaurant.catalog.manage", path: "/organizations/{organizationId}/restaurant/meal-categories", createPath: "/organizations/{organizationId}/restaurant/meal-categories", authorizationBranchScoped: true,
     columns: [{ label: "الرمز", key: "code" }, { label: "التصنيف", key: "name" }], createFields: [{ name: "code", label: "رمز التصنيف", required: true }, { name: "name", label: "اسم التصنيف", required: true }],
   },
@@ -168,6 +200,8 @@ const navigationGroups = [
   { label: "المرافق والتشغيل", ids: ["facilities", "bookable-resources", "cash-points", "lockers"] },
   { label: "التدريب", ids: ["measurement-types"] },
   { label: "المطعم", ids: ["meal-categories"] },
+  { label: "المتجر والمخزون", ids: ["retail-categories", "retail-products", "retail-prices", "retail-inventory"] },
+  { label: "المالية", ids: ["expense-categories"] },
   { label: "التواصل", ids: ["notification-templates"] },
 ] as const
 
@@ -177,6 +211,9 @@ function text(value: unknown, key?: string) {
   if (value === null || value === undefined || value === "") return "—"
   if (key === "amountMinor") return money(value)
   if (key === "taxRateBps") return `${Number(value) / 100}%`
+  if (key === "taxInclusive") return value === true ? "نعم — السعر النهائي شامل الضريبة" : "لا — تُضاف الضريبة عند البيع"
+  if (key === "stockStatus") return String(value) === "LOW_STOCK" ? "وصل حد إعادة الطلب" : "متاح"
+  if (key === "unit") return ({ UNIT: "قطعة", PAIR: "زوج", BOTTLE: "زجاجة", CAN: "علبة", PACK: "عبوة", BOX: "صندوق", KG: "كيلوجرام" } as Record<string,string>)[String(value)] ?? String(value)
   if (key === "durationDays") return `${value} يوم`
   if (key === "benefitValue") return money(value)
   if (key === "benefitType") return ({ PERCENTAGE: "خصم نسبة", FIXED_DISCOUNT: "خصم مبلغ", FIXED_FINAL_PRICE: "سعر نهائي" } as Record<string, string>)[String(value)] ?? String(value)
@@ -185,11 +222,13 @@ function text(value: unknown, key?: string) {
   if (key === "policyType") return ({ FREEZE: "تجميد الاشتراك", CANCELLATION: "إلغاء الاشتراك", RENEWAL: "تجديد الاشتراك", BOOKING_CANCELLATION: "إلغاء الحجز" } as Record<string, string>)[String(value)] ?? String(value)
   if (key === "type") return ({ COURT: "ملعب", CLASS: "حصة جماعية", PERSONAL_TRAINING: "تدريب شخصي" } as Record<string, string>)[String(value)] ?? String(value)
   if (key === "validFrom" || key === "validUntil") { const date = new Date(String(value)); return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(date) }
-  if (Array.isArray(value)) return key === "branchIds" ? (value.length ? `${value.length} فروع` : "كل الفروع") : key === "targets" ? `${value.length} خدمات / باقات` : key === "allowedVariables" ? `${value.length} متغيرات` : `${value.length} صلاحية`
+  if (Array.isArray(value)) return key === "branchNames" ? (value.length ? value.join("، ") : "كل فروع النادي") : key === "branchIds" ? (value.length ? `${value.length} فروع` : "كل الفروع") : key === "targets" ? `${value.length} خدمات / باقات` : key === "allowedVariables" ? `${value.length} متغيرات` : `${value.length} صلاحية`
   if (typeof value === "object") return "بيانات مرتبطة"
+  if (key?.toLowerCase().endsWith("id") && isUuid(String(value))) return "بيانات مرتبطة"
   return String(value)
 }
 function itemText(item: RecordItem, key: string, branches: BranchLookup[] = []) { if (key === "benefitValue" && item.benefitType === "PERCENTAGE") return `${Number(item[key]) / 100}%`; if (key === "branchId") { const branch = branches.find(candidate => candidate.id === item[key]); return branch?.nameAr ?? branch?.name ?? (item[key] ? "فرع محدد" : "جميع الفروع") } return text(item[key], key) }
+function isUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value) }
 function valueFrom(item: RecordItem, key: string): Value { const value = item[key]; if (Array.isArray(value)) return value.map(entry => typeof entry === "string" ? entry : String((entry as RecordItem).permission ?? (entry as RecordItem).id ?? "")).filter(Boolean); return typeof value === "boolean" ? value : value === null || value === undefined ? "" : String(value) }
 
 export function MasterDataPage() {
@@ -307,7 +346,7 @@ function MasterForm({ config, mode, item, organizationId, branchId, references, 
     const missingSources = requiredSources.filter(source => !references[sourceKey(source)])
     if (missingSources.length === 0) return
     let cancelled = false
-    const paths: Record<NonNullable<Field["source"]>, string> = { activities: "/organizations/{organizationId}/activities", categories: "/organizations/{organizationId}/service-categories", services: "/organizations/{organizationId}/services", packages: "/organizations/{organizationId}/packages", permissions: "/organizations/{organizationId}/permissions", branches: "/organizations/{organizationId}/branches", meals: "/organizations/{organizationId}/restaurant/meals", facilities: "/organizations/{organizationId}/facilities", policies: "/organizations/{organizationId}/commercial-policies", accounts: "/organizations/{organizationId}/user-accounts", roles: "/organizations/{organizationId}/roles" }
+    const paths: Record<NonNullable<Field["source"]>, string> = { activities: "/organizations/{organizationId}/activities", categories: "/organizations/{organizationId}/service-categories", services: "/organizations/{organizationId}/services", packages: "/organizations/{organizationId}/packages", permissions: "/organizations/{organizationId}/permissions", branches: "/organizations/{organizationId}/branches", meals: "/organizations/{organizationId}/restaurant/meals", facilities: "/organizations/{organizationId}/facilities", policies: "/organizations/{organizationId}/commercial-policies", accounts: "/organizations/{organizationId}/user-accounts", roles: "/organizations/{organizationId}/roles", retailCategories: "/organizations/{organizationId}/retail/categories", retailProducts: "/organizations/{organizationId}/retail/products" }
     void Promise.all(missingSources.map(async source => {
       const path = new URL(paths[source].replace("{organizationId}", organizationId), "http://local")
       if (source === "facilities" && branchId) path.searchParams.set("branchId", branchId)
@@ -331,6 +370,7 @@ const permissionGroups = [
   { title: "المالية والصندوق", prefixes: ["finance."] },
   { title: "التشغيل اليومي والحجوزات", prefixes: ["attendance.", "bookings.", "access-credentials.", "lockers."] },
   { title: "المطعم", prefixes: ["restaurant."] },
+  { title: "المتجر والمخزون", prefixes: ["retail."] },
   { title: "التدريب والقياسات", prefixes: ["coaching.", "measurements.", "measurement-types."] },
   { title: "العملاء والتواصل", prefixes: ["crm.", "notifications.", "notification-templates.", "online-requests.", "feedback."] },
   { title: "التقارير وترحيل البيانات", prefixes: ["reporting.", "legacy."] },
@@ -343,6 +383,7 @@ const permissionSubjects: Record<string, string> = {
   "finance.invoices": "الفواتير", "finance.payments": "المدفوعات", "finance.refunds": "الاسترجاعات", "finance.expenses": "المصروفات", "finance.cash-points": "نقاط التحصيل", "finance.cash-shifts": "ورديات الصندوق", "finance.other-income": "الإيرادات الأخرى",
   attendance: "دخول الأعضاء", bookings: "الحجوزات", "bookings.facilities": "المرافق", "access-credentials": "بطاقات الدخول", lockers: "الخزائن",
   "restaurant.catalog": "كتالوج المطعم", "restaurant.pricing": "أسعار المطعم", "restaurant.menu": "قائمة المطعم", "restaurant.orders": "طلبات المطعم", "restaurant.meal-plans": "خطط الوجبات",
+  "retail.catalog": "كتالوج المتجر", "retail.pricing": "أسعار المتجر", "retail.inventory": "مخزون المتجر",
   coaching: "التدريب", "coaching.assignments": "تعيينات المدربين", "coaching.schedule": "جداول التدريب", "coaching.commissions": "عمولات المدربين", "coaching.training-plans": "خطط التدريب", measurements: "القياسات", "measurement-types": "أنواع القياسات",
   notifications: "الإشعارات", "notifications.whatsapp": "واتساب", "notification-templates": "قوالب الإشعارات", crm: "العملاء المحتملون", "crm.leads": "العملاء المحتملون", "crm.follow-ups": "متابعات العملاء", "online-requests": "الطلبات الإلكترونية", feedback: "الآراء والملاحظات", reporting: "التقارير", "legacy.import": "ترحيل البيانات القديمة",
 }
@@ -370,7 +411,23 @@ function PermissionPicker({ field, value, choices, onChange }: { field: Field; v
 }
 
 function MasterField({ field, value, choices, onChange }: { field: Field; value: Value | undefined; choices: RecordItem[]; onChange: (value: Value) => void }) {
-  const choicesFor = choices.map(choice => ({ value: itemId(choice) || String(choice.code ?? choice.permission ?? ""), label: String(choice.name ?? choice.displayName ?? choice.email ?? choice.phoneE164 ?? choice.roleName ?? choice.code ?? choice.permission ?? choice.id ?? "سجل") })).filter(choice => choice.value)
+  const choicesFor = choices.map(choice => ({
+    value: itemId(choice) || String(choice.code ?? choice.permission ?? ""),
+    label: String(
+      choice.name ??
+      choice.displayName ??
+      choice.employeeName ??
+      choice.memberName ??
+      choice.email ??
+      choice.phoneE164 ??
+      choice.employeeNumber ??
+      choice.memberNumber ??
+      choice.roleName ??
+      choice.code ??
+      choice.permission ??
+      "سجل متاح"
+    ),
+  })).filter(choice => choice.value)
   if (field.type === "checkbox") return <label className="flex cursor-pointer items-center gap-3 rounded-xl border p-4 text-xs font-bold sm:col-span-2"><input type="checkbox" className="size-4 accent-amber-500" checked={Boolean(value)} onChange={event => onChange(event.target.checked)} />{field.label}</label>
   if (field.source === "permissions") return <PermissionPicker field={field} value={value} choices={choices} onChange={onChange} />
   if (field.type === "multi") { const selected = asArray(value); return <fieldset className="sm:col-span-2"><legend className="text-xs font-bold">{field.label}{field.required && <span className="mr-1 text-destructive">*</span>}</legend><div className="mt-2 grid max-h-44 gap-2 overflow-y-auto rounded-xl border p-3 sm:grid-cols-2">{choicesFor.length ? choicesFor.map(choice => <label key={choice.value} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-secondary"><input type="checkbox" className="accent-amber-500" checked={selected.includes(choice.value)} onChange={event => onChange(event.target.checked ? [...selected, choice.value] : selected.filter(id => id !== choice.value))} />{choice.label}</label>) : <p className="text-xs text-muted-foreground">لا توجد خيارات متاحة بعد.</p>}</div>{field.hint && <span className="mt-2 block text-[10px] text-muted-foreground">{field.hint}</span>}</fieldset> }

@@ -37,7 +37,7 @@ const navGroups = [
   ]},
   { label: "الإدارة", items: [
     { href: "/reports", label: "التقارير", icon: ClipboardList, permissions:["reporting.read"] },
-    { href: "/master-data", label: "البيانات الرئيسية", icon: Settings, permissions:["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage"] },
+    { href: "/master-data", label: "البيانات الرئيسية", icon: Settings, permissions:["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"] },
   ]},
   { label: "مساحتي", items: [
     { href: "/self-service", label: "الخدمة الذاتية", icon: UserCircle2, permissions:[] },

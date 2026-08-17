@@ -23,7 +23,7 @@ export const routePermissions:Record<string,string[]>={
  "/staff":["workforce.read"],
  "/trainer":["coaching.read","coaching.training-plans.read","measurements.read"],
  "/reports":["reporting.read"],
- "/master-data":["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage"],
+ "/master-data":["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"],
  "/settings":["organization.read","iam.roles.read"],
  "/self-service":[],
  "/account":[],

@@ -45,10 +45,16 @@ const roles: ReferenceSource = { path: c => `/organizations/${c.organizationId}/
 const branches: ReferenceSource = { path: c => `/organizations/${c.organizationId}/branches`, labelKeys: ["nameAr", "name"], subtitleKeys: ["code"] }
 const employees: ReferenceSource = { path: c => `/organizations/${c.organizationId}/employees?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["name", "fullNameAr", "displayName"], subtitleKeys: ["employeeNumber"] }
 const otherIncomeCategories: ReferenceSource = { path: c => `/organizations/${c.organizationId}/other-income-categories`, labelKeys: ["name", "nameAr"], subtitleKeys: ["code"] }
+const expenseCategories: ReferenceSource = { path: c => `/organizations/${c.organizationId}/expense-categories`, labelKeys: ["name", "nameAr"], subtitleKeys: ["code"] }
 const selfTrainerMembers: ReferenceSource = { path: c => `/self/organizations/${c.organizationId}/trainer/members`, labelKeys: ["memberName", "name", "fullNameAr"], subtitleKeys: ["memberNumber"] }
 const measurementTypes: ReferenceSource = { path: c => `/organizations/${c.organizationId}/measurement-types?limit=100`, labelKeys: ["name", "nameAr"], subtitleKeys: ["unit", "code"] }
 
 export const workflows: Record<string, Workflow> = {
+  recordExpense: {
+    title: "تسجيل مصروف", description: "سجّل المصروف أولًا، ثم أرسله للاعتماد والسداد من السجل المالي حسب حد التصنيف.", submitLabel: "تسجيل المصروف", successMessage: "تم تسجيل المصروف وأصبح جاهزًا لدورة الاعتماد.",
+    fields:[{name:"categoryId",label:"تصنيف المصروف",type:"reference",source:expenseCategories,required:true},{name:"amount",label:"المبلغ (ر.س)",type:"number",min:"0.01",required:true},{name:"description",label:"البيان والغرض",type:"textarea",required:true}],
+    initial:()=>({categoryId:"",amount:"",description:""}),body:(v,c)=>({branchId:c.branchId,categoryId:v.categoryId,amountMinor:String(Math.round(Number(v.amount)*100)),description:v.description}),
+  },
   recordSelfTrainerMeasurement: {
     title: "تسجيل قياس للمتدرب", description: "اختر العضو ونوع القياس وسجّل القيمة كما ظهرت في جهاز القياس.", submitLabel: "حفظ القياس", successMessage: "تم حفظ القياس في ملف العضو.",
     fields:[{name:"memberId",label:"العضو",type:"reference",source:selfTrainerMembers,required:true},{name:"measurementTypeId",label:"نوع القياس",type:"reference",source:measurementTypes,required:true},{name:"value",label:"القيمة",type:"number",required:true},{name:"notes",label:"ملاحظات",type:"textarea"}],

@@ -120,6 +120,14 @@
     "description": "Branch created."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/available-branches",
+    "method": "get",
+    "operationId": "listAvailableBranches",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active branches available as the signed-in employee operating context."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/roles",
     "method": "get",
     "operationId": "listRoles",
@@ -585,6 +593,14 @@
   },
   {
     "path": "/api/v1/organizations/{organizationId}/expense-categories",
+    "method": "get",
+    "operationId": "listExpenseCategories",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active expense categories and approval thresholds."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/expense-categories",
     "method": "post",
     "operationId": "createExpenseCategory",
     "secured": true,
@@ -813,7 +829,7 @@
     "operationId": "reviseDailyMenu",
     "secured": true,
     "idempotent": false,
-    "description": "Draft daily menu revised with optimistic concurrency."
+    "description": "Open daily menu revised with optimistic concurrency."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus/{businessDate}/publications",
@@ -822,6 +838,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Draft daily menu published with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus/{businessDate}/closures",
+    "method": "post",
+    "operationId": "closeDailyMenu",
+    "secured": true,
+    "idempotent": false,
+    "description": "Published daily menu hidden from member ordering."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/restaurant-orders",
@@ -854,6 +878,78 @@
     "secured": true,
     "idempotent": false,
     "description": "Pending or confirmed restaurant order cancelled; paid orders create a Finance refund request."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/categories",
+    "method": "get",
+    "operationId": "listRetailCategories",
+    "secured": true,
+    "idempotent": false,
+    "description": "Retail product categories."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/categories",
+    "method": "post",
+    "operationId": "createRetailCategory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Retail product category created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/products",
+    "method": "get",
+    "operationId": "listRetailProducts",
+    "secured": true,
+    "idempotent": false,
+    "description": "Retail catalog with optional branch price and stock."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/products",
+    "method": "post",
+    "operationId": "createRetailProduct",
+    "secured": true,
+    "idempotent": false,
+    "description": "Retail product and barcode created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/sellable-products",
+    "method": "get",
+    "operationId": "listSellableRetailProducts",
+    "secured": true,
+    "idempotent": false,
+    "description": "In-stock retail products with an effective price for cashier checkout."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/prices",
+    "method": "get",
+    "operationId": "listRetailPrices",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch retail prices and tax treatment."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/prices",
+    "method": "post",
+    "operationId": "createRetailPrice",
+    "secured": true,
+    "idempotent": false,
+    "description": "Effective branch retail price created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/inventory",
+    "method": "get",
+    "operationId": "listRetailInventory",
+    "secured": true,
+    "idempotent": false,
+    "description": "On-hand, reserved and available stock per branch."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/stock-adjustments",
+    "method": "post",
+    "operationId": "adjustRetailStock",
+    "secured": true,
+    "idempotent": false,
+    "description": "Audited branch stock receipt, return or adjustment."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/coaching-specialties",
@@ -1998,6 +2094,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Subscription status distribution by authorized branch."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reports/revenue-trend",
+    "method": "get",
+    "operationId": "getRevenueTrend",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authoritative daily invoiced and other-income revenue for the selected branch."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/reports/service-activity-chart",
