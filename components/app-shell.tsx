@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { clearSession } from "@/lib/api-client"
+import { firstAllowedDestination, permissionsForRoute } from "@/lib/permissions"
 
 const navGroups = [
   { label: "نظرة عامة", items: [{ href: "/", label: "لوحة التحكم", icon: LayoutDashboard, permissions:["reporting.read"] }] },
@@ -27,14 +28,16 @@ const navGroups = [
   ]},
   { label: "الأعمال", items: [
     { href: "/cashier", label: "نقطة البيع", icon: CircleDollarSign, permissions:["sales.checkout","finance.payments.record","finance.cash-shifts.manage"] },
-    { href: "/finance", label: "المبيعات والمالية", icon: WalletCards, permissions:["finance.invoices.read","sales.read"] },
-    { href: "/crm", label: "العملاء المحتملون", icon: Zap, permissions:["crm.leads.read"] },
-    { href: "/restaurant", label: "المطعم", icon: Utensils, permissions:["restaurant.orders.read"] },
-    { href: "/staff", label: "الموظفون والمدربون", icon: Dumbbell, permissions:["workforce.read","coaching.read"] },
+    { href: "/finance", label: "المالية والعمولات", icon: WalletCards, permissions:["finance.invoices.read","sales.read","finance.other-income.read","coaching.commissions.read"] },
+    { href: "/crm", label: "العملاء والمتابعات", icon: Zap, permissions:["crm.leads.read","crm.follow-ups.read","online-requests.read"] },
+    { href: "/operations", label: "مركز العمليات", icon: ClipboardList, permissions:["workforce.shifts.read","workforce.attendance.record","online-requests.read","feedback.read","lockers.read"] },
+    { href: "/restaurant", label: "المطعم", icon: Utensils, permissions:["restaurant.orders.read","restaurant.menu.read","restaurant.catalog.read"] },
+    { href: "/trainer", label: "مساحة المدرب", icon: Dumbbell, permissions:["coaching.read","coaching.training-plans.read","measurements.read"] },
+    { href: "/staff", label: "الموظفون", icon: UserRoundCheck, permissions:["workforce.read"] },
   ]},
   { label: "الإدارة", items: [
     { href: "/reports", label: "التقارير", icon: ClipboardList, permissions:["reporting.read"] },
-    { href: "/master-data", label: "البيانات الرئيسية", icon: Settings, permissions:["organization.read","catalog.read","commercial.read","iam.roles.read","workforce.read","bookings.read","restaurant.catalog.read"] },
+    { href: "/master-data", label: "البيانات الرئيسية", icon: Settings, permissions:["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage"] },
   ]},
   { label: "مساحتي", items: [
     { href: "/self-service", label: "الخدمة الذاتية", icon: UserCircle2, permissions:[] },
@@ -51,13 +54,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [notices, setNotices] = useState(false)
   const [globalSearch, setGlobalSearch] = useState("")
   const accountName = context.account?.displayName?.trim() || "الحساب"
-  const accountSubtitle = context.canAccess(["iam.roles.manage"]) ? "مسؤول النظام" : "حساب موظف"
+  const accountSubtitle = context.canAccess(["iam.roles.manage"]) ? "مسؤول النظام" : context.grants.length ? "حساب موظف" : "عضو / ولي أمر"
   const currentBranch=context.branches.find(branch=>branch.id===context.branchId)
+  const requiredPermissions=permissionsForRoute(pathname)
+  const routeAllowed=requiredPermissions===undefined||context.canAccess(requiredPermissions)
+  const fallbackDestination=firstAllowedDestination(context.canAccess)
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setDark(document.documentElement.classList.contains("dark")))
     return () => cancelAnimationFrame(frame)
   }, [])
+
+  useEffect(()=>{if(!context.loading&&!routeAllowed)router.replace(fallbackDestination)},[context.loading,fallbackDestination,routeAllowed,router])
 
   function toggleTheme() {
     const next = !dark
@@ -66,9 +74,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     localStorage.setItem("go-theme", next ? "dark" : "light")
   }
 
-  function submitSearch(event:React.FormEvent){event.preventDefault();const value=globalSearch.trim().toLowerCase();if(!value)return;const destinations=[{terms:["عضو","أعضاء","member"],href:"/members"},{terms:["اشتراك","باقة","subscription"],href:"/subscriptions"},{terms:["حضور","دخول","attendance"],href:"/attendance"},{terms:["حجز","موعد","booking"],href:"/bookings"},{terms:["فاتورة","دفعة","مالية","invoice"],href:"/finance"},{terms:["عميل","متابعة"],href:"/crm"},{terms:["مطعم","وجبة"],href:"/restaurant"},{terms:["موظف","مدرب"],href:"/staff"},{terms:["تقرير"],href:"/reports"}];router.push(destinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??"/members")}
+  function submitSearch(event:React.FormEvent){event.preventDefault();const value=globalSearch.trim().toLowerCase();if(!value)return;const destinations=[{terms:["عضو","أعضاء","member"],href:"/members"},{terms:["اشتراك","باقة","subscription"],href:"/subscriptions"},{terms:["حضور","دخول","attendance"],href:"/attendance"},{terms:["حجز","موعد","booking"],href:"/bookings"},{terms:["فاتورة","دفعة","مالية","invoice"],href:"/finance"},{terms:["عميل","متابعة"],href:"/crm"},{terms:["مناوبة","شكوى","خزانة","طلب إلكتروني"],href:"/operations"},{terms:["مطعم","وجبة"],href:"/restaurant"},{terms:["مدرب","تمرين","قياس"],href:"/trainer"},{terms:["موظف"],href:"/staff"},{terms:["تقرير"],href:"/reports"}].filter(item=>context.canAccess(routePermissionsFor(item.href)));router.push(destinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??fallbackDestination)}
 
-  if (context.loading) return <div dir="rtl" className="grid min-h-screen place-items-center bg-background"><div className="text-center"><span className="mx-auto block size-10 animate-spin rounded-full border-4 border-primary border-t-transparent"/><p className="mt-4 text-sm font-semibold text-muted-foreground">جارٍ تحميل مساحة العمل الآمنة…</p></div></div>
+  if (context.loading||!routeAllowed) return <div dir="rtl" className="grid min-h-screen place-items-center bg-background"><div className="text-center"><span className="mx-auto block size-10 animate-spin rounded-full border-4 border-primary border-t-transparent"/><p className="mt-4 text-sm font-semibold text-muted-foreground">جارٍ تحميل مساحة العمل المناسبة…</p></div></div>
 
   return <div dir="rtl" className="min-h-screen max-w-[100vw] overflow-x-hidden bg-background">
     {open && <button className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm lg:hidden" onClick={() => setOpen(false)} aria-label="إغلاق القائمة" />}
@@ -110,17 +118,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Input value={globalSearch} onChange={event=>setGlobalSearch(event.target.value)} className="border-transparent bg-secondary/70 pr-10" placeholder="ابحث عن عضو، فاتورة، حجز..." aria-label="البحث العام" />
         </form>
         <div className="mr-auto flex items-center gap-2">
-          <button className="hidden items-center gap-2 rounded-xl border bg-card px-3 py-2 text-right sm:flex" aria-label="تغيير الفرع" onClick={()=>router.push('/select-context')}>
+          {context.branches.length>0&&<button className="hidden items-center gap-2 rounded-xl border bg-card px-3 py-2 text-right sm:flex" aria-label="تغيير الفرع" onClick={()=>router.push('/select-context')}>
             <span className="grid size-7 place-items-center rounded-lg bg-primary/15 text-amber-600"><Building2 className="size-4" /></span>
             <span><span className="block text-[9px] text-muted-foreground">الفرع الحالي</span><span className="block text-xs font-bold">{currentBranch?.nameAr??currentBranch?.name??(context.loading?"جارٍ تحميل الفروع…":"لم يُحدد فرع")}</span></span>
             <ChevronDown className="size-3 text-muted-foreground" />
-          </button>
+          </button>}
           <Button variant="outline" size="icon" onClick={toggleTheme} aria-label={dark ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"}>{dark ? <Sun /> : <Moon />}</Button>
           <div className="relative">
-            <Button variant="outline" size="icon" onClick={() => setNotices(v => !v)} aria-label="الإشعارات" className="relative"><Bell /><span className="absolute left-1.5 top-1.5 size-2 rounded-full border-2 border-card bg-primary" /></Button>
+            <Button variant="outline" size="icon" onClick={() => setNotices(v => !v)} aria-label="الإشعارات"><Bell /></Button>
             {notices && <div className="absolute left-0 top-12 w-80 rounded-2xl border bg-card p-2 shadow-2xl">
-              <div className="flex items-center justify-between p-3"><p className="font-bold">الإشعارات</p><span className="text-[10px] text-muted-foreground">3 جديدة</span></div>
-              {["اشتراك سارة ينتهي خلال 3 أيام", "طلب استرداد جديد يحتاج المراجعة", "تم إغلاق وردية الكاشير بنجاح"].map((n,i)=><div key={n} className="flex gap-3 rounded-xl p-3 hover:bg-secondary"><span className={cn("mt-1 size-2 shrink-0 rounded-full", i<2?"bg-primary":"bg-muted-foreground/30")} /><div><p className="text-xs font-semibold">{n}</p><p className="mt-1 text-[10px] text-muted-foreground">منذ {i+1} ساعة</p></div></div>)}
+              <div className="p-3"><p className="font-bold">الإشعارات</p><p className="mt-3 rounded-xl bg-secondary/60 p-4 text-xs leading-6 text-muted-foreground">لا توجد إشعارات جديدة. ستظهر هنا التنبيهات الحقيقية عند إنشائها من النظام.</p></div>
             </div>}
           </div>
         </div>
@@ -129,3 +136,5 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   </div>
 }
+
+function routePermissionsFor(path:string){return permissionsForRoute(path)??[]}

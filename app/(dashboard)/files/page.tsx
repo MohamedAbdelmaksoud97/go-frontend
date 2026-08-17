@@ -12,14 +12,13 @@ import { Input } from "@/components/ui/input"
 
 type UploadGrant={fileId:string;signedUploadUrl:string;expectedVersion?:number;headers?:Record<string,string>}
 type Owner={id:string;fullNameAr?:string;memberName?:string;displayName?:string;memberNumber?:string;employeeNumber?:string;expenseNumber?:string;description?:string}
-const demoOwners:Record<string,Owner[]>={MEMBER:[{id:"demo-member-1",fullNameAr:"أحمد محمد العتيبي",memberNumber:"GF-2841"},{id:"demo-member-2",fullNameAr:"نورة القحطاني",memberNumber:"GF-1932"}],EMPLOYEE:[{id:"demo-employee-1",fullNameAr:"خالد السبيعي",employeeNumber:"EMP-041"}],EXPENSE:[{id:"demo-expense-1",description:"صيانة أجهزة اللياقة",expenseNumber:"EXP-1082"}]}
 
 export default function FilesPage(){
  const context=useAppContext()
  const [file,setFile]=useState<File>()
  const [ownerType,setOwnerType]=useState("MEMBER")
  const [ownerId,setOwnerId]=useState("")
- const [owners,setOwners]=useState<Owner[]>(()=>hasRuntimeApi()?[]:demoOwners.MEMBER)
+ const [owners,setOwners]=useState<Owner[]>([])
  const [kind,setKind]=useState("PROFILE")
  const [progress,setProgress]=useState(0)
  const [message,setMessage]=useState("")
@@ -37,7 +36,7 @@ export default function FilesPage(){
   return()=>{cancelled=true}
  },[context.branchId,context.organizationId,ownerType])
 
- function changeOwnerType(value:string){setOwnerType(value);setOwnerId("");setOwners(hasRuntimeApi()?[]:demoOwners[value]??[]);setLoadingOwners(hasRuntimeApi())}
+ function changeOwnerType(value:string){setOwnerType(value);setOwnerId("");setOwners([]);setLoadingOwners(hasRuntimeApi())}
  async function upload(){
   if(!file||!context.organizationId)return
   setMessage("");setProgress(0)

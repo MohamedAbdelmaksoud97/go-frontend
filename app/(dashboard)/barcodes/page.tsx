@@ -11,13 +11,12 @@ import { Card, CardContent } from "@/components/ui/card"
 
 type Credential={id?:string;value?:string;code?:string;svg?:string;subjectName?:string;subjectType?:string}
 type Person={id:string;fullNameAr?:string;memberName?:string;displayName?:string;memberNumber?:string;employeeNumber?:string}
-const demoPeople:Record<string,Person[]>={MEMBER:[{id:"demo-member-1",fullNameAr:"أحمد محمد العتيبي",memberNumber:"GF-2841"},{id:"demo-member-2",fullNameAr:"نورة القحطاني",memberNumber:"GF-1932"}],EMPLOYEE:[{id:"demo-employee-1",fullNameAr:"خالد السبيعي",employeeNumber:"EMP-041"},{id:"demo-employee-2",fullNameAr:"سارة الحربي",employeeNumber:"EMP-052"}]}
 
 export default function BarcodesPage(){
  const context=useAppContext()
  const [subjectType,setSubjectType]=useState("MEMBER")
  const [subjectId,setSubjectId]=useState("")
- const [people,setPeople]=useState<Person[]>(()=>hasRuntimeApi()?[]:demoPeople.MEMBER)
+ const [people,setPeople]=useState<Person[]>([])
  const [credential,setCredential]=useState<Credential>()
  const [loading,setLoading]=useState(false)
  const [loadingPeople,setLoadingPeople]=useState(hasRuntimeApi())
@@ -34,7 +33,7 @@ export default function BarcodesPage(){
   return()=>{cancelled=true}
  },[context.branchId,context.organizationId,subjectType])
 
- function changeType(value:string){setSubjectType(value);setSubjectId("");setPeople(hasRuntimeApi()?[]:demoPeople[value]??[]);setLoadingPeople(hasRuntimeApi())}
+ function changeType(value:string){setSubjectType(value);setSubjectId("");setPeople([]);setLoadingPeople(hasRuntimeApi())}
  async function issue(){setLoading(true);setError("");try{const response=await apiRequest<Credential>(`/organizations/${context.organizationId}/access-credentials/barcodes`,{method:"POST",body:JSON.stringify({subjectType,subjectId})});setCredential(response.data)}catch(reason){setError(humanError(reason,"تعذر إصدار بطاقة الدخول. حاول مرة أخرى."))}finally{setLoading(false)}}
 
  return <div className="mx-auto max-w-4xl fade-up">

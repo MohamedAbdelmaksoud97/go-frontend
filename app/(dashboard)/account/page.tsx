@@ -20,9 +20,8 @@ type Profile = {
   version: number
 }
 
-const demo: Profile = {
-  displayName: "محمد العتيبي",
-  email: "staff@example.com",
+const emptyProfile: Profile = {
+  displayName: "",
   preferredLocale: "ar",
   preferredTimezone: "Asia/Riyadh",
   smsNotificationsEnabled: true,
@@ -31,14 +30,14 @@ const demo: Profile = {
 }
 
 export default function AccountPage() {
-  const [profile, setProfile] = useState<Profile>(demo)
+  const [profile, setProfile] = useState<Profile>(emptyProfile)
   const [loading, setLoading] = useState(hasRuntimeApi())
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState("")
 
   useEffect(() => {
     if (!hasRuntimeApi()) return
-    const frame = requestAnimationFrame(() => apiRequest<Profile>("/self/account").then((response) => setProfile(response.data)).finally(() => setLoading(false)))
+    const frame = requestAnimationFrame(() => apiRequest<Profile>("/self/account").then((response) => setProfile(response.data)).catch((error) => setMessage(humanError(error, "تعذر تحميل بيانات الحساب."))).finally(() => setLoading(false)))
     return () => cancelAnimationFrame(frame)
   }, [])
 
@@ -68,7 +67,7 @@ export default function AccountPage() {
   return <div className="mx-auto max-w-4xl fade-up">
     <Badge variant="outline"><UserCircle2 />حسابي</Badge>
     <h1 className="mt-4 text-3xl font-black">إعدادات الحساب</h1>
-    <p className="mt-2 text-sm text-muted-foreground">عدّل اسم العرض واللغة والتوقيت وطريقة استلام الإشعارات.</p>
+    <p className="mt-2 text-sm text-muted-foreground">عدّل اسم العرض واللغة والتوقيت وإعدادات الرسائل النصية.</p>
     {loading ? <div className="grid place-items-center py-24"><Loader2 className="animate-spin text-primary" /></div> : <form onSubmit={save}>
       <Card className="mt-7">
         <CardHeader>
@@ -80,7 +79,7 @@ export default function AccountPage() {
           <label className="text-xs font-bold">اللغة<select className="mt-2 h-10 w-full rounded-xl border bg-background px-3" value={profile.preferredLocale} onChange={(event) => setProfile((current) => ({ ...current, preferredLocale: event.target.value }))}><option value="ar">العربية</option><option value="en">English</option></select></label>
           <label className="text-xs font-bold">التوقيت المحلي<select className="mt-2 h-10 w-full rounded-xl border bg-background px-3" value={profile.preferredTimezone} onChange={(event) => setProfile((current) => ({ ...current, preferredTimezone: event.target.value }))}><option value="Asia/Riyadh">الرياض</option><option value="Africa/Cairo">القاهرة</option></select></label>
           <Toggle label="الرسائل النصية" checked={profile.smsNotificationsEnabled} onChange={(value) => setProfile((current) => ({ ...current, smsNotificationsEnabled: value }))} />
-          <Toggle label="رسائل واتساب" checked={profile.whatsappNotificationsEnabled} onChange={(value) => setProfile((current) => ({ ...current, whatsappNotificationsEnabled: value }))} />
+          <p className="rounded-xl border border-dashed p-4 text-xs leading-6 text-muted-foreground">تكامل واتساب غير مفعّل حاليًا، ولن يرسل النظام رسائل واتساب قبل ربط المزود لاحقًا.</p>
         </CardContent>
       </Card>
       <div className="mt-5 flex items-center"><p className="text-xs text-emerald-600">{message}</p><Button type="submit" size="lg" className="mr-auto" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Save />}حفظ التغييرات</Button></div>

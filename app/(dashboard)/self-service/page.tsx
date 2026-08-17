@@ -2,27 +2,27 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Barcode, BriefcaseBusiness, CalendarDays, CreditCard, Dumbbell, Loader2, UserRound, UsersRound, WalletCards } from "lucide-react"
-import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
+import { Dumbbell, Loader2, UserRound } from "lucide-react"
+import { useAppContext } from "@/components/app-context"
+import { EmployeeSelfPanel } from "@/components/employee-self-panel"
+import { MemberDailyMenu } from "@/components/member-daily-menu"
+import { MemberMarketplace } from "@/components/member-marketplace"
+import { MemberSelfOverview } from "@/components/member-self-overview"
+import { apiRequest } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { MemberDailyMenu } from "@/components/member-daily-menu"
 
-type MemberLink={organizationId?:string;memberId:string;registrationBranchId?:string;displayName?:string;memberName?:string;relationship?:string;canView?:boolean;canBook?:boolean;canManageMembership?:boolean}
-type SelfContext={account?:{displayName?:string};memberLinks?:MemberLink[];members?:MemberLink[];employeeLinks?:unknown[];employees?:unknown[];trainerLinks?:unknown[]}
+type MemberLink={organizationId:string;memberId:string;registrationBranchId:string;memberName:string;memberNumber:string;relationship?:string;canView?:boolean;canBook?:boolean;canManageMembership?:boolean}
+type EmployeeLink={organizationId:string;employeeId:string;employeeNumber:string;name:string;status?:string;trainerProfileId?:string}
+type SelfContext={members?:MemberLink[];employees?:EmployeeLink[]}
 
-export default function SelfServicePage(){
- const [data,setData]=useState<SelfContext>({memberLinks:[{memberId:"demo",displayName:"محمد العتيبي",relationship:"SELF",canView:true,canBook:true,canManageMembership:true}]})
- const [loading,setLoading]=useState(hasRuntimeApi())
- useEffect(()=>{if(!hasRuntimeApi())return;const frame=requestAnimationFrame(()=>apiRequest<SelfContext>("/self").then(r=>setData(r.data)).finally(()=>setLoading(false)));return()=>cancelAnimationFrame(frame)},[])
- const members=data.memberLinks??data.members??[]
- return <div className="fade-up"><Badge variant="outline"><UserRound/>مساحتي</Badge><h1 className="mt-4 text-3xl font-black">مرحبًا، {data.account?.displayName??"عضو GO"}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">كل ما يخص عضويتك وحجوزاتك وجدول عملك في مكان واحد، بحسب نوع حسابك.</p>{loading?<div className="grid place-items-center py-24"><Loader2 className="animate-spin text-primary"/></div>:<>
-  <section className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{members.map(member=><Card key={member.memberId}><CardContent className="p-5"><span className="grid size-11 place-items-center rounded-xl bg-primary/15 text-amber-600">{member.relationship==="SELF"?<UserRound/>:<UsersRound/>}</span><h2 className="mt-4 font-black">{member.displayName??member.memberName??"عضو"}</h2><p className="mt-1 text-[10px] text-muted-foreground">{member.relationship==="SELF"?"عضويتي":"عضوية مرتبطة بحسابي"}</p><div className="mt-4 flex flex-wrap gap-1">{member.canView&&<Badge variant="success">عرض التفاصيل</Badge>}{member.canBook&&<Badge variant="success">إدارة الحجوزات</Badge>}{member.canManageMembership&&<Badge variant="success">إدارة الاشتراك</Badge>}</div><div className="mt-5 grid grid-cols-2 gap-2"><Link href="/subscriptions"><Button variant="outline" className="w-full"><CreditCard/>الاشتراك</Button></Link><Link href="/bookings"><Button className="w-full"><CalendarDays/>الحجوزات</Button></Link></div></CardContent></Card>)}
-  <Card><CardContent className="p-5"><span className="grid size-11 place-items-center rounded-xl bg-blue-500/10 text-blue-600"><BriefcaseBusiness/></span><h2 className="mt-4 font-black">عملي اليوم</h2><p className="mt-1 text-[10px] leading-5 text-muted-foreground">مواعيد المناوبة والحضور والانصراف</p><Link href="/staff"><Button variant="outline" className="mt-5 w-full">عرض جدول العمل</Button></Link></CardContent></Card>
-  <Card><CardContent className="p-5"><span className="grid size-11 place-items-center rounded-xl bg-violet-500/10 text-violet-600"><Dumbbell/></span><h2 className="mt-4 font-black">مساحة المدرب</h2><p className="mt-1 text-[10px] leading-5 text-muted-foreground">جلسات اليوم والأعضاء وخطط التدريب</p><Link href="/staff"><Button variant="outline" className="mt-5 w-full">عرض جدول التدريب</Button></Link></CardContent></Card>
-  </section>
-  {members.filter(member=>member.canBook).map(member=><MemberDailyMenu key={`menu-${member.memberId}`} organizationId={member.organizationId} memberId={member.memberId} branchId={member.registrationBranchId}/>) }
-  <section className="mt-5 grid gap-3 sm:grid-cols-3"><Link href="/barcodes"><Card className="transition hover:border-primary"><CardContent className="flex items-center gap-3 p-4"><Barcode className="text-amber-600"/><div><p className="text-xs font-black">بطاقة الدخول</p><p className="mt-1 text-[10px] text-muted-foreground">عرض البطاقة وطباعتها</p></div></CardContent></Card></Link><Link href="/finance"><Card className="transition hover:border-primary"><CardContent className="flex items-center gap-3 p-4"><WalletCards className="text-emerald-600"/><div><p className="text-xs font-black">الفواتير والمدفوعات</p><p className="mt-1 text-[10px] text-muted-foreground">متابعة الرصيد والفواتير</p></div></CardContent></Card></Link><Link href="/bookings"><Card className="transition hover:border-primary"><CardContent className="flex items-center gap-3 p-4"><CalendarDays className="text-violet-600"/><div><p className="text-xs font-black">مواعيدي</p><p className="mt-1 text-[10px] text-muted-foreground">الحصص والحجوزات القادمة</p></div></CardContent></Card></Link></section>
- </>}</div>
-}
+export default function SelfServicePage(){const context=useAppContext();const[data,setData]=useState<SelfContext>({});const[loading,setLoading]=useState(true);const[error,setError]=useState("")
+ useEffect(()=>{let cancelled=false;const frame=requestAnimationFrame(()=>apiRequest<SelfContext>("/self").then(response=>{if(!cancelled)setData(response.data)}).catch(()=>{if(!cancelled)setError("تعذر تحميل بيانات الخدمة الذاتية.")}).finally(()=>{if(!cancelled)setLoading(false)}));return()=>{cancelled=true;cancelAnimationFrame(frame)}},[])
+ const members=data.members??[],employees=data.employees??[]
+ return <div className="fade-up"><Badge variant="outline"><UserRound/>مساحتي</Badge><h1 className="mt-4 text-3xl font-black">مرحبًا، {context.account?.displayName?.trim()||members[0]?.memberName||employees[0]?.name||"مستخدم GO"}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">هذه المساحة مبنية على الروابط الحقيقية لحسابك: عضويتك، دوامك، أو مهامك كمدرب.</p>{error&&<p className="mt-4 rounded-xl bg-red-500/10 p-4 text-sm text-red-600">{error}</p>}{loading?<div className="grid min-h-64 place-items-center"><Loader2 className="animate-spin text-primary"/></div>:<>
+  {members.map(member=><div key={member.memberId}><MemberSelfOverview member={member}/><MemberMarketplace member={member}/>{member.canBook&&<MemberDailyMenu organizationId={member.organizationId} memberId={member.memberId} branchId={member.registrationBranchId}/>}</div>)}
+  {employees.map(employee=><EmployeeSelfPanel key={employee.employeeId} employee={employee} branchId={context.branchId}/>) }
+  {employees.some(employee=>employee.trainerProfileId)||context.canAccess(["coaching.read"])?<Card className="mt-5"><CardContent className="flex flex-wrap items-center gap-4 p-5"><span className="grid size-11 place-items-center rounded-xl bg-violet-500/10 text-violet-600"><Dumbbell/></span><div><h2 className="font-black">مساحة المدرب</h2><p className="mt-1 text-xs text-muted-foreground">متدربوك وجدولك وخطط التدريب والقياسات والعمولات.</p></div><Link href="/trainer" className="mr-auto"><Button>فتح مساحة المدرب</Button></Link></CardContent></Card>:null}
+  {!members.length&&!employees.length&&!error?<Card className="mt-5"><CardContent className="p-12 text-center text-sm text-muted-foreground">هذا الحساب غير مرتبط بعضو أو موظف نشط. راجع مسؤول النظام لإكمال الربط.</CardContent></Card>:null}
+ </>}</div>}

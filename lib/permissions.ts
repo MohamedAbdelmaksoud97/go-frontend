@@ -3,8 +3,50 @@ export function can(grants:Grant[],permission:string,organizationId:string,branc
 
 export const operationPermissions:Record<string,string>={
  listMembers:"members.read",registerMember:"members.manage",listSubscriptions:"subscriptions.read",createSubscription:"subscriptions.manage",listAttendanceAttempts:"attendance.read",recordManualAttendance:"attendance.check-in",listReservations:"bookings.read",createManualReservation:"bookings.create",listInvoices:"finance.invoices.read",recordPayment:"finance.payments.record",listCrmLeads:"crm.leads.read",createCrmLead:"crm.leads.manage",listRestaurantOrders:"restaurant.orders.read",checkoutOrder:"sales.checkout",listEmployees:"workforce.read",createEmployee:"workforce.manage",getBranchDailyReport:"reporting.read",requestReportingRebuild:"reporting.rebuild",
+ listEmployeeShiftRoster:"workforce.shifts.read",scheduleEmployeeShift:"workforce.shifts.manage",listEmployeeAttendance:"workforce.shifts.read",listOnlineRequests:"online-requests.read",listFeedbackCases:"feedback.read",listLockers:"lockers.read",listOtherIncome:"finance.other-income.read",listTrainerCommissions:"coaching.commissions.read",
+ recordOtherIncome:"finance.other-income.manage",
 }
 
 export const routePermissions:Record<string,string[]>={
- "/":["reporting.read"],"/members":["members.read"],"/subscriptions":["subscriptions.read"],"/attendance":["attendance.read","attendance.check-in"],"/bookings":["bookings.read"],"/cashier":["sales.checkout","finance.payments.record","finance.cash-shifts.manage"],"/finance":["finance.invoices.read","finance.payments.read"],"/crm":["crm.leads.read"],"/restaurant":["restaurant.orders.read"],"/staff":["workforce.read","coaching.read"],"/reports":["reporting.read"],"/settings":["organization.read","iam.roles.read"],
+ "/":["reporting.read"],
+ "/members":["members.read"],
+ "/subscriptions":["subscriptions.read"],
+ "/attendance":["attendance.read","attendance.check-in"],
+ "/bookings":["bookings.read","bookings.create"],
+ "/barcodes":["access-credentials.read","access-credentials.manage"],
+ "/files":["files.read","files.manage"],
+ "/cashier":["sales.checkout","finance.payments.record","finance.cash-shifts.manage"],
+ "/finance":["finance.invoices.read","finance.payments.read","finance.other-income.read","coaching.commissions.read"],
+ "/crm":["crm.leads.read","crm.follow-ups.read","online-requests.read"],
+ "/operations":["workforce.shifts.read","workforce.attendance.record","online-requests.read","feedback.read","lockers.read"],
+ "/restaurant":["restaurant.orders.read","restaurant.menu.read","restaurant.catalog.read"],
+ "/staff":["workforce.read"],
+ "/trainer":["coaching.read","coaching.training-plans.read","measurements.read"],
+ "/reports":["reporting.read"],
+ "/master-data":["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage"],
+ "/settings":["organization.read","iam.roles.read"],
+ "/self-service":[],
+ "/account":[],
+ "/select-context":[],
+}
+
+export function permissionsForRoute(pathname:string){
+ const exact=routePermissions[pathname]
+ if(exact!==undefined)return exact
+ const root=`/${pathname.split("/").filter(Boolean)[0]??""}`
+ return routePermissions[root]
+}
+
+export function firstAllowedDestination(canAccess:(permissions:string[])=>boolean){
+ if(canAccess(["reporting.read"]))return "/"
+ if(canAccess(["restaurant.orders.prepare"]))return "/restaurant"
+ if(canAccess(["sales.checkout"]))return "/cashier"
+ if(canAccess(["members.read"]))return "/members"
+ if(canAccess(["workforce.shifts.read"]))return "/operations"
+ if(canAccess(["crm.leads.read","crm.follow-ups.read"]))return "/crm"
+ if(canAccess(["finance.other-income.read","coaching.commissions.read"]))return "/finance"
+ if(canAccess(["coaching.read","measurements.read"]))return "/trainer"
+ if(canAccess(["workforce.read"]))return "/staff"
+ if(canAccess(routePermissions["/master-data"]??[]))return "/master-data"
+ return "/self-service"
 }

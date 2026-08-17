@@ -4,6 +4,7 @@ export type ReferenceSource = {
   path: (context: WorkflowContext) => string
   labelKeys: string[]
   subtitleKeys?: string[]
+  searchParam?: string
 }
 export type WorkflowField = {
   name: string
@@ -33,16 +34,37 @@ const nowLocal = () => {
   const date = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
   return date.toISOString().slice(0, 16)
 }
-const members: ReferenceSource = { path: c => `/organizations/${c.organizationId}/members?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["fullNameAr", "memberName", "fullName", "displayName"], subtitleKeys: ["memberNumber", "phoneE164"] }
+const members: ReferenceSource = { path: c => `/organizations/${c.organizationId}/members?branchId=${encodeURIComponent(c.branchId)}&limit=25`, labelKeys: ["fullNameAr", "memberName", "fullName", "displayName"], subtitleKeys: ["memberNumber", "legacyMemberNumber", "phoneE164"], searchParam: "search" }
 const packages: ReferenceSource = { path: c => `/organizations/${c.organizationId}/packages?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "packageName", "name"], subtitleKeys: ["code"] }
 const resources: ReferenceSource = { path: c => `/organizations/${c.organizationId}/bookable-resources?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "resourceName", "name"], subtitleKeys: ["type"] }
+const services: ReferenceSource = { path: c => `/organizations/${c.organizationId}/services?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "serviceName", "name"], subtitleKeys: ["code"] }
 const invoices: ReferenceSource = { path: c => `/organizations/${c.organizationId}/invoices?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["invoiceNumber", "number"], subtitleKeys: ["buyerName", "outstandingMinor"] }
 const positions: ReferenceSource = { path: c => `/organizations/${c.organizationId}/positions?limit=100`, labelKeys: ["nameAr", "positionName", "name"], subtitleKeys: ["code"] }
 const meals: ReferenceSource = { path: c => `/organizations/${c.organizationId}/restaurant/meals?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "mealName", "name"], subtitleKeys: ["categoryName"] }
 const roles: ReferenceSource = { path: c => `/organizations/${c.organizationId}/roles`, labelKeys: ["name"], subtitleKeys: ["systemKey"] }
 const branches: ReferenceSource = { path: c => `/organizations/${c.organizationId}/branches`, labelKeys: ["nameAr", "name"], subtitleKeys: ["code"] }
+const employees: ReferenceSource = { path: c => `/organizations/${c.organizationId}/employees?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["name", "fullNameAr", "displayName"], subtitleKeys: ["employeeNumber"] }
+const otherIncomeCategories: ReferenceSource = { path: c => `/organizations/${c.organizationId}/other-income-categories`, labelKeys: ["name", "nameAr"], subtitleKeys: ["code"] }
+const selfTrainerMembers: ReferenceSource = { path: c => `/self/organizations/${c.organizationId}/trainer/members`, labelKeys: ["memberName", "name", "fullNameAr"], subtitleKeys: ["memberNumber"] }
+const measurementTypes: ReferenceSource = { path: c => `/organizations/${c.organizationId}/measurement-types?limit=100`, labelKeys: ["name", "nameAr"], subtitleKeys: ["unit", "code"] }
 
 export const workflows: Record<string, Workflow> = {
+  recordSelfTrainerMeasurement: {
+    title: "تسجيل قياس للمتدرب", description: "اختر العضو ونوع القياس وسجّل القيمة كما ظهرت في جهاز القياس.", submitLabel: "حفظ القياس", successMessage: "تم حفظ القياس في ملف العضو.",
+    fields:[{name:"memberId",label:"العضو",type:"reference",source:selfTrainerMembers,required:true},{name:"measurementTypeId",label:"نوع القياس",type:"reference",source:measurementTypes,required:true},{name:"value",label:"القيمة",type:"number",required:true},{name:"notes",label:"ملاحظات",type:"textarea"}],
+    initial:()=>({memberId:"",measurementTypeId:"",value:"",notes:""}),body:(v,c)=>({branchId:c.branchId,memberId:v.memberId,values:[{measurementTypeId:v.measurementTypeId,value:String(v.value)}],measuredAt:new Date().toISOString(),notes:v.notes||undefined}),
+  },
+  recordOtherIncome: {
+    title: "تسجيل إيراد آخر", description: "سجّل إيرادًا غير مرتبط بفاتورة. التحصيل النقدي يتم من نقطة البيع لربطه بالوردية والصندوق.", submitLabel: "تسجيل الإيراد", successMessage: "تم تسجيل الإيراد في السجل المالي.",
+    fields: [{name:"categoryId",label:"تصنيف الإيراد",type:"reference",source:otherIncomeCategories,required:true},{name:"amount",label:"المبلغ (ر.س)",type:"number",min:"0.01",required:true},{name:"paymentMethodCode",label:"طريقة التحصيل",type:"select",required:true,options:[{value:"CARD",label:"بطاقة بنكية"},{value:"BANK_TRANSFER",label:"تحويل بنكي"},{value:"GATEWAY",label:"بوابة دفع"},{value:"WALLET",label:"محفظة إلكترونية"}]},{name:"description",label:"البيان",type:"textarea",required:true}],
+    initial:()=>({categoryId:"",amount:"",paymentMethodCode:"CARD",description:""}),body:(v,c)=>({branchId:c.branchId,categoryId:v.categoryId,amountMinor:String(Math.round(Number(v.amount)*100)),paymentMethodCode:v.paymentMethodCode,description:v.description,occurredAt:new Date().toISOString()}),
+  },
+  scheduleEmployeeShift: {
+    title: "جدولة مناوبة", description: "اختر الموظف وحدد بداية ونهاية المناوبة في الفرع الحالي.", submitLabel: "حفظ المناوبة", successMessage: "تمت جدولة المناوبة بنجاح.",
+    fields: [{ name: "employeeId", label: "الموظف", type: "reference", source: employees, required: true }, { name: "startsAt", label: "بداية المناوبة", type: "datetime-local", required: true }, { name: "endsAt", label: "نهاية المناوبة", type: "datetime-local", required: true }, { name: "notes", label: "ملاحظات", type: "textarea" }],
+    initial: () => { const startsAt=nowLocal();const end=new Date(new Date(startsAt).getTime()+8*60*60_000);return{employeeId:"",startsAt,endsAt:new Date(end.getTime()-end.getTimezoneOffset()*60_000).toISOString().slice(0,16),notes:""} },
+    body: (v,c) => ({branchId:c.branchId,employeeId:v.employeeId,startsAt:new Date(String(v.startsAt)).toISOString(),endsAt:new Date(String(v.endsAt)).toISOString(),notes:v.notes||undefined}),
+  },
   registerMember: {
     title: "تسجيل عضو جديد", description: "أدخل البيانات الأساسية. يمكنك استكمال الملف والمستندات بعد الحفظ.", submitLabel: "تسجيل العضو", successMessage: "تم تسجيل العضو بنجاح.",
     fields: [
@@ -54,32 +76,34 @@ export const workflows: Record<string, Workflow> = {
       { name: "notes", label: "ملاحظات", type: "textarea", placeholder: "أي معلومات مهمة لفريق الاستقبال" },
     ],
     initial: () => ({ fullNameAr: "", phoneE164: "+9665", gender: "MALE", birthDate: "", nationality: "SA", notes: "" }),
-    body: (v, c) => ({ branchId: c.branchId, fullNameAr: v.fullNameAr, gender: v.gender, birthDate: v.birthDate, nationality: v.nationality || undefined, registeredOn: today(), contacts: v.phoneE164 ? [{ type: "PHONE", value: v.phoneE164, isPrimary: true }] : [], notes: v.notes || undefined }),
+    body: (v, c) => ({ registrationBranchId: c.branchId, name: v.fullNameAr, gender: v.gender, birthDate: v.birthDate || undefined, nationalityCode: v.nationality || undefined, contacts: v.phoneE164 ? [{ type: "PHONE", value: v.phoneE164, isPrimary: true }] : [], notes: v.notes || undefined }),
   },
   createSubscription: {
     title: "إنشاء اشتراك", description: "اختر العضو والباقة وتاريخ البداية، ثم راجع البيانات قبل الحفظ.", submitLabel: "إنشاء الاشتراك", successMessage: "تم إنشاء الاشتراك بنجاح.",
     fields: [
       { name: "memberId", label: "العضو", type: "reference", source: members, required: true, placeholder: "اختر عضوًا" },
       { name: "packageId", label: "الباقة", type: "reference", source: packages, required: true, placeholder: "اختر باقة" },
-      { name: "startsOn", label: "تاريخ البداية", type: "date", required: true },
-      { name: "notes", label: "ملاحظات", type: "textarea" },
-    ], initial: () => ({ memberId: "", packageId: "", startsOn: today(), notes: "" }),
-    body: (v, c) => ({ memberId: v.memberId, packageId: v.packageId, sellingBranchId: c.branchId, startsOn: v.startsOn, notes: v.notes || undefined }),
+      { name: "startAt", label: "تاريخ ووقت البداية", type: "datetime-local", required: true },
+      { name: "activationMode", label: "حالة التفعيل", type: "select", required: true, options: [{ value: "ACTIVATE", label: "تفعيل فوري" }, { value: "PENDING", label: "بانتظار التفعيل" }] },
+    ], initial: () => ({ memberId: "", packageId: "", startAt: nowLocal(), activationMode: "ACTIVATE" }),
+    body: (v, c) => ({ memberId: v.memberId, packageId: v.packageId, sellingBranchId: c.branchId, startAt: new Date(String(v.startAt)).toISOString(), activationMode: v.activationMode }),
   },
   recordManualAttendance: {
     title: "تسجيل دخول", description: "امسح بطاقة العضو أو اكتب الرقم الموجود عليها. ستظهر نتيجة السماح بالدخول فورًا.", submitLabel: "التحقق وتسجيل الدخول", successMessage: "تم تسجيل محاولة الدخول.",
-    fields: [{ name: "credentialValue", label: "رقم بطاقة الدخول", required: true, placeholder: "امسح البطاقة أو اكتب رقمها", hint: "وجّه المؤشر داخل الحقل ثم امسح البطاقة." }],
-    initial: () => ({ credentialValue: "" }), body: (v, c) => ({ branchId: c.branchId, credentialValue: v.credentialValue, occurredAt: new Date().toISOString() }),
+    fields: [{ name: "memberId", label: "العضو", type: "reference", source: members, required: true, placeholder: "اختر العضو بالاسم أو رقم العضوية" }],
+    initial: () => ({ memberId: "" }), body: (v, c) => ({ branchId: c.branchId, memberId: v.memberId }),
   },
   createManualReservation: {
     title: "حجز جديد", description: "اختر العضو والمرفق المناسب، وسيتم التحقق من التوفر قبل تأكيد الحجز.", submitLabel: "تأكيد الحجز", successMessage: "تم إنشاء الحجز بنجاح.",
     fields: [
       { name: "memberId", label: "العضو", type: "reference", source: members, required: true },
+      { name: "serviceId", label: "الخدمة", type: "reference", source: services, required: true },
       { name: "resourceId", label: "الحصة أو المرفق", type: "reference", source: resources, required: true },
-      { name: "startsAt", label: "الموعد", type: "datetime-local", required: true },
+      { name: "startsAt", label: "بداية الحجز", type: "datetime-local", required: true },
+      { name: "endsAt", label: "نهاية الحجز", type: "datetime-local", required: true },
       { name: "seats", label: "عدد المقاعد", type: "number", min: "1", required: true },
-    ], initial: () => ({ memberId: "", resourceId: "", startsAt: nowLocal(), seats: "1" }),
-    body: (v, c) => ({ branchId: c.branchId, memberId: v.memberId, resourceId: v.resourceId, type: "SESSION", startsAt: new Date(String(v.startsAt)).toISOString(), seats: Number(v.seats) }),
+    ], initial: () => { const startsAt=nowLocal(); const ends=new Date(new Date(startsAt).getTime()+60*60_000); return { memberId: "", serviceId: "", resourceId: "", startsAt, endsAt: new Date(ends.getTime()-ends.getTimezoneOffset()*60_000).toISOString().slice(0,16), seats: "1" } },
+    body: (v, c) => ({ branchId: c.branchId, memberId: v.memberId, serviceId: v.serviceId, resourceId: v.resourceId, type: "COURT", startsAt: new Date(String(v.startsAt)).toISOString(), endsAt: new Date(String(v.endsAt)).toISOString(), seats: Number(v.seats) }),
   },
   recordPayment: {
     title: "تسجيل دفعة غير نقدية", description: "للتحويل أو البطاقة. أما النقد فيُسجل من نقطة البيع لربطه بالصندوق والوردية.", submitLabel: "تسجيل الدفعة", successMessage: "تم تسجيل الدفعة بنجاح.", confirm: "راجع المبلغ وطريقة الدفع قبل التأكيد؛ سيُضاف التحصيل إلى السجل المالي.",
@@ -100,7 +124,7 @@ export const workflows: Record<string, Workflow> = {
       { name: "interestType", label: "الاهتمام", type: "select", options: [{ value: "GENERAL", label: "استفسار عام" }, { value: "PACKAGE", label: "باقة عضوية" }, { value: "PERSONAL_TRAINING", label: "تدريب شخصي" }, { value: "MEAL_PLAN", label: "خطة غذائية" }] },
       { name: "notes", label: "ملاحظات المتابعة", type: "textarea" },
     ], initial: () => ({ fullName: "", phoneE164: "+9665", email: "", originType: "WALK_IN", interestType: "GENERAL", notes: "" }),
-    body: (v, c) => ({ branchId: c.branchId, fullName: v.fullName, phoneE164: v.phoneE164 || undefined, email: v.email || undefined, originType: v.originType, interestType: v.interestType, notes: v.notes || undefined }),
+    body: (v, c) => ({ branchId: c.branchId, fullName: v.fullName, phone: v.phoneE164 || undefined, email: v.email || undefined, originType: v.originType, interestType: v.interestType, notes: v.notes || undefined }),
   },
   checkoutOrder: {
     title: "طلب مطعم جديد", description: "اختر العضو والصنف والكمية. سيُحتسب السعر المعتمد تلقائيًا.", submitLabel: "إنشاء الطلب", successMessage: "تم إنشاء الطلب وإرساله للمتابعة.",
@@ -109,7 +133,7 @@ export const workflows: Record<string, Workflow> = {
       { name: "mealId", label: "الصنف", type: "reference", source: meals, required: true },
       { name: "quantity", label: "الكمية", type: "number", min: "1", required: true },
     ], initial: () => ({ memberId: "", mealId: "", quantity: "1" }),
-    body: (v, c) => ({ sellingBranchId: c.branchId, buyerType: "MEMBER", buyerMemberId: v.memberId, lines: [{ targetType: "RESTAURANT_MEAL", targetId: v.mealId, quantity: Number(v.quantity) }] }),
+    body: (v, c) => ({ sellingBranchId: c.branchId, memberId: v.memberId, memberSegment: "OTHER", lines: [{ type: "RESTAURANT", targetId: v.mealId, quantity: Number(v.quantity) }] }),
   },
   createEmployee: {
     title: "إضافة موظف", description: "أدخل بيانات الموظف واختر المسمى الوظيفي لبداية عمل واضحة.", submitLabel: "إضافة الموظف", successMessage: "تمت إضافة الموظف بنجاح.",
@@ -117,7 +141,7 @@ export const workflows: Record<string, Workflow> = {
       { name: "fullNameAr", label: "اسم الموظف", required: true }, { name: "phoneE164", label: "رقم الجوال", type: "tel", placeholder: "+966 5X XXX XXXX" },
       { name: "positionId", label: "المسمى الوظيفي", type: "reference", source: positions, required: true }, { name: "startsOn", label: "تاريخ بدء العمل", type: "date", required: true },
     ], initial: () => ({ fullNameAr: "", phoneE164: "+9665", positionId: "", startsOn: today() }),
-    body: (v, c) => ({ fullNameAr: v.fullNameAr, phoneE164: v.phoneE164 || undefined, branchId: c.branchId, positionId: v.positionId, startsOn: v.startsOn }),
+    body: (v, c) => ({ name: v.fullNameAr, phone: v.phoneE164 || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
   },
   requestReportingRebuild: {
     title: "تحديث بيانات التقارير", description: "استخدم هذا الإجراء فقط إذا كانت أرقام التقارير لا تعكس آخر العمليات.", submitLabel: "بدء التحديث", successMessage: "بدأ تحديث بيانات التقارير. يمكنك متابعة العمل وسيكتمل في الخلفية.", confirm: "قد يستغرق تحديث التقارير عدة دقائق. هل تريد المتابعة؟",
