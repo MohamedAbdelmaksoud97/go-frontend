@@ -145,13 +145,14 @@ export const workflows: Record<string, Workflow> = {
     title: "إضافة موظف وحساب دخول", description: "أنشئ الموظف وحسابه في خطوة واحدة. سيدخل بالرقم الوظيفي وكلمة المرور، وتُطبق صلاحيات المسمى داخل فرع عمله تلقائيًا.", submitLabel: "إنشاء الموظف وحسابه", successMessage: "تم إنشاء الموظف وربط الحساب والمسمى والصلاحيات بنجاح.",
     fields: [
       { name: "employeeNumber", label: "الرقم الوظيفي", required: true, placeholder: "EMP001", hint: "يبدأ بـ EMP ثم من 3 إلى 10 أرقام، ويُستخدم في تسجيل الدخول." },
-      { name: "password", label: "كلمة المرور", type: "password", required: true, hint: "12 حرفًا على الأقل. لا تُحفظ داخل قاعدة بيانات النظام ولا تظهر بعد الإرسال." },
+      { name: "password", label: "كلمة المرور", type: "password", required: true, placeholder: "12 حرفًا على الأقل", hint: "استخدم حروفًا وأرقامًا ورموزًا. لا تُحفظ كلمة المرور داخل قاعدة بيانات النظام ولا تظهر بعد الإرسال." },
+      { name: "confirmPassword", label: "تأكيد كلمة المرور", type: "password", required: true, placeholder: "أعد كتابة كلمة المرور" },
       { name: "fullNameAr", label: "اسم الموظف", required: true }, { name: "phoneE164", label: "رقم الجوال", type: "tel", placeholder: "+966 5X XXX XXXX" },
       { name: "email", label: "البريد الإلكتروني (اختياري)", type: "email", placeholder: "name@example.com" },
       { name: "positionId", label: "المسمى الوظيفي والصلاحيات", type: "reference", source: positions, required: true }, { name: "startsOn", label: "تاريخ بدء العمل", type: "date", required: true },
       { name: "identityImage", label: "صورة الهوية", type: "file", required: true, hint: "JPG أو PNG أو PDF، حتى 10 ميجابايت." },
       { name: "profileImage", label: "صورة الموظف (اختياري)", type: "file", hint: "JPG أو PNG، حتى 10 ميجابايت." },
-    ], initial: () => ({ employeeNumber: "", password: "", fullNameAr: "", phoneE164: "+9665", email: "", positionId: "", startsOn: today() }),
+    ], initial: () => ({ employeeNumber: "", password: "", confirmPassword: "", fullNameAr: "", phoneE164: "+9665", email: "", positionId: "", startsOn: today() }),
     body: (v, c) => ({ employeeNumber: v.employeeNumber, password: v.password, name: v.fullNameAr, phone: v.phoneE164 || undefined, email: v.email || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
   },
   requestReportingRebuild: {

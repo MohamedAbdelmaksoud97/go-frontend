@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { BarChart3, ChevronLeft, ChevronRight, Download, Eye, MoreHorizontal, Plus, Search, ShieldAlert, SlidersHorizontal, Sparkles, X } from "lucide-react"
+import { AlertTriangle, BarChart3, ChevronLeft, ChevronRight, Download, Eye, EyeOff, LockKeyhole, MoreHorizontal, Plus, Search, ShieldAlert, SlidersHorizontal, Sparkles, X } from "lucide-react"
 import type { SectionConfig } from "@/lib/sections"
 import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +17,27 @@ import { operationPermissions } from "@/lib/permissions"
 
 type BranchLookup = { id: string; nameAr?: string; name?: string }
 type ApiRecord = Record<string, unknown>
+type RecordActionField = {
+  name: string
+  label: string
+  type: "text" | "tel" | "email" | "number" | "textarea" | "password"
+  initial?: string
+  placeholder?: string
+  hint?: string
+  required?: boolean
+  min?: number
+}
+type RecordAction = {
+  label: string
+  permission: string
+  path: string
+  body: (values: Record<string, string>) => Record<string, unknown>
+  description?: string
+  confirmLabel?: string
+  danger?: boolean
+  method?: "POST" | "PATCH"
+  fields?: RecordActionField[]
+}
 
 export function ResourcePage({ config }: { config: SectionConfig }) {
   const context = useAppContext()
@@ -95,21 +116,174 @@ export function ResourcePage({ config }: { config: SectionConfig }) {
       <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="w-10 px-4"><span className="sr-only">عرض التفاصيل</span></th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : cell}</td>)}<td className="px-4"><Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => { const sourceIndex = serverRows.indexOf(row); setSelectedRow({ row, record: serverRecords[sourceIndex] ?? {} }) }}><MoreHorizontal /></Button></td></tr>)}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
       <div className="flex items-center justify-between border-t p-4"><p className="text-[10px] text-muted-foreground">عرض {rows.length} سجلًا · الصفحة {page + 1}</p><div className="flex items-center gap-1"><Button variant="outline" size="icon-sm" disabled={page === 0 || loading} aria-label="الصفحة السابقة" onClick={() => void loadPage(page - 1)}><ChevronRight /></Button>{Array.from({ length: knownPages }, (_, index) => <Button key={index} variant={index === page ? "default" : "outline"} size="icon-sm" disabled={loading} aria-label={`الصفحة ${index + 1}`} onClick={() => void loadPage(index)}>{index + 1}</Button>)}<Button variant="outline" size="icon-sm" disabled={loading || !pageCache.current[page]?.nextCursor} aria-label="الصفحة التالية" onClick={() => void loadPage(page + 1)}><ChevronLeft /></Button></div></div>
     </Card>
-    {showAction && config.createOperationId && canCreate && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} />}
+    {showAction && config.createOperationId && canCreate && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} onSaved={() => { pageCache.current = []; void loadPage(0) }} />}
     {selectedRow && <RecordPreview columns={config.columns} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={config.statusIndex} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
   </div>
 }
 
 function RecordPreview({ columns, row, record, operationId, organizationId, statusIndex, onClose, onChanged }: { columns: string[]; row: string[]; record: ApiRecord; operationId: string; organizationId: string; statusIndex?: number; onClose: () => void; onChanged: () => void }) {
-  const context=useAppContext(); const[busy,setBusy]=useState(false);const[error,setError]=useState("");const status=String(record.status??"");const id=String(record.id??record.subscriptionId??record.reservationId??"");
-  const actions:Array<{label:string;permission:string;path:string;body:()=>Record<string,unknown>;danger?:boolean;method?:"POST"|"PATCH"}>=[];
-  if(operationId==="listSubscriptions"&&id){if(status==="PENDING_ACTIVATION")actions.push({label:"تفعيل الاشتراك",permission:"subscriptions.activate",path:`/organizations/${organizationId}/subscriptions/${id}/activations`,body:()=>({expectedVersion:Number(record.version??1)})});if(status==="ACTIVE")actions.push({label:"تجميد",permission:"subscriptions.freeze",path:`/organizations/${organizationId}/subscriptions/${id}/freezes`,body:()=>({expectedVersion:Number(record.version??1),requestedDays:Number(window.prompt("عدد أيام التجميد","7")||0),reason:window.prompt("سبب التجميد","طلب العضو")||""})});if(status==="FROZEN")actions.push({label:"استئناف",permission:"subscriptions.freeze",path:`/organizations/${organizationId}/subscriptions/${id}/resumptions`,body:()=>({expectedVersion:Number(record.version??1)})});if(["ACTIVE","FROZEN"].includes(status)){actions.push({label:"تجديد",permission:"subscriptions.renew",path:`/organizations/${organizationId}/subscriptions/${id}/renewals`,body:()=>({expectedVersion:Number(record.version??1)})});actions.push({label:"إلغاء الاشتراك",permission:"subscriptions.cancel",danger:true,path:`/organizations/${organizationId}/subscriptions/${id}/cancellations`,body:()=>({expectedVersion:Number(record.version??1),reason:window.prompt("سبب الإلغاء","طلب العضو")||""})})}}
-  if(operationId==="listReservations"&&id&&["PENDING_PAYMENT","CONFIRMED"].includes(status))actions.push({label:"إلغاء الحجز",permission:"bookings.manage",danger:true,path:`/organizations/${organizationId}/reservations/${id}/cancellations`,body:()=>({expectedVersion:Number(record.version??1),reason:window.prompt("سبب إلغاء الحجز","طلب العضو")||""})});
-  if(operationId==="listReservations"&&id&&status==="CONFIRMED"){actions.push({label:"إكمال الحجز",permission:"bookings.manage",path:`/organizations/${organizationId}/reservations/${id}/transitions`,body:()=>({expectedVersion:Number(record.version??1),action:"COMPLETE"})});actions.push({label:"عدم حضور",permission:"bookings.manage",danger:true,path:`/organizations/${organizationId}/reservations/${id}/transitions`,body:()=>({expectedVersion:Number(record.version??1),action:"NO_SHOW"})})}
-  if(operationId==="listEmployees"&&id){actions.push({label:"تعديل بيانات الموظف",permission:"workforce.manage",method:"PATCH",path:`/organizations/${organizationId}/employees/${id}`,body:()=>({expectedVersion:Number(record.version??1),name:window.prompt("اسم الموظف",String(record.name??record.fullName??""))||String(record.name??record.fullName??""),phone:window.prompt("رقم الجوال (يمكن تركه فارغًا)",String(record.phone??""))||null,email:window.prompt("البريد الإلكتروني (يمكن تركه فارغًا)",String(record.email??""))||null})});actions.push({label:"تعيين كلمة مرور جديدة",permission:"workforce.manage",path:`/organizations/${organizationId}/employees/${id}/password-resets`,body:()=>({password:window.prompt("كلمة المرور الجديدة (12 حرفًا على الأقل)","")||""})});actions.push({label:status==="ACTIVE"?"حذف / تعطيل الموظف":"إعادة تفعيل الموظف",permission:"workforce.manage",method:"PATCH",danger:status==="ACTIVE",path:`/organizations/${organizationId}/employees/${id}`,body:()=>({expectedVersion:Number(record.version??1),status:status==="ACTIVE"?"INACTIVE":"ACTIVE"})})}
-  async function run(action:(typeof actions)[number]){if(action.danger&&!window.confirm(`تأكيد: ${action.label}؟`))return;const body=action.body();if(("reason" in body&&String(body.reason).trim().length<3)||("requestedDays" in body&&Number(body.requestedDays)<1)||("password" in body&&String(body.password).length<12)){setError("أدخل سببًا واضحًا وقيمة صحيحة، وكلمة مرور لا تقل عن 12 حرفًا.");return}setBusy(true);setError("");try{await apiRequest(action.path,{method:action.method??"POST",body:JSON.stringify(body)});onChanged()}catch(reason){setError(humanError(reason,"تعذر تنفيذ الإجراء."))}finally{setBusy(false)}}
-  const visibleActions=actions.filter(action=>context.canAccess([action.permission]));
-  return <div className="fixed inset-0 z-[75] grid place-items-end bg-black/60 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section role="dialog" aria-modal="true" aria-labelledby="record-title" className="max-h-[90vh] w-full overflow-y-auto rounded-t-[28px] border bg-card p-5 shadow-2xl sm:max-w-xl sm:rounded-[28px] sm:p-6"><div className="flex items-center"><span className="grid size-10 place-items-center rounded-xl bg-primary/15 text-amber-600"><Eye /></span><div className="mr-3"><p className="text-[10px] text-muted-foreground">ملخص السجل</p><h2 id="record-title" className="font-black">{row[0]}</h2></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} aria-label="إغلاق"><X /></Button></div><dl className="mt-6 grid gap-3 sm:grid-cols-2">{columns.map((label, index) => <div key={label} className="rounded-xl bg-secondary/55 p-4"><dt className="text-[10px] font-bold text-muted-foreground">{label}</dt><dd className="mt-2 text-sm font-bold">{index === statusIndex ? <StatusBadge status={row[index]} /> : row[index]}</dd></div>)}</dl>{error&&<p className="mt-4 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}{visibleActions.length>0&&<div className="mt-5 flex flex-wrap gap-2 border-t pt-4">{visibleActions.map(action=><Button key={action.label} variant={action.danger?"destructive":"outline"} disabled={busy} onClick={()=>void run(action)}>{action.label}</Button>)}</div>}<Button className="mt-6 w-full" size="lg" onClick={onClose}>إغلاق</Button></section></div>
+  const context = useAppContext()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const [pendingAction, setPendingAction] = useState<RecordAction>()
+  const status = String(record.status ?? "")
+  const id = String(record.id ?? record.subscriptionId ?? record.reservationId ?? "")
+  const version = Number(record.version ?? 1)
+  const actions: RecordAction[] = []
+
+  if (operationId === "listSubscriptions" && id) {
+    if (status === "PENDING_ACTIVATION") actions.push({ label: "تفعيل الاشتراك", permission: "subscriptions.activate", path: `/organizations/${organizationId}/subscriptions/${id}/activations`, body: () => ({ expectedVersion: version }) })
+    if (status === "ACTIVE") actions.push({
+      label: "تجميد الاشتراك",
+      permission: "subscriptions.freeze",
+      path: `/organizations/${organizationId}/subscriptions/${id}/freezes`,
+      description: "حدد مدة التجميد وسجّل السبب ليظهر في سجل الاشتراك.",
+      fields: [
+        { name: "requestedDays", label: "عدد أيام التجميد", type: "number", initial: "7", min: 1, required: true },
+        { name: "reason", label: "سبب التجميد", type: "textarea", initial: "طلب العضو", required: true, placeholder: "اكتب سببًا واضحًا للتجميد" },
+      ],
+      body: values => ({ expectedVersion: version, requestedDays: Number(values.requestedDays), reason: values.reason.trim() }),
+    })
+    if (status === "FROZEN") actions.push({ label: "استئناف الاشتراك", permission: "subscriptions.freeze", path: `/organizations/${organizationId}/subscriptions/${id}/resumptions`, body: () => ({ expectedVersion: version }) })
+    if (["ACTIVE", "FROZEN"].includes(status)) {
+      actions.push({ label: "تجديد الاشتراك", permission: "subscriptions.renew", path: `/organizations/${organizationId}/subscriptions/${id}/renewals`, body: () => ({ expectedVersion: version }) })
+      actions.push({
+        label: "إلغاء الاشتراك",
+        permission: "subscriptions.cancel",
+        danger: true,
+        path: `/organizations/${organizationId}/subscriptions/${id}/cancellations`,
+        description: "سيتم تطبيق سياسة الإلغاء المرتبطة بالاشتراك وتسجيل السبب في سجل العضو.",
+        fields: [{ name: "reason", label: "سبب الإلغاء", type: "textarea", initial: "طلب العضو", required: true, placeholder: "اكتب سبب إلغاء الاشتراك" }],
+        body: values => ({ expectedVersion: version, reason: values.reason.trim() }),
+      })
+    }
+  }
+
+  if (operationId === "listReservations" && id && ["PENDING_PAYMENT", "CONFIRMED"].includes(status)) actions.push({
+    label: "إلغاء الحجز",
+    permission: "bookings.manage",
+    danger: true,
+    path: `/organizations/${organizationId}/reservations/${id}/cancellations`,
+    description: "سيُلغى الحجز بعد التأكيد مع الاحتفاظ بسبب الإلغاء في السجل.",
+    fields: [{ name: "reason", label: "سبب إلغاء الحجز", type: "textarea", initial: "طلب العضو", required: true }],
+    body: values => ({ expectedVersion: version, reason: values.reason.trim() }),
+  })
+  if (operationId === "listReservations" && id && status === "CONFIRMED") {
+    actions.push({ label: "إكمال الحجز", permission: "bookings.manage", path: `/organizations/${organizationId}/reservations/${id}/transitions`, body: () => ({ expectedVersion: version, action: "COMPLETE" }) })
+    actions.push({ label: "تسجيل عدم حضور", permission: "bookings.manage", danger: true, path: `/organizations/${organizationId}/reservations/${id}/transitions`, description: "سيُسجل الحجز كحالة عدم حضور، وقد ينعكس ذلك على سجل العضو.", body: () => ({ expectedVersion: version, action: "NO_SHOW" }) })
+  }
+
+  if (operationId === "listEmployees" && id) {
+    actions.push({
+      label: "تعديل بيانات الموظف",
+      permission: "workforce.manage",
+      method: "PATCH",
+      path: `/organizations/${organizationId}/employees/${id}`,
+      description: "حدّث البيانات الأساسية للموظف. يمكن ترك الهاتف أو البريد الإلكتروني فارغًا.",
+      fields: [
+        { name: "name", label: "اسم الموظف", type: "text", initial: String(record.name ?? record.fullName ?? ""), required: true, placeholder: "الاسم الكامل" },
+        { name: "phone", label: "رقم الجوال", type: "tel", initial: String(record.phoneE164 ?? record.phone ?? ""), placeholder: "+9665XXXXXXXX" },
+        { name: "email", label: "البريد الإلكتروني", type: "email", initial: String(record.email ?? ""), placeholder: "name@example.com" },
+      ],
+      body: values => ({ expectedVersion: version, name: values.name.trim(), phone: values.phone.trim() || null, email: values.email.trim() || null }),
+    })
+    actions.push({
+      label: "إنشاء أو تغيير كلمة مرور الدخول",
+      permission: "workforce.manage",
+      path: `/organizations/${organizationId}/employees/${id}/password-resets`,
+      description: "أنشئ كلمة مرور مؤقتة قوية وأرسلها للموظف عبر قناة آمنة. يستطيع الموظف استخدامها مع رقمه الوظيفي.",
+      confirmLabel: "حفظ كلمة المرور",
+      fields: [
+        { name: "password", label: "كلمة المرور الجديدة", type: "password", required: true, hint: "12 حرفًا على الأقل. يُفضّل الجمع بين الحروف والأرقام والرموز.", placeholder: "أدخل كلمة مرور قوية" },
+        { name: "confirmPassword", label: "تأكيد كلمة المرور", type: "password", required: true, placeholder: "أعد كتابة كلمة المرور" },
+      ],
+      body: values => ({ password: values.password }),
+    })
+    actions.push({
+      label: status === "ACTIVE" ? "تعطيل حساب الموظف" : "إعادة تفعيل الموظف",
+      permission: "workforce.manage",
+      method: "PATCH",
+      danger: status === "ACTIVE",
+      path: `/organizations/${organizationId}/employees/${id}`,
+      description: status === "ACTIVE" ? "لن يتمكن الموظف من الدخول أو تنفيذ أي عملية حتى إعادة تفعيل حسابه." : "سيستعيد الموظف إمكانية الدخول وفق صلاحيات مسماه الوظيفي.",
+      body: () => ({ expectedVersion: version, status: status === "ACTIVE" ? "INACTIVE" : "ACTIVE" }),
+    })
+  }
+
+  async function run(action: RecordAction, values: Record<string, string> = {}) {
+    setBusy(true)
+    setError("")
+    try {
+      await apiRequest(action.path, { method: action.method ?? "POST", body: JSON.stringify(action.body(values)) })
+      onChanged()
+    } catch (reason) {
+      setError(humanError(reason, "تعذر تنفيذ الإجراء. راجع البيانات ثم حاول مرة أخرى."))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const visibleActions = actions.filter(action => context.canAccess([action.permission]))
+  function requestAction(action: RecordAction) {
+    setError("")
+    if (action.fields?.length || action.danger) setPendingAction(action)
+    else void run(action)
+  }
+
+  return <>
+    <div className="fixed inset-0 z-[75] grid place-items-end bg-black/60 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="record-title" className="max-h-[90vh] w-full overflow-y-auto rounded-t-[28px] border bg-card p-5 shadow-2xl sm:max-w-xl sm:rounded-[28px] sm:p-6">
+        <div className="flex items-center"><span className="grid size-10 place-items-center rounded-xl bg-primary/15 text-amber-600"><Eye /></span><div className="mr-3"><p className="text-[10px] text-muted-foreground">ملخص السجل</p><h2 id="record-title" className="font-black">{row[0]}</h2></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} disabled={busy} aria-label="إغلاق"><X /></Button></div>
+        <dl className="mt-6 grid gap-3 sm:grid-cols-2">{columns.map((label, index) => <div key={label} className="rounded-xl bg-secondary/55 p-4"><dt className="text-[10px] font-bold text-muted-foreground">{label}</dt><dd className="mt-2 text-sm font-bold">{index === statusIndex ? <StatusBadge status={row[index]} /> : row[index]}</dd></div>)}</dl>
+        {error && !pendingAction && <p className="mt-4 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}
+        {visibleActions.length > 0 && <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">{visibleActions.map(action => <Button key={action.label} variant={action.danger ? "destructive" : "outline"} disabled={busy} onClick={() => requestAction(action)}>{action.label}</Button>)}</div>}
+        <Button className="mt-6 w-full" size="lg" onClick={onClose} disabled={busy}>إغلاق</Button>
+      </section>
+    </div>
+    {pendingAction && <RecordOperationDialog key={pendingAction.label} action={pendingAction} busy={busy} error={error} onClose={() => { if (!busy) { setPendingAction(undefined); setError("") } }} onSubmit={values => run(pendingAction, values)} />}
+  </>
+}
+
+function RecordOperationDialog({ action, busy, error, onClose, onSubmit }: { action: RecordAction; busy: boolean; error: string; onClose: () => void; onSubmit: (values: Record<string, string>) => Promise<void> }) {
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries((action.fields ?? []).map(field => [field.name, field.initial ?? ""])))
+  const [validationError, setValidationError] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const missing = action.fields?.find(field => field.required && !values[field.name]?.trim())
+    if (missing) { setValidationError(`أدخل ${missing.label}.`); return }
+    const numberField = action.fields?.find(field => field.type === "number" && field.min !== undefined && Number(values[field.name]) < field.min)
+    if (numberField) { setValidationError(`${numberField.label} يجب ألا يقل عن ${numberField.min}.`); return }
+    if (values.reason !== undefined && values.reason.trim().length < 3) { setValidationError("اكتب سببًا واضحًا من 3 أحرف على الأقل."); return }
+    if (values.email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) { setValidationError("أدخل بريدًا إلكترونيًا صحيحًا."); return }
+    if (values.password !== undefined && values.password.length < 12) { setValidationError("كلمة المرور يجب ألا تقل عن 12 حرفًا."); return }
+    if (values.confirmPassword !== undefined && values.password !== values.confirmPassword) { setValidationError("كلمتا المرور غير متطابقتين."); return }
+    setValidationError("")
+    void onSubmit(values)
+  }
+
+  return <div className="fixed inset-0 z-[85] grid place-items-end bg-black/70 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}>
+    <section role="dialog" aria-modal="true" aria-labelledby="operation-title" className="max-h-[92vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:max-w-lg sm:rounded-[28px]">
+      <div className="flex items-start gap-3 border-b p-5 sm:p-6">
+        <span className={`grid size-11 shrink-0 place-items-center rounded-2xl ${action.danger ? "bg-destructive/10 text-destructive" : "bg-primary/15 text-amber-600"}`}>{action.danger ? <AlertTriangle /> : <LockKeyhole />}</span>
+        <div className="min-w-0 flex-1"><h2 id="operation-title" className="text-lg font-black">{action.label}</h2>{action.description && <p className="mt-1 text-xs leading-6 text-muted-foreground">{action.description}</p>}</div>
+        <Button variant="ghost" size="icon" onClick={onClose} disabled={busy} aria-label="إغلاق"><X /></Button>
+      </div>
+      <form onSubmit={submit} className="p-5 sm:p-6">
+        {(action.fields ?? []).length > 0 ? <div className="grid gap-5">{action.fields?.map(field => <label key={field.name} className="grid gap-2 text-sm font-bold">
+          <span>{field.label}{field.required && <span className="mr-1 text-destructive" aria-hidden="true">*</span>}</span>
+          {field.type === "textarea" ? <textarea value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} rows={4} className="min-h-28 w-full resize-y rounded-xl border bg-background px-4 py-3 text-sm font-medium outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15" /> : <div className="relative"><Input type={field.type === "password" ? (showPassword ? "text" : "password") : field.type} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} min={field.min} autoComplete={field.type === "password" ? "new-password" : undefined} className={field.type === "password" ? "pl-12" : undefined} />{field.type === "password" && <button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>}</div>}
+          {field.hint && <span className="text-[11px] font-normal leading-5 text-muted-foreground">{field.hint}</span>}
+        </label>)}</div> : <div className={`rounded-2xl p-4 text-sm leading-7 ${action.danger ? "bg-destructive/10 text-destructive" : "bg-secondary/60"}`}>راجع أثر هذا الإجراء ثم أكّد التنفيذ. لا تغلق الصفحة أثناء الحفظ.</div>}
+        {(validationError || error) && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{validationError || error}</p>}
+        <div className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row">
+          <Button type="button" variant="outline" className="sm:flex-1" onClick={onClose} disabled={busy}>إلغاء</Button>
+          <Button type="submit" variant={action.danger ? "destructive" : "default"} className="sm:flex-1" disabled={busy}>{busy ? "جارٍ الحفظ..." : action.confirmLabel ?? (action.danger ? "تأكيد الإجراء" : "حفظ التغييرات")}</Button>
+        </div>
+      </form>
+    </section>
+  </div>
 }
 
 function listPath(path: string, organizationId: string, branchId: string, search?: string) {
