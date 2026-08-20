@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/toast-provider";
 import {
   apiRequest,
   createIdempotencyKey,
@@ -60,6 +61,7 @@ const cashierPermissions = [
 
 export function CashierWorkstation() {
   const context = useAppContext();
+  const toast = useToast();
   const [members, setMembers] = useState<Member[]>([]);
   const [meals, setMeals] = useState<Meal[]>([]);
   const [retailProducts, setRetailProducts] = useState<RetailProduct[]>([]);
@@ -83,7 +85,6 @@ export function CashierWorkstation() {
   const [cashPointId, setCashPointId] = useState("");
   const [loading, setLoading] = useState(hasRuntimeApi());
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const authorized = cashierPermissions.filter((permission) =>
     context.canAccess([permission]),
@@ -179,7 +180,6 @@ export function CashierWorkstation() {
     if (!context.organizationId || !context.branchId || !cashPointId) return;
     setSaving(true);
     setError("");
-    setNotice("");
     try {
       await apiRequest(
         `/organizations/${context.organizationId}/cashier-shifts`,
@@ -192,7 +192,7 @@ export function CashierWorkstation() {
           }),
         },
       );
-      setNotice("تم فتح وردية الصندوق. يمكنك الآن استقبال المدفوعات النقدية.");
+      toast.success("تم فتح وردية الصندوق. يمكنك الآن استقبال المدفوعات النقدية.");
       await load();
     } catch (reason) {
       setError(humanError(reason, "تعذر فتح وردية الصندوق."));
@@ -205,13 +205,12 @@ export function CashierWorkstation() {
     if (!context.organizationId || !context.branchId || !selectedShift) return;
     setSaving(true);
     setError("");
-    setNotice("");
     try {
       await apiRequest(`/organizations/${context.organizationId}/cashier-shifts/${selectedShift.id}/closures`, {
         method: "POST",
         body: JSON.stringify({ branchId: context.branchId, actualClosingMinor: minor(closingBalance), reason: closingReason }),
       });
-      setNotice("تم إغلاق وردية الصندوق وتسجيل الرصيد الفعلي والفرق للمراجعة.");
+      toast.success("تم إغلاق وردية الصندوق وتسجيل الرصيد الفعلي والفرق للمراجعة.");
       setShiftId("");
       setClosingBalance("0");
       await load();
@@ -232,7 +231,6 @@ export function CashierWorkstation() {
     }
     setSaving(true);
     setError("");
-    setNotice("");
     try {
       const order = await apiRequest<{ invoiceId?: string }>(
         `/organizations/${context.organizationId}/orders`,
@@ -255,7 +253,7 @@ export function CashierWorkstation() {
       );
       if (!order.data.invoiceId) throw new Error("لم تُنشأ فاتورة للطلب.");
       await recordPayment(order.data.invoiceId);
-      setNotice(saleKind === "MEAL" ? "تم التحصيل وتأكيد الطلب. وصل الآن إلى طابور المطبخ." : "تم التحصيل وتأكيد بيع المنتج وخصم الكمية من مخزون الفرع.");
+      toast.success(saleKind === "MEAL" ? "تم التحصيل وتأكيد الطلب. وصل الآن إلى طابور المطبخ." : "تم التحصيل وتأكيد بيع المنتج وخصم الكمية من مخزون الفرع.");
       setMealId("");
       setProductId("");
       setQuantity("1");
@@ -313,10 +311,9 @@ export function CashierWorkstation() {
     }
     setSaving(true);
     setError("");
-    setNotice("");
     try {
       await recordPayment(paymentInvoiceId);
-      setNotice("تم تسجيل الدفعة وتحديث حالة الفاتورة والطلب المرتبط بها.");
+      toast.success("تم تسجيل الدفعة وتحديث حالة الفاتورة والطلب المرتبط بها.");
       await load();
     } catch (reason) {
       setError(humanError(reason, "تعذر تسجيل الدفعة."));
@@ -344,13 +341,7 @@ export function CashierWorkstation() {
           {authorized.length} صلاحيات تشغيلية فعالة
         </Badge>
       </header>
-      {(error || notice) && (
-        <p
-          className={`rounded-xl border px-4 py-3 text-sm ${error ? "border-red-300 bg-red-50 text-red-700" : "border-emerald-300 bg-emerald-50 text-emerald-700"}`}
-        >
-          {error || notice}
-        </p>
-      )}
+      {error && <p role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
       {missing.length ? (
         <Card>
           <CardContent className="p-5">

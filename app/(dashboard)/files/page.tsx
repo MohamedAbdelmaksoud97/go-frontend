@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CheckCircle2, FileCheck2, FileUp, Loader2, Search, ShieldCheck } from "lucide-react"
+import { FileCheck2, FileUp, Loader2, Search, ShieldCheck } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
@@ -9,11 +9,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { useToast } from "@/components/toast-provider"
 
 type UploadGrant={fileId:string;signedUploadUrl:string;expectedVersion?:number;headers?:Record<string,string>}
 type Owner={id:string;fullNameAr?:string;memberName?:string;displayName?:string;memberNumber?:string;employeeNumber?:string;expenseNumber?:string;description?:string}
 
 export default function FilesPage(){
+ const toast=useToast()
  const context=useAppContext()
  const [file,setFile]=useState<File>()
  const [ownerType,setOwnerType]=useState("MEMBER")
@@ -54,7 +56,7 @@ export default function FilesPage(){
    if(!uploaded.ok)throw new Error()
    setProgress(80)
    await apiRequest(`/organizations/${context.organizationId}/files/${grant.data.fileId}/upload-completions`,{method:"POST",body:JSON.stringify({expectedVersion:grant.data.expectedVersion??1})})
-   setProgress(100);setMessage("تم رفع الملف بنجاح. سيظهر للتنزيل بعد اكتمال المراجعة الأمنية.")
+   setProgress(100);setMessage("");toast.success("تم رفع الملف بنجاح وأصبح مرتبطًا بالسجل المحدد.")
   }catch(reason){setMessage(humanError(reason,"تعذر رفع الملف. تحقق من الاتصال وحاول مرة أخرى."))}finally{setLoading(false)}
  }
 
@@ -69,7 +71,7 @@ export default function FilesPage(){
    <label className="text-xs font-bold">اختر الملف<Input type="file" accept="application/pdf,image/jpeg,image/png" className="mt-2 h-11 pt-2" onChange={event=>setFile(event.target.files?.[0])}/></label>
    {file&&<div className="flex items-center gap-3 rounded-xl bg-secondary p-4 sm:col-span-2"><FileCheck2 className="text-emerald-500"/><div className="min-w-0"><p className="truncate text-xs font-bold">{file.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{(file.size/1024/1024).toFixed(2)} ميجابايت · {file.type==="application/pdf"?"مستند PDF":"صورة"}</p></div></div>}
    {loading&&<div className="sm:col-span-2"><div className="h-2 overflow-hidden rounded-full bg-secondary"><div className="h-full bg-primary transition-all" style={{width:`${progress}%`}}/></div><p className="mt-2 text-[10px] text-muted-foreground">جارٍ رفع الملف… {progress}%</p></div>}
-   {message&&<p className={`rounded-xl p-3 text-xs sm:col-span-2 ${progress===100?"bg-emerald-500/10 text-emerald-600":"bg-red-500/10 text-red-600"}`}>{progress===100&&<CheckCircle2 className="ml-2 inline size-4"/>}{message}</p>}
+   {message&&<p role="alert" className="rounded-xl bg-red-500/10 p-3 text-xs text-red-600 sm:col-span-2">{message}</p>}
    <Button className="h-11 sm:col-span-2" onClick={upload} disabled={!file||!ownerId||loading}>{loading?<Loader2 className="animate-spin"/>:<FileUp/>}رفع المستند</Button>
   </CardContent></Card>
  </div>

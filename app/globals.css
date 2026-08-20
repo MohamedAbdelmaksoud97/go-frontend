@@ -159,3 +159,9 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 @keyframes fade-up { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:none } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; } }
 @media print { aside, header, .print\:hidden { display:none!important } body { background:#fff!important;color:#000!important } main { padding:0!important } }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-10px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.toast-in { animation: toast-in .2s ease-out both; }

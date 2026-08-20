@@ -1,17 +1,19 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, CheckCircle2, Eye, EyeOff, FileCheck2, Loader2, Search, UploadCloud, X } from "lucide-react"
+import { AlertTriangle, Eye, EyeOff, FileCheck2, Loader2, Search, UploadCloud, X } from "lucide-react"
 import { endpoints } from "@/lib/endpoint-catalog"
 import { apiRequest, createIdempotencyKey, executeOperation, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { type Choice, type FormValues, workflows } from "@/lib/workflows"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useToast } from "@/components/toast-provider"
 
 type Props = { operationId: string; organizationId: string; branchId: string; onClose: () => void; onSaved?: () => void }
 
 export function ActionDialog({ operationId, organizationId, branchId, onClose, onSaved }: Props) {
+  const toast = useToast()
   const workflow = workflows[operationId]
   const context = useMemo(() => ({ organizationId, branchId }), [organizationId, branchId])
   const [values, setValues] = useState<FormValues>(() => workflow?.initial(context) ?? {})
@@ -20,8 +22,6 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const [loadingOptions, setLoadingOptions] = useState(() => Boolean(hasRuntimeApi() && workflow?.fields.some(field => field.type === "reference")))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-  const [done, setDone] = useState(false)
-  const [completionNote, setCompletionNote] = useState("")
 
   useEffect(() => {
     if (!workflow || !hasRuntimeApi()) return
@@ -51,18 +51,27 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
     if (validationError) { setError(validationError); return }
     setSaving(true); setError("")
     try {
-      const path = operation.path.replace("{organizationId}", organizationId).replace("{branchId}", branchId)
-      const response = hasRuntimeApi() ? await executeOperation<Record<string, unknown>>(path, operation.method, {}, workflow.body(values, context), operation.idempotent ? createIdempotencyKey() : undefined) : undefined
-      if (operationId === "createEmployee" && response?.data.id) {
-        const employeeId = String(response.data.id)
+      const isSubscriptionSale = operationId === "createSubscription"
+      const path = isSubscriptionSale ? `/organizations/${organizationId}/orders` : operation.path.replace("{organizationId}", organizationId).replace("{branchId}", branchId)
+      const body = isSubscriptionSale ? {
+        sellingBranchId: branchId,
+        memberId: values.memberId,
+        memberSegment: "OTHER",
+        lines: [{ type: "MEMBERSHIP", targetId: values.packageId, quantity: 1, accessBranchId: branchId, startAt: new Date(String(values.startAt)).toISOString() }],
+      } : workflow.body(values, context)
+      const response = hasRuntimeApi() ? await executeOperation<Record<string, unknown>>(path, isSubscriptionSale ? "post" : operation.method, {}, body, isSubscriptionSale || operation.idempotent ? createIdempotencyKey() : undefined) : undefined
+      if (["createEmployee", "registerMember"].includes(operationId) && response?.data.id) {
+        const ownerId = String(response.data.id)
         try {
-          if (values.identityImage instanceof File) await uploadEmployeeFile(organizationId, employeeId, "IDENTITY", values.identityImage)
-          if (values.profileImage instanceof File) await uploadEmployeeFile(organizationId, employeeId, "PROFILE", values.profileImage)
+          const owner = operationId === "createEmployee" ? { module: "workforce" as const, type: "EMPLOYEE" as const } : { module: "members" as const, type: "MEMBER" as const }
+          if (values.identityImage instanceof File) await uploadOwnerFile(organizationId, ownerId, owner, "IDENTITY", values.identityImage)
+          if (values.profileImage instanceof File) await uploadOwnerFile(organizationId, ownerId, owner, "PROFILE", values.profileImage)
         } catch {
-          setCompletionNote("تم إنشاء الموظف وحسابه بنجاح، لكن تعذّر رفع إحدى الصور. يمكنك رفعها لاحقًا من ملفات الموظف.")
+          toast.warning(`تم إنشاء ${operationId === "createEmployee" ? "الموظف وحسابه" : "العضو"}، لكن تعذّر رفع إحدى الصور. يمكنك رفعها لاحقًا من قسم الملفات.`)
         }
       }
-      setDone(true); onSaved?.()
+      const invoiceNumber = response?.data.invoiceNumber
+      toast.success(isSubscriptionSale && invoiceNumber ? `تم إنشاء الاشتراك والفاتورة رقم ${String(invoiceNumber)}. سيُفعّل الاشتراك تلقائيًا بعد تحصيل الفاتورة.` : workflow.successMessage); onSaved?.(); onClose()
     } catch (reason) { setError(humanError(reason)) }
     finally { setSaving(false) }
   }
@@ -73,13 +82,12 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         <div className="min-w-0"><p className="text-[11px] font-bold text-amber-600 dark:text-primary">إجراء جديد</p><h2 id="action-title" className="mt-1 text-xl font-black">{workflow.title}</h2><p className="mt-2 text-xs leading-6 text-muted-foreground">{workflow.description}</p></div>
         <Button variant="ghost" size="icon" className="mr-auto" onClick={onClose} aria-label="إغلاق"><X /></Button>
       </header>
-      {done ? <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-16 place-items-center rounded-full bg-emerald-500/10 text-emerald-600"><CheckCircle2 className="size-8" /></span><h3 className="mt-5 text-lg font-black">تم بنجاح</h3><p className="mt-2 max-w-md text-sm leading-7 text-muted-foreground">{completionNote || workflow.successMessage}</p><Button size="lg" className="mt-7 min-w-40" onClick={onClose}>تم</Button></div> :
       <form onSubmit={submit} className="p-5 sm:p-6">
         {workflow.confirm && <div className="mb-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6"><AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" /><p>{workflow.confirm}</p></div>}
         <div className="grid gap-5 sm:grid-cols-2">{workflow.fields.map(field => <Field key={field.name} field={field} value={values[field.name]} choices={options[field.name]} loading={loadingOptions} referenceQuery={referenceQueries[field.name] ?? ""} onReferenceSearch={query => setReferenceQueries(current => ({ ...current, [field.name]: query }))} onChange={value => setValues(current => ({ ...current, [field.name]: value }))} />)}</div>
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
         <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions}>{saving && <Loader2 className="animate-spin" />}{workflow.submitLabel}</Button></footer>
-      </form>}
+      </form>
     </section>
   </div>
 }
@@ -95,18 +103,20 @@ function Field({ field, value, choices = [], loading, referenceQuery, onReferenc
 }
 
 function validateValues(operationId: string, values: FormValues): string {
-  if (operationId !== "createEmployee") return ""
-  const employeeNumber = String(values.employeeNumber ?? "").trim().toUpperCase()
-  const password = String(values.password ?? "")
-  if (!/^EMP\d{3,10}$/u.test(employeeNumber)) return "الرقم الوظيفي يجب أن يبدأ بـ EMP ثم من 3 إلى 10 أرقام، مثل EMP001."
-  if (password.length < 12) return "كلمة المرور يجب ألا تقل عن 12 حرفًا."
-  if (password !== String(values.confirmPassword ?? "")) return "كلمتا المرور غير متطابقتين."
+  if (operationId === "createEmployee") {
+    const employeeNumber = String(values.employeeNumber ?? "").trim().toUpperCase()
+    const password = String(values.password ?? "")
+    if (!/^EMP\d{3,10}$/u.test(employeeNumber)) return "الرقم الوظيفي يجب أن يبدأ بـ EMP ثم من 3 إلى 10 أرقام، مثل EMP001."
+    if (password.length < 12) return "كلمة المرور يجب ألا تقل عن 12 حرفًا."
+    if (password !== String(values.confirmPassword ?? "")) return "كلمتا المرور غير متطابقتين."
+  }
+  if (!["createEmployee", "registerMember"].includes(operationId)) return ""
   for (const key of ["identityImage", "profileImage"] as const) {
     const file = values[key]
     if (!(file instanceof File)) continue
-    if (file.size > 10 * 1024 * 1024) return `${key === "identityImage" ? "صورة الهوية" : "صورة الموظف"} تتجاوز الحد الأقصى وهو 10 ميجابايت.`
-    const allowed = key === "identityImage" ? ["image/jpeg", "image/png", "application/pdf"] : ["image/jpeg", "image/png", "image/webp"]
-    if (!allowed.includes(file.type)) return `صيغة ${key === "identityImage" ? "صورة الهوية" : "صورة الموظف"} غير مدعومة.`
+    if (file.size > 10 * 1024 * 1024) return `${key === "identityImage" ? "صورة الهوية" : operationId === "createEmployee" ? "صورة الموظف" : "صورة العضو"} تتجاوز الحد الأقصى وهو 10 ميجابايت.`
+    const allowed = key === "identityImage" ? ["image/jpeg", "image/png", "application/pdf"] : ["image/jpeg", "image/png"]
+    if (!allowed.includes(file.type)) return `صيغة ${key === "identityImage" ? "صورة الهوية" : operationId === "createEmployee" ? "صورة الموظف" : "صورة العضو"} غير مدعومة.`
   }
   return ""
 }
@@ -128,16 +138,16 @@ function toChoice(item: unknown, labelKeys: string[], subtitleKeys: string[] = [
   return [{ value: id, label: [label, subtitle].filter(Boolean).join(" — ") || "سجل متاح" }]
 }
 
-async function uploadEmployeeFile(organizationId: string, employeeId: string, kind: "IDENTITY" | "PROFILE", file: File) {
+async function uploadOwnerFile(organizationId: string, ownerId: string, owner: { module: "workforce" | "members"; type: "EMPLOYEE" | "MEMBER" }, kind: "IDENTITY" | "PROFILE", file: File) {
   if (file.size > 10 * 1024 * 1024) throw new Error("file_too_large")
   const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()))).map(byte => byte.toString(16).padStart(2, "0")).join("")
   const request = await apiRequest<{ fileId: string; uploadUrl: string; expectedVersion: number }>(`/organizations/${organizationId}/files/upload-requests`, {
     method: "POST",
     headers: { "Idempotency-Key": createIdempotencyKey() },
-    body: JSON.stringify({ ownerModule: "workforce", ownerType: "EMPLOYEE", ownerId: employeeId, purpose: kind === "IDENTITY" ? "IDENTITY_DOCUMENT" : "PROFILE_PHOTO", originalFilename: file.name, mimeType: file.type, size: file.size, checksumSha256: sha256 }),
+    body: JSON.stringify({ ownerModule: owner.module, ownerType: owner.type, ownerId, purpose: kind === "IDENTITY" ? "IDENTITY_DOCUMENT" : "PROFILE_PHOTO", originalFilename: file.name, mimeType: file.type, size: file.size, checksumSha256: sha256 }),
   })
   const upload = await fetch(request.data.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file })
-  if (!upload.ok) throw new Error("employee_file_upload_failed")
+  if (!upload.ok) throw new Error("owner_file_upload_failed")
   await apiRequest(`/organizations/${organizationId}/files/${request.data.fileId}/upload-completions`, {
     method: "POST",
     headers: { "Idempotency-Key": createIdempotencyKey() },

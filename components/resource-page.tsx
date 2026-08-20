@@ -37,6 +37,8 @@ type RecordAction = {
   danger?: boolean
   method?: "POST" | "PATCH"
   fields?: RecordActionField[]
+  requiresConfirmation?: boolean
+  responseMessage?: (data: ApiRecord) => string
 }
 
 export function ResourcePage({ config }: { config: SectionConfig }) {
@@ -44,6 +46,7 @@ export function ResourcePage({ config }: { config: SectionConfig }) {
   const [query, setQuery] = useState("")
   const [databaseQuery, setDatabaseQuery] = useState("")
   const [status, setStatus] = useState("")
+  const [filterBranchId, setFilterBranchId] = useState(context.branchId)
   const [showAction, setShowAction] = useState(false)
   const [selectedRow, setSelectedRow] = useState<{ row: string[]; record: ApiRecord }>()
   const [serverRows, setServerRows] = useState<string[][]>(config.rows)
@@ -58,8 +61,9 @@ export function ResourcePage({ config }: { config: SectionConfig }) {
   const createPermission = config.createOperationId === undefined ? undefined : operationPermissions[config.createOperationId]
   const canRead = listPermission === undefined || context.canAccess([listPermission])
   const canCreate = createPermission !== undefined && context.canAccess([createPermission])
-  const statuses = useMemo(() => config.statusIndex === undefined ? [] : [...new Set(serverRows.map(row => row[config.statusIndex!]).filter(Boolean))], [config.statusIndex, serverRows])
-  const rows = useMemo(() => serverRows.filter(row => (config.listOperationId === "listMembers" || row.some(cell => cell.toLowerCase().includes(query.toLowerCase()))) && (!status || config.statusIndex === undefined || row[config.statusIndex] === status)), [config.listOperationId, config.statusIndex, query, serverRows, status])
+  const serverFiltered = config.listOperationId === "listMembers" || config.listOperationId === "listSubscriptions"
+  const statuses = useMemo(() => statusOptions(config.listOperationId, serverRows, config.statusIndex), [config.listOperationId, config.statusIndex, serverRows])
+  const rows = useMemo(() => serverRows.filter(row => (serverFiltered || row.some(cell => cell.toLowerCase().includes(query.toLowerCase()))) && (serverFiltered || !status || config.statusIndex === undefined || row[config.statusIndex] === status)), [config.statusIndex, query, serverFiltered, serverRows, status])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDatabaseQuery(query.trim()), 300)
@@ -72,7 +76,7 @@ export function ResourcePage({ config }: { config: SectionConfig }) {
     return () => { cancelled = true; cancelAnimationFrame(frame) }
   // The page cache must reset whenever the selected resource/context changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.fields, context.branchId, context.branches, context.organizationId, databaseQuery, listOperation])
+  }, [config.fields, context.branchId, context.branches, context.organizationId, databaseQuery, filterBranchId, listOperation, status])
 
   async function loadPage(targetPage: number, cancelled = false) {
     if (!hasRuntimeApi() || !listOperation || !context.organizationId) { setLoading(false); return }
@@ -82,8 +86,13 @@ export function ResourcePage({ config }: { config: SectionConfig }) {
     if (targetPage > 0 && !previous?.nextCursor) return
     setLoading(true); setError("")
     try {
-      const url = new URL(listPath(listOperation.path, context.organizationId, context.branchId, config.listOperationId === "listMembers" ? databaseQuery : undefined), "http://local")
+      const url = new URL(listPath(listOperation.path, context.organizationId, context.branchId, !serverFiltered), "http://local")
       url.searchParams.set("limit", "25")
+      if (serverFiltered) {
+        if (databaseQuery) url.searchParams.set("search", databaseQuery)
+        if (status) url.searchParams.set("status", status)
+        if (filterBranchId) url.searchParams.set("branchId", filterBranchId)
+      }
       if (config.listOperationId === "getBranchDailyReport") {
         const reportRange = lastThirtyBusinessDays()
         url.searchParams.set("from", reportRange.from)
@@ -112,7 +121,7 @@ export function ResourcePage({ config }: { config: SectionConfig }) {
   return <div className="fade-up">
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/8 text-amber-700 dark:text-primary">{config.eyebrow}</Badge><h1 className="text-2xl font-black tracking-tight sm:text-3xl">{config.title}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{config.description}</p></div><div className="flex gap-2"><Button size="lg" variant="outline" onClick={exportCsv} disabled={!rows.length}><Download />تصدير</Button>{canCreate && <Button size="lg" className="brand-shadow" onClick={() => setShowAction(true)}><Plus />{config.action}</Button>}</div></div>
     <section className="grid gap-4 md:grid-cols-3">{config.metrics.map((metric, index) => <Card key={metric.label}><CardContent className="flex items-center gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-xl ${index === 0 ? "bg-primary/15 text-amber-600" : index === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{index === 0 ? <BarChart3 /> : index === 1 ? <Sparkles /> : <SlidersHorizontal />}</span><div><p className="text-[11px] font-semibold text-muted-foreground">{metricLabel(config.listOperationId, index, metric.label)}</p><p className="mt-1 text-xl font-black">{metricValue(config.listOperationId, index, serverRecords)}</p><p className="mt-1 text-[9px] text-muted-foreground">{metricNote(serverRecords.length, metric.note)}</p></div></CardContent></Card>)}</section>
-    <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}</div>
+    <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}{serverFiltered && context.branches.length > 1 && <select aria-label="تصفية حسب الفرع" value={filterBranchId} onChange={event => setFilterBranchId(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الفروع المسموح بها</option>{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.nameAr ?? branch.name ?? "فرع"}</option>)}</select>}</div>
       <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="w-10 px-4"><span className="sr-only">عرض التفاصيل</span></th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : cell}</td>)}<td className="px-4"><Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => { const sourceIndex = serverRows.indexOf(row); setSelectedRow({ row, record: serverRecords[sourceIndex] ?? {} }) }}><MoreHorizontal /></Button></td></tr>)}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
       <div className="flex items-center justify-between border-t p-4"><p className="text-[10px] text-muted-foreground">عرض {rows.length} سجلًا · الصفحة {page + 1}</p><div className="flex items-center gap-1"><Button variant="outline" size="icon-sm" disabled={page === 0 || loading} aria-label="الصفحة السابقة" onClick={() => void loadPage(page - 1)}><ChevronRight /></Button>{Array.from({ length: knownPages }, (_, index) => <Button key={index} variant={index === page ? "default" : "outline"} size="icon-sm" disabled={loading} aria-label={`الصفحة ${index + 1}`} onClick={() => void loadPage(index)}>{index + 1}</Button>)}<Button variant="outline" size="icon-sm" disabled={loading || !pageCache.current[page]?.nextCursor} aria-label="الصفحة التالية" onClick={() => void loadPage(page + 1)}><ChevronLeft /></Button></div></div>
     </Card>
@@ -125,11 +134,23 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
   const context = useAppContext()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const [actionResult, setActionResult] = useState("")
   const [pendingAction, setPendingAction] = useState<RecordAction>()
   const status = String(record.status ?? "")
   const id = String(record.id ?? record.subscriptionId ?? record.reservationId ?? "")
   const version = Number(record.version ?? 1)
   const actions: RecordAction[] = []
+
+  if (operationId === "listMembers" && id && String(record.accountStatus ?? "NOT_LINKED") !== "LINKED") actions.push({
+    label: "إصدار رمز تفعيل حساب العضو",
+    permission: "members.accounts.manage",
+    path: `/organizations/${organizationId}/members/${id}/account-activation-codes`,
+    requiresConfirmation: true,
+    description: "سيُلغى أي رمز سابق ويُصدر رمز جديد صالح لمدة 15 دقيقة. سلّمه للعضو ليحدد كلمة مروره بنفسه من صفحة تفعيل الحساب.",
+    confirmLabel: "إصدار الرمز",
+    body: () => ({}),
+    responseMessage: data => `رمز التفعيل: ${String(data.activationCode ?? "")}\nرقم العضوية: ${String(data.memberNumber ?? "")}\nالجوال: ${String(data.phoneE164 ?? "")}\nصالح لمدة 15 دقيقة فقط.`,
+  })
 
   if (operationId === "listSubscriptions" && id) {
     if (status === "PENDING_ACTIVATION") actions.push({ label: "تفعيل الاشتراك", permission: "subscriptions.activate", path: `/organizations/${organizationId}/subscriptions/${id}/activations`, body: () => ({ expectedVersion: version }) })
@@ -214,8 +235,10 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
     setBusy(true)
     setError("")
     try {
-      await apiRequest(action.path, { method: action.method ?? "POST", body: JSON.stringify(action.body(values)) })
-      onChanged()
+      const response = await apiRequest<ApiRecord>(action.path, { method: action.method ?? "POST", body: JSON.stringify(action.body(values)) })
+      if (action.responseMessage) {
+        setActionResult(action.responseMessage(response.data)); setPendingAction(undefined)
+      } else onChanged()
     } catch (reason) {
       setError(humanError(reason, "تعذر تنفيذ الإجراء. راجع البيانات ثم حاول مرة أخرى."))
     } finally {
@@ -226,7 +249,7 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
   const visibleActions = actions.filter(action => context.canAccess([action.permission]))
   function requestAction(action: RecordAction) {
     setError("")
-    if (action.fields?.length || action.danger) setPendingAction(action)
+    if (action.fields?.length || action.danger || action.requiresConfirmation) setPendingAction(action)
     else void run(action)
   }
 
@@ -236,6 +259,7 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
         <div className="flex items-center"><span className="grid size-10 place-items-center rounded-xl bg-primary/15 text-amber-600"><Eye /></span><div className="mr-3"><p className="text-[10px] text-muted-foreground">ملخص السجل</p><h2 id="record-title" className="font-black">{row[0]}</h2></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} disabled={busy} aria-label="إغلاق"><X /></Button></div>
         <dl className="mt-6 grid gap-3 sm:grid-cols-2">{columns.map((label, index) => <div key={label} className="rounded-xl bg-secondary/55 p-4"><dt className="text-[10px] font-bold text-muted-foreground">{label}</dt><dd className="mt-2 text-sm font-bold">{index === statusIndex ? <StatusBadge status={row[index]} /> : row[index]}</dd></div>)}</dl>
         {error && !pendingAction && <p className="mt-4 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}
+        {actionResult && <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"><p className="text-xs font-black text-emerald-600">تم إصدار بيانات التفعيل</p><p dir="ltr" className="mt-2 whitespace-pre-line text-left font-mono text-sm font-bold leading-7">{actionResult}</p><p className="mt-2 text-[10px] text-muted-foreground">لا يُحفظ الرمز بصورته الأصلية، لذلك انسخه الآن وسلّمه للعضو عبر قناة آمنة.</p></div>}
         {visibleActions.length > 0 && <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">{visibleActions.map(action => <Button key={action.label} variant={action.danger ? "destructive" : "outline"} disabled={busy} onClick={() => requestAction(action)}>{action.label}</Button>)}</div>}
         <Button className="mt-6 w-full" size="lg" onClick={onClose} disabled={busy}>إغلاق</Button>
       </section>
@@ -286,11 +310,18 @@ function RecordOperationDialog({ action, busy, error, onClose, onSubmit }: { act
   </div>
 }
 
-function listPath(path: string, organizationId: string, branchId: string, search?: string) {
+function listPath(path: string, organizationId: string, branchId: string, includeBranch = true) {
   let resolved = path.replace("{organizationId}", organizationId).replace("{branchId}", branchId).replace(/^\/api\/v1/, "")
-  if (branchId && !path.includes("{branchId}")) resolved += `${resolved.includes("?") ? "&" : "?"}branchId=${encodeURIComponent(branchId)}`
-  if (search) resolved += `${resolved.includes("?") ? "&" : "?"}search=${encodeURIComponent(search)}`
+  if (includeBranch && branchId && !path.includes("{branchId}")) resolved += `${resolved.includes("?") ? "&" : "?"}branchId=${encodeURIComponent(branchId)}`
   return resolved
+}
+
+function statusOptions(operationId: string, rows: string[][], statusIndex?: number) {
+  const fixed: Record<string, string[]> = {
+    listMembers: ["ACTIVE", "INACTIVE"],
+    listSubscriptions: ["PENDING_ACTIVATION", "SCHEDULED", "ACTIVE", "ACTIVE_PROVISIONAL", "FROZEN", "EXPIRED", "CANCELLED"],
+  }
+  return fixed[operationId] ?? (statusIndex === undefined ? [] : [...new Set(rows.map(row => row[statusIndex]).filter(Boolean))])
 }
 
 function toList(data: unknown): ApiRecord[] {
@@ -393,4 +424,4 @@ function metricNote(recordCount: number, fallback: string) {
   return recordCount ? "محسوب من سجلات الصفحة الحالية" : fallback
 }
 
-function statusLabel(value: string) { return ({ ACTIVE: "نشط", INACTIVE: "غير نشط", PENDING: "قيد المراجعة", PENDING_ACTIVATION: "بانتظار التفعيل", FROZEN: "مجمّد", EXPIRED: "منتهي", CANCELLED: "ملغي", ACCEPTED: "مسموح", REJECTED: "مرفوض", PAID: "مدفوع", PARTIALLY_PAID: "مدفوع جزئيًا", DRAFT: "مسودة", SCHEDULED: "مجدول", COMPLETED: "مكتمل", NEW: "جديد", CONTACTED: "تم التواصل", QUALIFIED: "مؤهل", PREPARING: "قيد التحضير", READY: "جاهز" } as Record<string, string>)[value] ?? value }
+function statusLabel(value: string) { return ({ ACTIVE: "نشط", ACTIVE_PROVISIONAL: "نشط مؤقتًا", INACTIVE: "غير نشط", LINKED: "مرتبط", ACTIVATION_PENDING: "رمز تفعيل صادر", NOT_LINKED: "غير مرتبط", PENDING: "قيد المراجعة", PENDING_ACTIVATION: "بانتظار السداد والتفعيل", FROZEN: "مجمّد", EXPIRED: "منتهي", CANCELLED: "ملغي", ACCEPTED: "مسموح", REJECTED: "مرفوض", PAID: "مدفوع", PARTIALLY_PAID: "مدفوع جزئيًا", DRAFT: "مسودة", SCHEDULED: "مجدول", COMPLETED: "مكتمل", NEW: "جديد", CONTACTED: "تم التواصل", QUALIFIED: "مؤهل", PREPARING: "قيد التحضير", READY: "جاهز" } as Record<string, string>)[value] ?? value }

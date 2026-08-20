@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { useToast } from "@/components/toast-provider"
 
 type Profile = {
   displayName: string
@@ -30,6 +31,7 @@ const emptyProfile: Profile = {
 }
 
 export default function AccountPage() {
+  const toast = useToast()
   const [profile, setProfile] = useState<Profile>(emptyProfile)
   const [loading, setLoading] = useState(hasRuntimeApi())
   const [saving, setSaving] = useState(false)
@@ -53,7 +55,8 @@ export default function AccountPage() {
         const response = await apiRequest<Profile>("/self/account", { method: "PATCH", body: JSON.stringify({ ...body, expectedVersion: version }) })
         setProfile(response.data)
       }
-      setMessage("تم حفظ التغييرات بنجاح")
+      setMessage("")
+      toast.success("تم حفظ التغييرات بنجاح")
     } catch (error) {
       setMessage(humanError(error, "تعذر حفظ التغييرات. حاول مرة أخرى."))
     } finally {
@@ -82,7 +85,7 @@ export default function AccountPage() {
           <p className="rounded-xl border border-dashed p-4 text-xs leading-6 text-muted-foreground">تكامل واتساب غير مفعّل حاليًا، ولن يرسل النظام رسائل واتساب قبل ربط المزود لاحقًا.</p>
         </CardContent>
       </Card>
-      <div className="mt-5 flex items-center"><p className="text-xs text-emerald-600">{message}</p><Button type="submit" size="lg" className="mr-auto" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Save />}حفظ التغييرات</Button></div>
+      <div className="mt-5 flex items-center">{message && <p role="alert" className="text-xs text-red-600">{message}</p>}<Button type="submit" size="lg" className="mr-auto" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Save />}حفظ التغييرات</Button></div>
     </form>}
   </div>
 }

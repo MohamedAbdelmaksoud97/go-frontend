@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { useToast } from "@/components/toast-provider"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 
@@ -20,6 +21,7 @@ const emptyNutrition: Nutrition = { caloriesKcal: 0, proteinGrams: 0, carbohydra
 
 export function RestaurantManagementPage() {
   const context = useAppContext()
+  const toast = useToast()
   const [tab, setTab] = useState<"menu" | "catalog" | "kitchen">("menu")
   const [date, setDate] = useState(todayRiyadh())
   const [categories, setCategories] = useState<Row[]>([])
@@ -29,7 +31,6 @@ export function RestaurantManagementPage() {
   const [orders, setOrders] = useState<Row[]>([])
   const [loading, setLoading] = useState(hasRuntimeApi())
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState("")
   const [error, setError] = useState("")
   const [mealForm, setMealForm] = useState({ code: "", name: "", categoryId: "", description: "", kind: "MEAL", portionClass: "UNRESTRICTED", allergens: "", ...emptyNutrition })
   const [priceForm, setPriceForm] = useState({ mealId: "", amount: "", taxRatePercent: "15", taxInclusive: true })
@@ -69,26 +70,26 @@ export function RestaurantManagementPage() {
 
   async function createMeal() {
     if (!context.organizationId) return
-    setSaving(true); setMessage(""); setError("")
+    setSaving(true); setError("")
     try {
       const nutrition = Object.fromEntries(Object.entries(emptyNutrition).map(([key]) => [key, number(mealForm[key as keyof Nutrition])])) as Nutrition
       await apiRequest(`/organizations/${context.organizationId}/restaurant/meals`, { method: "POST", body: JSON.stringify({ branchId: context.branchId, categoryId: mealForm.categoryId, code: mealForm.code, name: mealForm.name, description: mealForm.description || undefined, kind: mealForm.kind, portionClass: mealForm.portionClass, nutrition, allergens: split(mealForm.allergens) }) })
-      setMealForm(current => ({ ...current, code: "", name: "", description: "", allergens: "", ...emptyNutrition })); setMessage("تمت إضافة الوجبة وقيمها الغذائية."); await load()
+      setMealForm(current => ({ ...current, code: "", name: "", description: "", allergens: "", ...emptyNutrition })); toast.success("تمت إضافة الوجبة وقيمها الغذائية."); await load()
     } catch (reason) { setError(humanError(reason, "تعذر حفظ الوجبة.")) } finally { setSaving(false) }
   }
 
   async function createPrice() {
     if (!context.organizationId || !context.branchId || !priceForm.mealId) return
-    setSaving(true); setMessage(""); setError("")
+    setSaving(true); setError("")
     try {
       await apiRequest(`/organizations/${context.organizationId}/restaurant/meal-prices`, { method: "POST", body: JSON.stringify({ branchId: context.branchId, mealId: priceForm.mealId, amountMinor: String(Math.round(number(priceForm.amount) * 100)), taxRateBps: Math.round(number(priceForm.taxRatePercent) * 100), taxInclusive: priceForm.taxInclusive, validFrom: new Date(`${date}T00:00:00+03:00`).toISOString() }) })
-      setPriceForm(current => ({ ...current, amount: "" })); setMessage("تم حفظ سعر الفرع من تاريخ القائمة.")
+      setPriceForm(current => ({ ...current, amount: "" })); toast.success("تم حفظ سعر الفرع من تاريخ القائمة.")
     } catch (reason) { setError(humanError(reason, "تعذر حفظ السعر.")) } finally { setSaving(false) }
   }
 
   async function publishMenu() {
     if (!context.organizationId || !context.branchId || menuItems.length === 0) { setError("اختر وجبة واحدة على الأقل لقائمة اليوم."); return }
-    setSaving(true); setMessage(""); setError("")
+    setSaving(true); setError("")
     try {
       const path = `/organizations/${context.organizationId}/branches/${context.branchId}/daily-menus/${date}`
       const normalized = menuItems.map(item => ({ mealId: item.mealId, enabled: item.enabled, ...(item.availableQuantity === undefined ? {} : { availableQuantity: item.availableQuantity }), ...(item.specialPriceMinor === undefined ? {} : { specialPriceMinor: item.specialPriceMinor }) }))
@@ -100,30 +101,30 @@ export function RestaurantManagementPage() {
         active = (await apiRequest<Menu>(path, { method: "PUT", body: JSON.stringify({ expectedVersion: active.version, items: normalized }) })).data
         if (active.status === "DRAFT") active = (await apiRequest<Menu>(`${path}/publications`, { method: "POST", body: JSON.stringify({ expectedVersion: active.version }) })).data
       }
-      setMenu(active); setMenuItems(active.items); setMessage("تم نشر قائمة اليوم وتحديث ما يظهر للمشتركين.")
+      setMenu(active); setMenuItems(active.items); toast.success("تم نشر قائمة اليوم وتحديث ما يظهر للمشتركين.")
     } catch (reason) { setError(humanError(reason, "تعذر حفظ قائمة اليوم.")) } finally { setSaving(false) }
   }
 
   async function hideMenu() {
     if (!context.organizationId || !context.branchId || !menu || menu.status !== "PUBLISHED") return
-    setSaving(true); setMessage(""); setError("")
+    setSaving(true); setError("")
     try {
       const hiddenItems = menuItems.map(item => ({ mealId: item.mealId, enabled: false, ...(item.availableQuantity === undefined ? {} : { availableQuantity: item.availableQuantity }), ...(item.specialPriceMinor === undefined ? {} : { specialPriceMinor: item.specialPriceMinor }) }))
       const response = await apiRequest<Menu>(`/organizations/${context.organizationId}/branches/${context.branchId}/daily-menus/${date}`, { method: "PUT", body: JSON.stringify({ expectedVersion: menu.version, items: hiddenItems }) })
-      setMenu(response.data); setMenuItems(response.data.items); setMessage("تم إيقاف عرض قائمة اليوم للمشتركين. يمكنك إعادة تفعيل أي وجبة ونشر التحديث في أي وقت.")
+      setMenu(response.data); setMenuItems(response.data.items); toast.success("تم إيقاف عرض قائمة اليوم للمشتركين. يمكنك إعادة تفعيل أي وجبة ونشر التحديث في أي وقت.")
     } catch (reason) { setError(humanError(reason, "تعذر إيقاف عرض القائمة.")) } finally { setSaving(false) }
   }
 
   async function transitionOrder(order: Row, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") {
     if (!context.organizationId || !order.id) return
     setSaving(true); setError("")
-    try { await apiRequest(`/organizations/${context.organizationId}/restaurant-orders/${order.id}/transitions`, { method: "POST", body: JSON.stringify({ expectedVersion: order.version, action }) }); await load() }
+    try { await apiRequest(`/organizations/${context.organizationId}/restaurant-orders/${order.id}/transitions`, { method: "POST", body: JSON.stringify({ expectedVersion: order.version, action }) }); toast.success("تم تحديث حالة الطلب بنجاح."); await load() }
     catch (reason) { setError(humanError(reason, "تعذر تحديث حالة الطلب.")) } finally { setSaving(false) }
   }
 
   return <div className="fade-up space-y-5">
     <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><div className="flex gap-2"><Button variant={tab === "menu" ? "default" : "outline"} onClick={() => setTab("menu")}><ClipboardList />قائمة اليوم</Button><Button variant={tab === "catalog" ? "default" : "outline"} onClick={() => setTab("catalog")}><ChefHat />الوجبات والأسعار</Button><Button variant={tab === "kitchen" ? "default" : "outline"} onClick={() => setTab("kitchen")}><ShoppingBag />المطبخ</Button></div></header>
-    {(error || message) && <div className={`rounded-xl border px-4 py-3 text-sm ${error ? "border-red-300 bg-red-50 text-red-700" : "border-emerald-300 bg-emerald-50 text-emerald-700"}`}>{error || message}</div>}
+    {error && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
     {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : tab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} /> : tab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} saving={saving} />}
   </div>
 }
