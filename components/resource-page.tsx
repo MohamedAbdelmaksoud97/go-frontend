@@ -14,6 +14,7 @@ import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { ActionDialog } from "@/components/action-dialog"
 import { operationPermissions } from "@/lib/permissions"
+import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy"
 
 type BranchLookup = { id: string; nameAr?: string; name?: string }
 type ApiRecord = Record<string, unknown>
@@ -152,6 +153,19 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
     responseMessage: data => `رمز التفعيل: ${String(data.activationCode ?? "")}\nرقم العضوية: ${String(data.memberNumber ?? "")}\nالجوال: ${String(data.phoneE164 ?? "")}\nصالح لمدة 15 دقيقة فقط.`,
   })
 
+  if (operationId === "listMembers" && id && String(record.accountStatus ?? "NOT_LINKED") === "LINKED") actions.push({
+    label: "تعيين كلمة مرور جديدة للعضو",
+    permission: "members.accounts.manage",
+    path: `/organizations/${organizationId}/members/${id}/password-resets`,
+    description: "استخدم هذا الإجراء عندما ينسى العضو كلمة المرور أو عند تجهيز حسابه للاختبار. لن تظهر كلمة المرور القديمة ولا يمكن استعادتها.",
+    confirmLabel: "حفظ كلمة المرور الجديدة",
+    fields: [
+      { name: "password", label: "كلمة المرور الجديدة", type: "password", required: true, hint: "7 محارف على الأقل؛ أرقام أو حروف أو خليط. لا تستخدم كلمة مرور حساب الموظف أو المدير.", placeholder: "أدخل كلمة مرور للعضو" },
+      { name: "confirmPassword", label: "تأكيد كلمة المرور", type: "password", required: true, placeholder: "أعد كتابة كلمة المرور الجديدة" },
+    ],
+    body: values => ({ password: values.password }),
+  })
+
   if (operationId === "listSubscriptions" && id) {
     if (status === "PENDING_ACTIVATION") actions.push({ label: "تفعيل الاشتراك", permission: "subscriptions.activate", path: `/organizations/${organizationId}/subscriptions/${id}/activations`, body: () => ({ expectedVersion: version }) })
     if (status === "ACTIVE") actions.push({
@@ -215,7 +229,7 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
       description: "أنشئ كلمة مرور مؤقتة قوية وأرسلها للموظف عبر قناة آمنة. يستطيع الموظف استخدامها مع رقمه الوظيفي.",
       confirmLabel: "حفظ كلمة المرور",
       fields: [
-        { name: "password", label: "كلمة المرور الجديدة", type: "password", required: true, hint: "12 حرفًا على الأقل. يُفضّل الجمع بين الحروف والأرقام والرموز.", placeholder: "أدخل كلمة مرور قوية" },
+        { name: "password", label: "كلمة المرور الجديدة", type: "password", required: true, hint: "7 محارف على الأقل؛ أرقام أو حروف أو خليط.", placeholder: "أدخل كلمة المرور الجديدة" },
         { name: "confirmPassword", label: "تأكيد كلمة المرور", type: "password", required: true, placeholder: "أعد كتابة كلمة المرور" },
       ],
       body: values => ({ password: values.password }),
@@ -281,7 +295,7 @@ function RecordOperationDialog({ action, busy, error, onClose, onSubmit }: { act
     if (numberField) { setValidationError(`${numberField.label} يجب ألا يقل عن ${numberField.min}.`); return }
     if (values.reason !== undefined && values.reason.trim().length < 3) { setValidationError("اكتب سببًا واضحًا من 3 أحرف على الأقل."); return }
     if (values.email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) { setValidationError("أدخل بريدًا إلكترونيًا صحيحًا."); return }
-    if (values.password !== undefined && values.password.length < 12) { setValidationError("كلمة المرور يجب ألا تقل عن 12 حرفًا."); return }
+    if (values.password !== undefined && values.password.length < MIN_PASSWORD_LENGTH) { setValidationError(`كلمة المرور يجب ألا تقل عن ${MIN_PASSWORD_LENGTH} محارف.`); return }
     if (values.confirmPassword !== undefined && values.password !== values.confirmPassword) { setValidationError("كلمتا المرور غير متطابقتين."); return }
     setValidationError("")
     void onSubmit(values)

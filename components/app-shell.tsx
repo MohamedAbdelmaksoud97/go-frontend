@@ -4,8 +4,8 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
-  Barcode, Bell, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, CreditCard, FileText,
-  Dumbbell, LayoutDashboard, LogOut, Menu, Moon, Search, Settings,
+  Activity, Barcode, Bell, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, Compass, CreditCard, FileText,
+  Dumbbell, LayoutDashboard, LogOut, Menu, Moon, ReceiptText, Search, Settings,
   Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
 } from "lucide-react"
 import { BrandLogo } from "@/components/brand-logo"
@@ -40,7 +40,12 @@ const navGroups = [
     { href: "/system-settings/branches", label: "إعداد النظام", icon: Settings, permissions:["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"] },
   ]},
   { label: "مساحتي", items: [
-    { href: "/self-service", label: "الخدمة الذاتية", icon: UserCircle2, permissions:[] },
+    { href: "/self-service", label: "الرئيسية", icon: UserCircle2, permissions:[] },
+    { href: "/self-service/discover", label: "اكتشف واحجز", icon: Compass, permissions:[], memberOnly:true, memberCapability:"INTERACT" },
+    { href: "/self-service/meals", label: "وجبات اليوم", icon: Utensils, permissions:[], memberOnly:true, memberCapability:"BOOK" },
+    { href: "/self-service/membership", label: "عضويتي", icon: CreditCard, permissions:[], memberOnly:true },
+    { href: "/self-service/orders", label: "طلباتي وفواتيري", icon: ReceiptText, permissions:[], memberOnly:true },
+    { href: "/self-service/activity", label: "حجوزاتي ونشاطي", icon: Activity, permissions:[], memberOnly:true },
     { href: "/account", label: "إعدادات الحساب", icon: Settings, permissions:[] },
   ]},
 ]
@@ -53,8 +58,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [dark, setDark] = useState(false)
   const [notices, setNotices] = useState(false)
   const [globalSearch, setGlobalSearch] = useState("")
+  const hasMember = Boolean(context.self.members?.length)
+  const memberOnlyAccount = hasMember && context.grants.length === 0
   const accountName = context.account?.displayName?.trim() || "الحساب"
-  const accountSubtitle = context.canAccess(["iam.roles.manage"]) ? "مسؤول النظام" : context.grants.length ? "حساب موظف" : "عضو / ولي أمر"
+  const accountSubtitle = context.canAccess(["iam.roles.manage"]) ? "مسؤول النظام" : context.grants.length ? "حساب موظف" : hasMember ? (context.self.members?.some(member => member.relationship === "SELF") ? "عضو النادي" : "ولي أمر") : "حساب شخصي"
   const currentBranch=context.branches.find(branch=>branch.id===context.branchId)
   const requiredPermissions=permissionsForRoute(pathname)
   const routeAllowed=requiredPermissions===undefined||context.canAccess(requiredPermissions)
@@ -74,7 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     localStorage.setItem("go-theme", next ? "dark" : "light")
   }
 
-  function submitSearch(event:React.FormEvent){event.preventDefault();const value=globalSearch.trim().toLowerCase();if(!value)return;const destinations=[{terms:["عضو","أعضاء","member"],href:"/members"},{terms:["اشتراك","باقة","subscription"],href:"/subscriptions"},{terms:["حضور","دخول","attendance"],href:"/attendance"},{terms:["حجز","موعد","booking"],href:"/bookings"},{terms:["فاتورة","دفعة","مالية","invoice"],href:"/finance"},{terms:["عميل","متابعة"],href:"/crm"},{terms:["مناوبة","شكوى","خزانة","طلب إلكتروني"],href:"/operations"},{terms:["مطعم","وجبة"],href:"/restaurant"},{terms:["مدرب","تمرين","قياس"],href:"/trainer"},{terms:["موظف"],href:"/staff"},{terms:["تقرير"],href:"/reports"}].filter(item=>context.canAccess(routePermissionsFor(item.href)));router.push(destinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??fallbackDestination)}
+  function submitSearch(event:React.FormEvent){event.preventDefault();const value=globalSearch.trim().toLowerCase();if(!value)return;if(memberOnlyAccount){const memberDestinations=[{terms:["باقة","خدمة","حجز","موعد"],href:"/self-service/discover"},{terms:["وجبة","مطعم","طعام"],href:"/self-service/meals"},{terms:["عضوية","اشتراك"],href:"/self-service/membership"},{terms:["طلب","فاتورة","سداد"],href:"/self-service/orders"},{terms:["حضور","تدريب","نشاط"],href:"/self-service/activity"}];router.push(memberDestinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??"/self-service");return}const destinations=[{terms:["عضو","أعضاء","member"],href:"/members"},{terms:["اشتراك","باقة","subscription"],href:"/subscriptions"},{terms:["حضور","دخول","attendance"],href:"/attendance"},{terms:["حجز","موعد","booking"],href:"/bookings"},{terms:["فاتورة","دفعة","مالية","invoice"],href:"/finance"},{terms:["عميل","متابعة"],href:"/crm"},{terms:["مناوبة","شكوى","خزانة","طلب إلكتروني"],href:"/operations"},{terms:["مطعم","وجبة"],href:"/restaurant"},{terms:["مدرب","تمرين","قياس"],href:"/trainer"},{terms:["موظف"],href:"/staff"},{terms:["تقرير"],href:"/reports"}].filter(item=>context.canAccess(routePermissionsFor(item.href)));router.push(destinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??fallbackDestination)}
 
   if (context.loading||!routeAllowed) return <div dir="rtl" className="grid min-h-screen place-items-center bg-background"><div className="text-center"><span className="mx-auto block size-10 animate-spin rounded-full border-4 border-primary border-t-transparent"/><p className="mt-4 text-sm font-semibold text-muted-foreground">جارٍ تحميل مساحة العمل المناسبة…</p></div></div>
 
@@ -86,11 +93,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Button variant="ghost" size="icon" className="text-sidebar-foreground lg:hidden" onClick={() => setOpen(false)} aria-label="إغلاق القائمة"><X /></Button>
       </div>
       <nav className="flex-1 overflow-y-auto px-3 py-5">
-        {navGroups.map(group => {const items=group.items.filter(item=>context.canAccess(item.permissions));return items.length?<div key={group.label} className="mb-5">
-          <p className="mb-2 px-3 text-[10px] font-bold tracking-wider text-sidebar-foreground/42">{group.label}</p>
+        {navGroups.map(group => {const items=group.items.filter(item=>context.canAccess(item.permissions)&&(!("memberOnly" in item)||!item.memberOnly||hasMember)&&(!("memberCapability" in item)||(item.memberCapability==="BOOK"?Boolean(context.self.members?.some(member=>member.canBook)):Boolean(context.self.members?.some(member=>member.canBook||member.canManageMembership)))));return items.length?<div key={group.label} className="mb-5">
+          <p className="mb-2 px-3 text-[10px] font-bold tracking-wider text-sidebar-foreground/42">{group.label==="مساحتي"&&hasMember?"بوابة العضو":group.label}</p>
           <div className="space-y-1">
             {items.map(item => {
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
+              const active = pathname === item.href || (item.href !== "/self-service" && pathname.startsWith(`${item.href}/`))
               const Icon = item.icon
               return <Link key={item.href} href={item.href} onClick={()=>setOpen(false)} className={cn("group relative flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-semibold text-sidebar-foreground/68 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground", active && "bg-sidebar-accent text-white")}>
                 {active && <span className="absolute -right-3 h-5 w-1 rounded-l-full bg-primary" />}
@@ -115,7 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="فتح القائمة"><Menu /></Button>
         <form onSubmit={submitSearch} className="relative hidden w-full max-w-sm md:block">
           <Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={globalSearch} onChange={event=>setGlobalSearch(event.target.value)} className="border-transparent bg-secondary/70 pr-10" placeholder="ابحث عن عضو، فاتورة، حجز..." aria-label="البحث العام" />
+          <Input value={globalSearch} onChange={event=>setGlobalSearch(event.target.value)} className="border-transparent bg-secondary/70 pr-10" placeholder={memberOnlyAccount?"ابحث عن باقة، وجبة، فاتورة...":"ابحث عن عضو، فاتورة، حجز..."} aria-label="البحث العام" />
         </form>
         <div className="mr-auto flex items-center gap-2">
           {context.branches.length>0&&<button className="hidden items-center gap-2 rounded-xl border bg-card px-3 py-2 text-right sm:flex" aria-label="تغيير الفرع" onClick={()=>router.push('/select-context')}>

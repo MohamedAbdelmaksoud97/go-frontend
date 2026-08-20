@@ -1,3 +1,5 @@
+import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy"
+
 export type Choice = { value: string; label: string }
 export type FormValues = Record<string, string | boolean | File | undefined>
 export type ReferenceSource = {
@@ -146,7 +148,7 @@ export const workflows: Record<string, Workflow> = {
     title: "إضافة موظف وحساب دخول", description: "أنشئ الموظف وحسابه في خطوة واحدة. سيدخل بالرقم الوظيفي وكلمة المرور، وتُطبق صلاحيات المسمى داخل فرع عمله تلقائيًا.", submitLabel: "إنشاء الموظف وحسابه", successMessage: "تم إنشاء الموظف وربط الحساب والمسمى والصلاحيات بنجاح.",
     fields: [
       { name: "employeeNumber", label: "الرقم الوظيفي", required: true, placeholder: "EMP001", hint: "يبدأ بـ EMP ثم من 3 إلى 10 أرقام، ويُستخدم في تسجيل الدخول." },
-      { name: "password", label: "كلمة المرور", type: "password", required: true, placeholder: "12 حرفًا على الأقل", hint: "استخدم حروفًا وأرقامًا ورموزًا. لا تُحفظ كلمة المرور داخل قاعدة بيانات النظام ولا تظهر بعد الإرسال." },
+      { name: "password", label: "كلمة المرور", type: "password", required: true, placeholder: `${MIN_PASSWORD_LENGTH} محارف على الأقل`, hint: "يمكن استخدام أرقام فقط أو حروف فقط أو خليط منهما. لا تُحفظ كلمة المرور داخل قاعدة بيانات النظام ولا تظهر بعد الإرسال." },
       { name: "confirmPassword", label: "تأكيد كلمة المرور", type: "password", required: true, placeholder: "أعد كتابة كلمة المرور" },
       { name: "fullNameAr", label: "اسم الموظف", required: true }, { name: "phoneE164", label: "رقم الجوال", type: "tel", placeholder: "+966 5X XXX XXXX" },
       { name: "email", label: "البريد الإلكتروني (اختياري)", type: "email", placeholder: "name@example.com" },
@@ -162,7 +164,7 @@ export const workflows: Record<string, Workflow> = {
   },
   provisionUserAccount: {
     title: "إضافة حساب موظف", description: "أنشئ الحساب واربطه بالدور والفرع في خطوة واحدة. كل الأدوار مرتبطة بفرع محدد؛ System Administrator فقط يغطي النادي كاملًا.", submitLabel: "إنشاء الحساب", successMessage: "تم إنشاء الحساب وربطه بنطاق عمله.",
-    fields: [{ name: "email", label: "البريد الإلكتروني للموظف", type: "email", required: true, placeholder: "name@example.com" }, { name: "password", label: "كلمة المرور المؤقتة", type: "password", required: true, hint: "12 حرفًا على الأقل؛ لا تُحفظ أو تُعرض بعد الإرسال." }, { name: "roleId", label: "الدور الوظيفي", type: "reference", source: roles, required: true }, { name: "branchId", label: "فرع عمل الموظف", type: "reference", source: branches, hint: "مطلوب لكل دور عدا System Administrator؛ اتركه فارغًا عند اختيار System Administrator فقط." }],
+    fields: [{ name: "email", label: "البريد الإلكتروني للموظف", type: "email", required: true, placeholder: "name@example.com" }, { name: "password", label: "كلمة المرور المؤقتة", type: "password", required: true, hint: `${MIN_PASSWORD_LENGTH} محارف على الأقل؛ أرقام أو حروف أو خليط، ولا تُحفظ أو تُعرض بعد الإرسال.` }, { name: "roleId", label: "الدور الوظيفي", type: "reference", source: roles, required: true }, { name: "branchId", label: "فرع عمل الموظف", type: "reference", source: branches, hint: "مطلوب لكل دور عدا System Administrator؛ اتركه فارغًا عند اختيار System Administrator فقط." }],
     initial: () => ({ email: "", password: "", roleId: "", branchId: "" }), body: v => ({ loginMethod: "STAFF_EMAIL_PASSWORD", email: v.email, password: v.password, roleId: v.roleId, branchId: v.branchId || undefined }),
   },
 }

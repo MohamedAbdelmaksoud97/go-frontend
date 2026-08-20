@@ -5,6 +5,7 @@ import { AlertTriangle, Eye, EyeOff, FileCheck2, Loader2, Search, UploadCloud, X
 import { endpoints } from "@/lib/endpoint-catalog"
 import { apiRequest, createIdempotencyKey, executeOperation, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
+import { passwordLengthError } from "@/lib/password-policy"
 import { type Choice, type FormValues, workflows } from "@/lib/workflows"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -107,7 +108,8 @@ function validateValues(operationId: string, values: FormValues): string {
     const employeeNumber = String(values.employeeNumber ?? "").trim().toUpperCase()
     const password = String(values.password ?? "")
     if (!/^EMP\d{3,10}$/u.test(employeeNumber)) return "الرقم الوظيفي يجب أن يبدأ بـ EMP ثم من 3 إلى 10 أرقام، مثل EMP001."
-    if (password.length < 12) return "كلمة المرور يجب ألا تقل عن 12 حرفًا."
+    const passwordError = passwordLengthError(password)
+    if (passwordError) return passwordError
     if (password !== String(values.confirmPassword ?? "")) return "كلمتا المرور غير متطابقتين."
   }
   if (!["createEmployee", "registerMember"].includes(operationId)) return ""
