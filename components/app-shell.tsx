@@ -37,7 +37,7 @@ const navGroups = [
   ]},
   { label: "الإدارة", items: [
     { href: "/reports", label: "التقارير", icon: ClipboardList, permissions:["reporting.read"] },
-    { href: "/master-data", label: "البيانات الرئيسية", icon: Settings, permissions:["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"] },
+    { href: "/system-settings/branches", label: "إعداد النظام", icon: Settings, permissions:["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"] },
   ]},
   { label: "مساحتي", items: [
     { href: "/self-service", label: "الخدمة الذاتية", icon: UserCircle2, permissions:[] },
@@ -90,7 +90,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <p className="mb-2 px-3 text-[10px] font-bold tracking-wider text-sidebar-foreground/42">{group.label}</p>
           <div className="space-y-1">
             {items.map(item => {
-              const active = pathname === item.href
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
               const Icon = item.icon
               return <Link key={item.href} href={item.href} onClick={()=>setOpen(false)} className={cn("group relative flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-semibold text-sidebar-foreground/68 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground", active && "bg-sidebar-accent text-white")}>
                 {active && <span className="absolute -right-3 h-5 w-1 rounded-l-full bg-primary" />}

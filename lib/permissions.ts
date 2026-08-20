@@ -24,6 +24,7 @@ export const routePermissions:Record<string,string[]>={
  "/trainer":["coaching.read","coaching.training-plans.read","measurements.read"],
  "/reports":["reporting.read"],
  "/master-data":["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"],
+ "/system-settings":["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"],
  "/settings":["organization.read","iam.roles.read"],
  "/self-service":[],
  "/account":[],
@@ -47,6 +48,6 @@ export function firstAllowedDestination(canAccess:(permissions:string[])=>boolea
  if(canAccess(["finance.other-income.read","coaching.commissions.read"]))return "/finance"
  if(canAccess(["coaching.read","measurements.read"]))return "/trainer"
  if(canAccess(["workforce.read"]))return "/staff"
- if(canAccess(routePermissions["/master-data"]??[]))return "/master-data"
+ if(canAccess(routePermissions["/system-settings"]??[]))return "/system-settings/branches"
  return "/self-service"
 }

@@ -21,6 +21,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [done, setDone] = useState(false)
+  const [completionNote, setCompletionNote] = useState("")
 
   useEffect(() => {
     if (!workflow || !hasRuntimeApi()) return
@@ -33,7 +34,8 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         const response = await apiRequest<unknown>(path)
         const payload = response.data
         const list = Array.isArray(payload) ? payload : payload && typeof payload === "object" && "items" in payload ? (payload as { items: unknown[] }).items : []
-        return [field.name, list.flatMap(item => toChoice(item, field.source!.labelKeys, field.source!.subtitleKeys))] as const
+        const available = field.name === "packageId" ? list.filter(item => item && typeof item === "object" && (item as Record<string, unknown>).status === "PUBLISHED") : list
+        return [field.name, available.flatMap(item => toChoice(item, field.source!.labelKeys, field.source!.subtitleKeys))] as const
       } catch { return [field.name, []] as const }
     })).then(entries => { if (!cancelled) setOptions(Object.fromEntries(entries)) }).finally(() => { if (!cancelled) setLoadingOptions(false) }) }, 250)
     return () => { cancelled = true; window.clearTimeout(timer) }
@@ -48,7 +50,16 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
     setSaving(true); setError("")
     try {
       const path = operation.path.replace("{organizationId}", organizationId).replace("{branchId}", branchId)
-      if (hasRuntimeApi()) await executeOperation(path, operation.method, {}, workflow.body(values, context), operation.idempotent ? createIdempotencyKey() : undefined)
+      const response = hasRuntimeApi() ? await executeOperation<Record<string, unknown>>(path, operation.method, {}, workflow.body(values, context), operation.idempotent ? createIdempotencyKey() : undefined) : undefined
+      if (operationId === "createEmployee" && response?.data.id) {
+        const employeeId = String(response.data.id)
+        try {
+          if (values.identityImage instanceof File) await uploadEmployeeFile(organizationId, employeeId, "IDENTITY", values.identityImage)
+          if (values.profileImage instanceof File) await uploadEmployeeFile(organizationId, employeeId, "PROFILE", values.profileImage)
+        } catch {
+          setCompletionNote("تم إنشاء الموظف وحسابه بنجاح، لكن تعذّر رفع إحدى الصور. يمكنك رفعها لاحقًا من ملفات الموظف.")
+        }
+      }
       setDone(true); onSaved?.()
     } catch (reason) { setError(humanError(reason)) }
     finally { setSaving(false) }
@@ -60,7 +71,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         <div className="min-w-0"><p className="text-[11px] font-bold text-amber-600 dark:text-primary">إجراء جديد</p><h2 id="action-title" className="mt-1 text-xl font-black">{workflow.title}</h2><p className="mt-2 text-xs leading-6 text-muted-foreground">{workflow.description}</p></div>
         <Button variant="ghost" size="icon" className="mr-auto" onClick={onClose} aria-label="إغلاق"><X /></Button>
       </header>
-      {done ? <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-16 place-items-center rounded-full bg-emerald-500/10 text-emerald-600"><CheckCircle2 className="size-8" /></span><h3 className="mt-5 text-lg font-black">تم بنجاح</h3><p className="mt-2 max-w-md text-sm leading-7 text-muted-foreground">{workflow.successMessage}</p><Button size="lg" className="mt-7 min-w-40" onClick={onClose}>تم</Button></div> :
+      {done ? <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-16 place-items-center rounded-full bg-emerald-500/10 text-emerald-600"><CheckCircle2 className="size-8" /></span><h3 className="mt-5 text-lg font-black">تم بنجاح</h3><p className="mt-2 max-w-md text-sm leading-7 text-muted-foreground">{completionNote || workflow.successMessage}</p><Button size="lg" className="mt-7 min-w-40" onClick={onClose}>تم</Button></div> :
       <form onSubmit={submit} className="p-5 sm:p-6">
         {workflow.confirm && <div className="mb-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6"><AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" /><p>{workflow.confirm}</p></div>}
         <div className="grid gap-5 sm:grid-cols-2">{workflow.fields.map(field => <Field key={field.name} field={field} value={values[field.name]} choices={options[field.name]} loading={loadingOptions} referenceQuery={referenceQueries[field.name] ?? ""} onReferenceSearch={query => setReferenceQueries(current => ({ ...current, [field.name]: query }))} onChange={value => setValues(current => ({ ...current, [field.name]: value }))} />)}</div>
@@ -71,11 +82,11 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   </div>
 }
 
-function Field({ field, value, choices = [], loading, referenceQuery, onReferenceSearch, onChange }: { field: (typeof workflows)[string]["fields"][number]; value: string | boolean | undefined; choices?: Choice[]; loading: boolean; referenceQuery: string; onReferenceSearch: (value: string) => void; onChange: (value: string | boolean) => void }) {
+function Field({ field, value, choices = [], loading, referenceQuery, onReferenceSearch, onChange }: { field: (typeof workflows)[string]["fields"][number]; value: string | boolean | File | undefined; choices?: Choice[]; loading: boolean; referenceQuery: string; onReferenceSearch: (value: string) => void; onChange: (value: string | boolean | File | undefined) => void }) {
   if (field.type === "checkbox") return <label className="flex cursor-pointer items-center gap-3 rounded-xl border p-4 text-xs font-bold sm:col-span-2"><input type="checkbox" className="size-4 accent-amber-500" checked={Boolean(value)} onChange={event => onChange(event.target.checked)} /><span>{field.label}</span></label>
   const className = field.type === "textarea" ? "sm:col-span-2" : ""
   return <label className={`text-xs font-bold ${className}`}><span>{field.label}{field.required && <span className="mr-1 text-red-500">*</span>}</span>
-    {field.type === "select" || field.type === "reference" ? <div className="mt-2 space-y-2">{field.type === "reference" && field.source?.searchParam && <div className="relative"><Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/><Input value={referenceQuery} onChange={event => onReferenceSearch(event.target.value)} className="h-10 pr-10" placeholder="ابحث في قاعدة البيانات بالاسم أو الرقم..."/></div>}<select required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"><option value="">{loading ? "جارٍ تجهيز الخيارات..." : field.placeholder ?? "اختر من القائمة"}</option>{(field.options ?? choices).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div> : field.type === "textarea" ? <textarea required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} rows={4} className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15" /> : <Input className="mt-2 h-11" type={field.type ?? "text"} min={field.min} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} dir={field.type === "tel" || field.type === "email" || field.type === "number" ? "ltr" : undefined} />}
+    {field.type === "file" ? <Input className="mt-2 h-11 cursor-pointer" type="file" required={field.required} accept={field.name === "profileImage" ? "image/jpeg,image/png,image/webp" : "image/jpeg,image/png,application/pdf"} onChange={event => onChange(event.target.files?.[0])} /> : field.type === "select" || field.type === "reference" ? <div className="mt-2 space-y-2">{field.type === "reference" && field.source?.searchParam && <div className="relative"><Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/><Input value={referenceQuery} onChange={event => onReferenceSearch(event.target.value)} className="h-10 pr-10" placeholder="ابحث في قاعدة البيانات بالاسم أو الرقم..."/></div>}<select required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"><option value="">{loading ? "جارٍ تجهيز الخيارات..." : field.placeholder ?? "اختر من القائمة"}</option>{(field.options ?? choices).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div> : field.type === "textarea" ? <textarea required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} rows={4} className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15" /> : <Input className="mt-2 h-11" type={field.type ?? "text"} min={field.min} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} dir={field.type === "tel" || field.type === "email" || field.type === "number" ? "ltr" : undefined} />}
     {field.hint && <span className="mt-2 block text-[10px] font-normal leading-5 text-muted-foreground">{field.hint}</span>}
   </label>
 }
@@ -95,4 +106,21 @@ function toChoice(item: unknown, labelKeys: string[], subtitleKeys: string[] = [
   const label = labelKeys.map(key => record[key]).find(Boolean)
   const subtitle = (subtitleKeys ?? []).map(key => record[key]).find(Boolean)
   return [{ value: id, label: [label, subtitle].filter(Boolean).join(" — ") || "سجل متاح" }]
+}
+
+async function uploadEmployeeFile(organizationId: string, employeeId: string, kind: "IDENTITY" | "PROFILE", file: File) {
+  if (file.size > 10 * 1024 * 1024) throw new Error("file_too_large")
+  const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()))).map(byte => byte.toString(16).padStart(2, "0")).join("")
+  const request = await apiRequest<{ fileId: string; uploadUrl: string; expectedVersion: number }>(`/organizations/${organizationId}/files/upload-requests`, {
+    method: "POST",
+    headers: { "Idempotency-Key": createIdempotencyKey() },
+    body: JSON.stringify({ ownerModule: "workforce", ownerType: "EMPLOYEE", ownerId: employeeId, purpose: kind === "IDENTITY" ? "IDENTITY_DOCUMENT" : "PROFILE_PHOTO", originalFilename: file.name, mimeType: file.type, size: file.size, checksumSha256: sha256 }),
+  })
+  const upload = await fetch(request.data.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file })
+  if (!upload.ok) throw new Error("employee_file_upload_failed")
+  await apiRequest(`/organizations/${organizationId}/files/${request.data.fileId}/upload-completions`, {
+    method: "POST",
+    headers: { "Idempotency-Key": createIdempotencyKey() },
+    body: JSON.stringify({ expectedVersion: request.data.expectedVersion }),
+  })
 }

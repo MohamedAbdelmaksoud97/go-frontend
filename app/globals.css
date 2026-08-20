@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -48,6 +49,7 @@
 }
 
 :root {
+  --font-cairo: "Cairo";
   --card: #ffffff;
   --card-foreground: #151515;
   --popover: oklch(1 0 0);
@@ -128,8 +130,21 @@
   }
   html {
     @apply font-sans;
+    font-size: 17px;
     max-width: 100%;
     overflow-x: hidden;
+  }
+}
+
+@layer utilities {
+  .text-\[10px\] {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .text-\[11px\] {
+    font-size: 0.875rem;
+    line-height: 1.55;
   }
 }
 
@@ -140,7 +155,7 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .dot-grid { background-image: radial-gradient(color-mix(in srgb, var(--foreground) 10%, transparent) 1px, transparent 1px); background-size: 22px 22px; }
 .brand-shadow { box-shadow: 0 16px 40px rgba(255, 204, 0, .16); }
 .grid > *, .flex > * { min-width: 0; }
-.fade-up { animation: fade-up .55s ease both; }
+.fade-up { animation: fade-up .55s ease backwards; }
 @keyframes fade-up { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:none } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; } }
 @media print { aside, header, .print\:hidden { display:none!important } body { background:#fff!important;color:#000!important } main { padding:0!important } }

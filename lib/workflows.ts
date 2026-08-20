@@ -1,5 +1,5 @@
 export type Choice = { value: string; label: string }
-export type FormValues = Record<string, string | boolean>
+export type FormValues = Record<string, string | boolean | File | undefined>
 export type ReferenceSource = {
   path: (context: WorkflowContext) => string
   labelKeys: string[]
@@ -9,7 +9,7 @@ export type ReferenceSource = {
 export type WorkflowField = {
   name: string
   label: string
-  type?: "text" | "tel" | "email" | "password" | "date" | "datetime-local" | "number" | "textarea" | "select" | "reference" | "checkbox"
+  type?: "text" | "tel" | "email" | "password" | "date" | "datetime-local" | "number" | "textarea" | "select" | "reference" | "checkbox" | "file"
   placeholder?: string
   hint?: string
   required?: boolean
@@ -34,7 +34,7 @@ const nowLocal = () => {
   const date = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
   return date.toISOString().slice(0, 16)
 }
-const members: ReferenceSource = { path: c => `/organizations/${c.organizationId}/members?branchId=${encodeURIComponent(c.branchId)}&limit=25`, labelKeys: ["fullNameAr", "memberName", "fullName", "displayName"], subtitleKeys: ["memberNumber", "legacyMemberNumber", "phoneE164"], searchParam: "search" }
+const members: ReferenceSource = { path: c => `/organizations/${c.organizationId}/members?branchId=${encodeURIComponent(c.branchId)}&limit=25`, labelKeys: ["name", "fullNameAr", "memberName", "fullName", "displayName"], subtitleKeys: ["memberNumber", "legacyMemberNumber", "phoneE164"], searchParam: "search" }
 const packages: ReferenceSource = { path: c => `/organizations/${c.organizationId}/packages?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "packageName", "name"], subtitleKeys: ["code"] }
 const resources: ReferenceSource = { path: c => `/organizations/${c.organizationId}/bookable-resources?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "resourceName", "name"], subtitleKeys: ["type"] }
 const services: ReferenceSource = { path: c => `/organizations/${c.organizationId}/services?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "serviceName", "name"], subtitleKeys: ["code"] }
@@ -142,12 +142,17 @@ export const workflows: Record<string, Workflow> = {
     body: (v, c) => ({ sellingBranchId: c.branchId, memberId: v.memberId, memberSegment: "OTHER", lines: [{ type: "RESTAURANT", targetId: v.mealId, quantity: Number(v.quantity) }] }),
   },
   createEmployee: {
-    title: "إضافة موظف", description: "أدخل بيانات الموظف واختر المسمى الوظيفي لبداية عمل واضحة.", submitLabel: "إضافة الموظف", successMessage: "تمت إضافة الموظف بنجاح.",
+    title: "إضافة موظف وحساب دخول", description: "أنشئ الموظف وحسابه في خطوة واحدة. سيدخل بالرقم الوظيفي وكلمة المرور، وتُطبق صلاحيات المسمى داخل فرع عمله تلقائيًا.", submitLabel: "إنشاء الموظف وحسابه", successMessage: "تم إنشاء الموظف وربط الحساب والمسمى والصلاحيات بنجاح.",
     fields: [
+      { name: "employeeNumber", label: "الرقم الوظيفي", required: true, placeholder: "EMP001", hint: "يبدأ بـ EMP ثم من 3 إلى 10 أرقام، ويُستخدم في تسجيل الدخول." },
+      { name: "password", label: "كلمة المرور", type: "password", required: true, hint: "12 حرفًا على الأقل. لا تُحفظ داخل قاعدة بيانات النظام ولا تظهر بعد الإرسال." },
       { name: "fullNameAr", label: "اسم الموظف", required: true }, { name: "phoneE164", label: "رقم الجوال", type: "tel", placeholder: "+966 5X XXX XXXX" },
-      { name: "positionId", label: "المسمى الوظيفي", type: "reference", source: positions, required: true }, { name: "startsOn", label: "تاريخ بدء العمل", type: "date", required: true },
-    ], initial: () => ({ fullNameAr: "", phoneE164: "+9665", positionId: "", startsOn: today() }),
-    body: (v, c) => ({ name: v.fullNameAr, phone: v.phoneE164 || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
+      { name: "email", label: "البريد الإلكتروني (اختياري)", type: "email", placeholder: "name@example.com" },
+      { name: "positionId", label: "المسمى الوظيفي والصلاحيات", type: "reference", source: positions, required: true }, { name: "startsOn", label: "تاريخ بدء العمل", type: "date", required: true },
+      { name: "identityImage", label: "صورة الهوية", type: "file", required: true, hint: "JPG أو PNG أو PDF، حتى 10 ميجابايت." },
+      { name: "profileImage", label: "صورة الموظف (اختياري)", type: "file", hint: "JPG أو PNG، حتى 10 ميجابايت." },
+    ], initial: () => ({ employeeNumber: "", password: "", fullNameAr: "", phoneE164: "+9665", email: "", positionId: "", startsOn: today() }),
+    body: (v, c) => ({ employeeNumber: v.employeeNumber, password: v.password, name: v.fullNameAr, phone: v.phoneE164 || undefined, email: v.email || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
   },
   requestReportingRebuild: {
     title: "تحديث بيانات التقارير", description: "استخدم هذا الإجراء فقط إذا كانت أرقام التقارير لا تعكس آخر العمليات.", submitLabel: "بدء التحديث", successMessage: "بدأ تحديث بيانات التقارير. يمكنك متابعة العمل وسيكتمل في الخلفية.", confirm: "قد يستغرق تحديث التقارير عدة دقائق. هل تريد المتابعة؟",

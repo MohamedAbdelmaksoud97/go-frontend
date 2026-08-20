@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 
 const API_BASE=(process.env.API_BASE_URL??process.env.NEXT_PUBLIC_API_BASE_URL??"http://127.0.0.1:3001").replace(/\/$/,"")
 const cookieOptions={httpOnly:true,sameSite:"lax" as const,secure:process.env.NODE_ENV==="production",path:"/"}
+const sessionMaxAge=60*60*24*7
 
 export async function POST(request:Request,{params}:{params:Promise<{audience:string}>}){
  const {audience}=await params
@@ -17,7 +18,7 @@ export async function POST(request:Request,{params}:{params:Promise<{audience:st
  const session=payload?.data as {accessToken?:string;refreshToken?:string;expiresIn?:number;requiresMfa?:boolean}|undefined
  if(!session?.accessToken||!session.refreshToken)return NextResponse.json({type:"about:blank",title:"Invalid response",status:502,detail:"The authentication service returned an invalid session.",code:"invalid_auth_response"},{status:502})
  const store=await cookies()
- store.set("go_access_token",session.accessToken,{...cookieOptions,maxAge:session.expiresIn??3600})
- store.set("go_refresh_token",session.refreshToken,{...cookieOptions,maxAge:60*60*24*30})
+ store.set("go_access_token",session.accessToken,{...cookieOptions,maxAge:sessionMaxAge})
+ store.set("go_refresh_token",session.refreshToken,{...cookieOptions,maxAge:sessionMaxAge})
  return NextResponse.json({data:{authenticated:true,requiresMfa:session.requiresMfa===true}})
 }
