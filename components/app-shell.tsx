@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
   Activity, Barcode, Bell, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, Compass, CreditCard, FileText,
-  Dumbbell, LayoutDashboard, LogOut, Menu, Moon, ReceiptText, Search, Settings,
+  Dumbbell, LayoutDashboard, LogOut, Menu, MessageSquareText, Moon, ReceiptText, Search, Settings,
   Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
 } from "lucide-react"
 import { BrandLogo } from "@/components/brand-logo"
@@ -13,8 +13,9 @@ import { useAppContext } from "@/components/app-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { clearSession } from "@/lib/api-client"
+import { apiRequest, clearSession } from "@/lib/api-client"
 import { firstAllowedDestination, permissionsForRoute } from "@/lib/permissions"
+import type { AccountNotification } from "@/components/account-notification-inbox"
 
 const navGroups = [
   { label: "نظرة عامة", items: [{ href: "/", label: "لوحة التحكم", icon: LayoutDashboard, permissions:["reporting.read"] }] },
@@ -30,7 +31,9 @@ const navGroups = [
     { href: "/cashier", label: "نقطة البيع", icon: CircleDollarSign, permissions:["sales.checkout","finance.payments.record","finance.cash-shifts.manage"] },
     { href: "/finance", label: "المالية والعمولات", icon: WalletCards, permissions:["finance.invoices.read","sales.read","finance.other-income.read","coaching.commissions.read"] },
     { href: "/crm", label: "العملاء والمتابعات", icon: Zap, permissions:["crm.leads.read","crm.follow-ups.read","online-requests.read"] },
-    { href: "/operations", label: "مركز العمليات", icon: ClipboardList, permissions:["workforce.shifts.read","workforce.attendance.record","online-requests.read","feedback.read","lockers.read"] },
+    { href: "/communications", label: "الرسائل والتواصل", icon: MessageSquareText, permissions:["notifications.read","notifications.send"] },
+    { href: "/operations", label: "مركز العمليات", icon: ClipboardList, permissions:["workforce.shifts.read","workforce.attendance.record","online-requests.read","lockers.read"] },
+    { href: "/feedback", label: "الشكاوى والاقتراحات", icon: MessageSquareText, permissions:["feedback.read","feedback.reply"] },
     { href: "/restaurant", label: "المطعم", icon: Utensils, permissions:["restaurant.orders.read","restaurant.menu.read","restaurant.catalog.read"] },
     { href: "/trainer", label: "مساحة المدرب", icon: Dumbbell, permissions:["coaching.read","coaching.training-plans.read","measurements.read"] },
     { href: "/staff", label: "الموظفون", icon: UserRoundCheck, permissions:["workforce.read"] },
@@ -40,12 +43,14 @@ const navGroups = [
     { href: "/system-settings/branches", label: "إعداد النظام", icon: Settings, permissions:["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"] },
   ]},
   { label: "مساحتي", items: [
+    { href: "/notifications", label: "الإشعارات", icon: Bell, permissions:[] },
     { href: "/self-service", label: "الرئيسية", icon: UserCircle2, permissions:[] },
     { href: "/self-service/discover", label: "اكتشف واحجز", icon: Compass, permissions:[], memberOnly:true, memberCapability:"INTERACT" },
     { href: "/self-service/meals", label: "وجبات اليوم", icon: Utensils, permissions:[], memberOnly:true, memberCapability:"BOOK" },
     { href: "/self-service/membership", label: "عضويتي", icon: CreditCard, permissions:[], memberOnly:true },
     { href: "/self-service/orders", label: "طلباتي وفواتيري", icon: ReceiptText, permissions:[], memberOnly:true },
     { href: "/self-service/activity", label: "حجوزاتي ونشاطي", icon: Activity, permissions:[], memberOnly:true },
+    { href: "/self-service/feedback", label: "الشكاوى والاقتراحات", icon: MessageSquareText, permissions:[], memberOnly:true },
     { href: "/account", label: "إعدادات الحساب", icon: Settings, permissions:[] },
   ]},
 ]
@@ -57,6 +62,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const [dark, setDark] = useState(false)
   const [notices, setNotices] = useState(false)
+  const [notificationItems,setNotificationItems]=useState<AccountNotification[]>([])
+  const [unreadNotifications,setUnreadNotifications]=useState(0)
   const [globalSearch, setGlobalSearch] = useState("")
   const hasMember = Boolean(context.self.members?.length)
   const memberOnlyAccount = hasMember && context.grants.length === 0
@@ -74,6 +81,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(()=>{if(!context.loading&&!routeAllowed)router.replace(fallbackDestination)},[context.loading,fallbackDestination,routeAllowed,router])
 
+  useEffect(()=>{
+    if(context.loading||!context.userAccountId)return
+    let cancelled=false
+    async function loadNotifications(){try{const[items,count]=await Promise.all([apiRequest<AccountNotification[]>("/me/account-notifications?limit=5"),apiRequest<{unreadCount:number}>("/me/account-notifications/unread-count")]);if(!cancelled){setNotificationItems(items.data??[]);setUnreadNotifications(count.data.unreadCount??0)}}catch{if(!cancelled){setNotificationItems([]);setUnreadNotifications(0)}}}
+    void loadNotifications();const timer=window.setInterval(()=>void loadNotifications(),60_000)
+    return()=>{cancelled=true;window.clearInterval(timer)}
+  },[context.loading,context.userAccountId])
+
+  async function markNotificationRead(item:AccountNotification){if(!item.readAt){try{const response=await apiRequest<AccountNotification>(`/me/account-notifications/${item.id}/read`,{method:"POST"});setNotificationItems(current=>current.map(value=>value.id===item.id?response.data:value));setUnreadNotifications(value=>Math.max(0,value-1))}catch{}}}
+
+  async function markAllNotificationsRead(){try{await apiRequest("/me/account-notifications/read-all",{method:"POST"});setNotificationItems(current=>current.map(item=>({...item,readAt:item.readAt??new Date().toISOString()})));setUnreadNotifications(0)}catch{}}
+
   function toggleTheme() {
     const next = !dark
     setDark(next)
@@ -81,7 +100,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     localStorage.setItem("go-theme", next ? "dark" : "light")
   }
 
-  function submitSearch(event:React.FormEvent){event.preventDefault();const value=globalSearch.trim().toLowerCase();if(!value)return;if(memberOnlyAccount){const memberDestinations=[{terms:["باقة","خدمة","حجز","موعد"],href:"/self-service/discover"},{terms:["وجبة","مطعم","طعام"],href:"/self-service/meals"},{terms:["عضوية","اشتراك"],href:"/self-service/membership"},{terms:["طلب","فاتورة","سداد"],href:"/self-service/orders"},{terms:["حضور","تدريب","نشاط"],href:"/self-service/activity"}];router.push(memberDestinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??"/self-service");return}const destinations=[{terms:["عضو","أعضاء","member"],href:"/members"},{terms:["اشتراك","باقة","subscription"],href:"/subscriptions"},{terms:["حضور","دخول","attendance"],href:"/attendance"},{terms:["حجز","موعد","booking"],href:"/bookings"},{terms:["فاتورة","دفعة","مالية","invoice"],href:"/finance"},{terms:["عميل","متابعة"],href:"/crm"},{terms:["مناوبة","شكوى","خزانة","طلب إلكتروني"],href:"/operations"},{terms:["مطعم","وجبة"],href:"/restaurant"},{terms:["مدرب","تمرين","قياس"],href:"/trainer"},{terms:["موظف"],href:"/staff"},{terms:["تقرير"],href:"/reports"}].filter(item=>context.canAccess(routePermissionsFor(item.href)));router.push(destinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??fallbackDestination)}
+  function submitSearch(event:React.FormEvent){event.preventDefault();const value=globalSearch.trim().toLowerCase();if(!value)return;if(memberOnlyAccount){const memberDestinations=[{terms:["شكوى","اقتراح","تذكرة"],href:"/self-service/feedback"},{terms:["إشعار","رسالة","تنبيه"],href:"/notifications"},{terms:["باقة","خدمة","حجز","موعد"],href:"/self-service/discover"},{terms:["وجبة","مطعم","طعام"],href:"/self-service/meals"},{terms:["عضوية","اشتراك"],href:"/self-service/membership"},{terms:["طلب","فاتورة","سداد"],href:"/self-service/orders"},{terms:["حضور","تدريب","نشاط"],href:"/self-service/activity"}];router.push(memberDestinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??"/self-service");return}const destinations=[{terms:["شكوى","اقتراح","تذكرة"],href:"/feedback"},{terms:["رسالة","إشعار","تواصل","حملة"],href:"/communications"},{terms:["عضو","أعضاء","member"],href:"/members"},{terms:["اشتراك","باقة","subscription"],href:"/subscriptions"},{terms:["حضور","دخول","attendance"],href:"/attendance"},{terms:["حجز","موعد","booking"],href:"/bookings"},{terms:["فاتورة","دفعة","مالية","invoice"],href:"/finance"},{terms:["عميل","متابعة"],href:"/crm"},{terms:["مناوبة","خزانة","طلب إلكتروني"],href:"/operations"},{terms:["مطعم","وجبة"],href:"/restaurant"},{terms:["مدرب","تمرين","قياس"],href:"/trainer"},{terms:["موظف"],href:"/staff"},{terms:["تقرير"],href:"/reports"}].filter(item=>context.canAccess(routePermissionsFor(item.href)));router.push(destinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??fallbackDestination)}
 
   if (context.loading||!routeAllowed) return <div dir="rtl" className="grid min-h-screen place-items-center bg-background"><div className="text-center"><span className="mx-auto block size-10 animate-spin rounded-full border-4 border-primary border-t-transparent"/><p className="mt-4 text-sm font-semibold text-muted-foreground">جارٍ تحميل مساحة العمل المناسبة…</p></div></div>
 
@@ -133,8 +152,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Button variant="outline" size="icon" onClick={toggleTheme} aria-label={dark ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"}>{dark ? <Sun /> : <Moon />}</Button>
           <div className="relative">
             <Button variant="outline" size="icon" onClick={() => setNotices(v => !v)} aria-label="الإشعارات"><Bell /></Button>
+            {unreadNotifications>0&&<span className="pointer-events-none absolute -left-1 -top-1 grid min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-black leading-5 text-white">{unreadNotifications>99?"99+":unreadNotifications}</span>}
             {notices && <div className="absolute left-0 top-12 w-80 rounded-2xl border bg-card p-2 shadow-2xl">
-              <div className="p-3"><p className="font-bold">الإشعارات</p><p className="mt-3 rounded-xl bg-secondary/60 p-4 text-xs leading-6 text-muted-foreground">لا توجد إشعارات جديدة. ستظهر هنا التنبيهات الحقيقية عند إنشائها من النظام.</p></div>
+              <div className="flex items-center justify-between gap-2 p-3"><div><p className="font-bold">الإشعارات</p><p className="mt-1 text-[11px] text-muted-foreground">{unreadNotifications?`${unreadNotifications} غير مقروءة`:"لا توجد رسائل جديدة"}</p></div>{unreadNotifications>0&&<button type="button" className="text-xs font-bold text-primary" onClick={()=>void markAllNotificationsRead()}>قراءة الكل</button>}</div>
+              <div className="max-h-80 space-y-1 overflow-y-auto">{notificationItems.length===0?<p className="rounded-xl bg-secondary/60 p-4 text-xs leading-6 text-muted-foreground">لا توجد إشعارات حاليًا. ستظهر رسائل النادي هنا فور إرسالها.</p>:notificationItems.map(item=><button type="button" key={item.id} onClick={()=>void markNotificationRead(item)} className={cn("block w-full rounded-xl p-3 text-right transition hover:bg-secondary",!item.readAt&&"bg-primary/8")}><span className="flex items-center gap-2 text-xs font-black">{!item.readAt&&<span className="size-2 rounded-full bg-primary"/>}{item.title}</span><span className="mt-1 block line-clamp-2 text-[11px] leading-5 text-muted-foreground">{item.body}</span></button>)}</div>
+              <Link href="/notifications" onClick={()=>setNotices(false)} className="mt-2 block rounded-xl border p-2.5 text-center text-xs font-bold transition hover:border-primary hover:text-primary">عرض كل الإشعارات</Link>
             </div>}
           </div>
         </div>

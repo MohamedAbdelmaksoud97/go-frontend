@@ -398,10 +398,10 @@ const permissionSubjects: Record<string, string> = {
   "restaurant.catalog": "كتالوج المطعم", "restaurant.pricing": "أسعار المطعم", "restaurant.menu": "قائمة المطعم", "restaurant.orders": "طلبات المطعم", "restaurant.meal-plans": "خطط الوجبات",
   "retail.catalog": "كتالوج المتجر", "retail.pricing": "أسعار المتجر", "retail.inventory": "مخزون المتجر",
   coaching: "التدريب", "coaching.assignments": "تعيينات المدربين", "coaching.schedule": "جداول التدريب", "coaching.commissions": "عمولات المدربين", "coaching.training-plans": "خطط التدريب", measurements: "القياسات", "measurement-types": "أنواع القياسات",
-  notifications: "الإشعارات", "notifications.whatsapp": "واتساب", "notification-templates": "قوالب الإشعارات", crm: "العملاء المحتملون", "crm.leads": "العملاء المحتملون", "crm.follow-ups": "متابعات العملاء", "online-requests": "الطلبات الإلكترونية", feedback: "الآراء والملاحظات", reporting: "التقارير", "legacy.import": "ترحيل البيانات القديمة",
+  notifications: "الإشعارات", "notifications.whatsapp": "واتساب", "notification-templates": "قوالب الإشعارات", crm: "العملاء المحتملون", "crm.leads": "العملاء المحتملون", "crm.follow-ups": "متابعات العملاء", "online-requests": "الطلبات الإلكترونية", feedback: "الشكاوى والاقتراحات", reporting: "التقارير", "legacy.import": "ترحيل البيانات القديمة",
 }
 
-const permissionActions: Record<string, string> = { read: "عرض", manage: "إدارة", create: "إنشاء", activate: "تفعيل", freeze: "تجميد", cancel: "إلغاء", renew: "تجديد", checkout: "إتمام البيع", record: "تسجيل", issue: "إصدار", approve: "اعتماد", pay: "دفع", "check-in": "تسجيل دخول", prepare: "تحضير", redeem: "استبدال", send: "إرسال", rebuild: "إعادة بناء", execute: "تنفيذ", operations: "اعتماد تشغيلي", commercial: "اعتماد تجاري", finance: "اعتماد مالي" }
+const permissionActions: Record<string, string> = { read: "الاطلاع على", reply: "الرد على", manage: "إدارة", create: "إنشاء", activate: "تفعيل", freeze: "تجميد", cancel: "إلغاء", renew: "تجديد", checkout: "إتمام البيع", record: "تسجيل", issue: "إصدار", approve: "اعتماد", pay: "دفع", "check-in": "تسجيل دخول", prepare: "تحضير", redeem: "استبدال", send: "إرسال", rebuild: "إعادة بناء", execute: "تنفيذ", operations: "اعتماد تشغيلي", commercial: "اعتماد تجاري", finance: "اعتماد مالي" }
 
 function permissionChoice(code: string): PermissionChoice {
   const parts = code.split(".")

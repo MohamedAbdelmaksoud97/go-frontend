@@ -2,7 +2,8 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { Activity, ArrowLeft, Building2, Compass, CreditCard, Loader2, MapPin, ReceiptText, Sparkles, Utensils } from "lucide-react"
+import { Activity, ArrowLeft, Building2, Compass, CreditCard, Loader2, MapPin, MessageCircleMore, ReceiptText, Sparkles, Utensils } from "lucide-react"
+import { MemberFeedbackCenter } from "@/components/feedback-ticket-center"
 import { MemberDailyMenu } from "@/components/member-daily-menu"
 import { MemberMarketplace } from "@/components/member-marketplace"
 import { MemberSelfOverview } from "@/components/member-self-overview"
@@ -21,7 +22,7 @@ export type PortalMember = {
   canBook?: boolean
 }
 
-export type MemberPortalSection = "home" | "discover" | "meals" | "membership" | "orders" | "activity"
+export type MemberPortalSection = "home" | "discover" | "meals" | "membership" | "orders" | "activity" | "feedback"
 type Branch = { id: string; code?: string; name: string; address?: string }
 
 export function MemberPortal({ member, section = "home" }: { member: PortalMember; section?: MemberPortalSection }) {
@@ -59,6 +60,7 @@ export function MemberPortal({ member, section = "home" }: { member: PortalMembe
   if (section === "membership") return <MemberSelfOverview member={member} tabs={["subscriptions"]} showMemberHeader={false} />
   if (section === "orders") return <MemberSelfOverview member={member} tabs={["orders", "invoices", "restaurant-orders"]} initialTab="orders" showMemberHeader={false} />
   if (section === "activity") return <MemberSelfOverview member={member} tabs={["reservations", "attendance", "training-plans"]} initialTab="reservations" showMemberHeader={false} />
+  if (section === "feedback") return <MemberFeedbackCenter member={member} />
 
   const branch = branches.find(value => value.id === branchId)
   return <section>
@@ -83,6 +85,7 @@ function MemberHome({ member }: { member: PortalMember }) {
     { href: "/self-service/membership", title: "عضويتي", description: "تابع اشتراكك ومدته وحالته وإجراءات التجميد أو الإلغاء.", icon: CreditCard, color: "text-emerald-600 bg-emerald-500/10" },
     { href: "/self-service/orders", title: "طلباتي وفواتيري", description: "راجع الطلبات والفواتير والمبالغ التي تنتظر السداد.", icon: ReceiptText, color: "text-violet-600 bg-violet-500/10" },
     { href: "/self-service/activity", title: "حجوزاتي ونشاطي", description: "مواعيدك وحضورك وخططك التدريبية في مكان واحد.", icon: Activity, color: "text-cyan-600 bg-cyan-500/10" },
+    { href: "/self-service/feedback", title: "الشكاوى والاقتراحات", description: "افتح تذكرة وتابع المحادثة مع فريق النادي حتى اكتمال الحل.", icon: MessageCircleMore, color: "text-amber-700 bg-amber-500/10" },
   ]
   return <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{cards.map(card => <Link key={card.href} href={card.href} className="group rounded-3xl border bg-card p-5 transition hover:-translate-y-1 hover:border-primary/35 hover:shadow-xl"><div className="flex items-start gap-4"><span className={`grid size-12 shrink-0 place-items-center rounded-2xl ${card.color}`}><card.icon /></span><div className="min-w-0"><h2 className="font-black">{card.title}</h2><p className="mt-2 text-xs leading-6 text-muted-foreground">{card.description}</p></div><ArrowLeft className="mr-auto mt-3 size-4 text-muted-foreground transition group-hover:-translate-x-1 group-hover:text-primary" /></div></Link>)}</div>
 }

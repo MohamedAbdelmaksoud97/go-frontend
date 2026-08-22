@@ -1,0 +1,23 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { Bell, BellRing, CheckCheck, Megaphone } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { apiRequest } from "@/lib/api-client"
+import { humanError } from "@/lib/human-errors"
+import { useToast } from "@/components/toast-provider"
+import { cn } from "@/lib/utils"
+
+export type AccountNotification={id:string;title:string;body:string;purpose:string;createdAt:string;readAt?:string}
+const purposeLabels:Record<string,string>={MARKETING:"عرض وترويج",RENEWAL:"تجديد الاشتراك",REMINDER:"تذكير",ANNOUNCEMENT:"إعلان",FOLLOW_UP:"متابعة",OTHER:"رسالة"}
+
+export function AccountNotificationInbox(){const toast=useToast();const[rows,setRows]=useState<AccountNotification[]>([]),[loading,setLoading]=useState(true),[unreadOnly,setUnreadOnly]=useState(false)
+ async function load(){setLoading(true);try{const response=await apiRequest<AccountNotification[]>(`/me/account-notifications?unreadOnly=${unreadOnly}&limit=100`);setRows(response.data??[])}catch(reason){toast.error(humanError(reason,"تعذر تحميل الإشعارات."))}finally{setLoading(false)}}
+ useEffect(()=>{const frame=requestAnimationFrame(()=>void load());return()=>cancelAnimationFrame(frame)},[unreadOnly]) // eslint-disable-line react-hooks/exhaustive-deps
+ async function read(row:AccountNotification){if(row.readAt)return;try{const response=await apiRequest<AccountNotification>(`/me/account-notifications/${row.id}/read`,{method:"POST"});setRows(current=>current.map(item=>item.id===row.id?response.data:item))}catch(reason){toast.error(humanError(reason,"تعذر تحديث الإشعار."))}}
+ async function readAll(){try{await apiRequest("/me/account-notifications/read-all",{method:"POST"});setRows(current=>current.map(item=>({...item,readAt:item.readAt??new Date().toISOString()})));toast.success("تم تعليم كل الإشعارات كمقروءة.")}catch(reason){toast.error(humanError(reason,"تعذر تحديث الإشعارات."))}}
+ const unread=rows.filter(row=>!row.readAt).length
+ return <div dir="rtl" className="space-y-6"><section className="rounded-3xl border border-primary/20 bg-gradient-to-l from-primary/10 via-card to-card p-6 sm:p-8"><Badge variant="warning"><BellRing className="size-3.5"/> صندوق الإشعارات</Badge><div className="mt-4 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h1 className="text-2xl font-black sm:text-4xl">رسائلك وتنبيهاتك</h1><p className="mt-3 text-sm leading-7 text-muted-foreground">كل ما يرسله النادي إلى حسابك في مكان واحد، مرتبًا من الأحدث.</p></div><div className="flex gap-2"><Button variant={unreadOnly?"default":"outline"} onClick={()=>setUnreadOnly(value=>!value)}>غير المقروءة فقط</Button>{unread>0&&<Button variant="outline" onClick={readAll}><CheckCheck/>تعليم الكل كمقروء</Button>}</div></div></section>
+ <Card><CardHeader><div><CardTitle>الإشعارات</CardTitle><CardDescription className="mt-1">{unread?`لديك ${unread.toLocaleString("ar-SA")} رسائل غير مقروءة.`:"أنت مطّلع على كل الرسائل."}</CardDescription></div><Bell className="text-primary"/></CardHeader><CardContent>{loading?<div className="grid min-h-52 place-items-center"><span className="size-10 animate-spin rounded-full border-4 border-primary border-t-transparent"/></div>:rows.length===0?<div className="grid min-h-52 place-items-center rounded-2xl border border-dashed text-center"><div><Bell className="mx-auto mb-3 size-8 text-muted-foreground"/><p className="font-bold">لا توجد إشعارات هنا حاليًا</p><p className="mt-2 text-xs text-muted-foreground">ستظهر رسائل النادي فور إرسالها إلى حسابك.</p></div></div>:<div className="space-y-3">{rows.map(row=><button type="button" key={row.id} onClick={()=>void read(row)} className={cn("flex w-full items-start gap-4 rounded-2xl border p-4 text-right transition hover:border-primary",!row.readAt&&"border-primary/35 bg-primary/5")}><span className={cn("grid size-11 shrink-0 place-items-center rounded-xl",row.readAt?"bg-secondary text-muted-foreground":"bg-primary/15 text-primary")}><Megaphone className="size-5"/></span><span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><strong>{row.title}</strong><Badge variant="outline">{purposeLabels[row.purpose]??"رسالة"}</Badge>{!row.readAt&&<Badge>جديد</Badge>}</span><span className="mt-2 block whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{row.body}</span><span className="mt-3 block text-xs text-muted-foreground">{new Date(row.createdAt).toLocaleString("ar-SA")}</span></span></button>)}</div>}</CardContent></Card></div>}

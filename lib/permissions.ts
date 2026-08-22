@@ -18,7 +18,9 @@ export const routePermissions:Record<string,string[]>={
  "/cashier":["sales.checkout","finance.payments.record","finance.cash-shifts.manage"],
  "/finance":["finance.invoices.read","finance.payments.read","finance.other-income.read","coaching.commissions.read"],
  "/crm":["crm.leads.read","crm.follow-ups.read","online-requests.read"],
- "/operations":["workforce.shifts.read","workforce.attendance.record","online-requests.read","feedback.read","lockers.read"],
+ "/communications":["notifications.read","notifications.send"],
+ "/operations":["workforce.shifts.read","workforce.attendance.record","online-requests.read","lockers.read"],
+ "/feedback":["feedback.read","feedback.reply"],
  "/restaurant":["restaurant.orders.read","restaurant.menu.read","restaurant.catalog.read"],
  "/staff":["workforce.read"],
  "/trainer":["coaching.read","coaching.training-plans.read","measurements.read"],
@@ -28,6 +30,7 @@ export const routePermissions:Record<string,string[]>={
  "/settings":["organization.read","iam.roles.read"],
  "/self-service":[],
  "/account":[],
+ "/notifications":[],
  "/select-context":[],
 }
 
@@ -44,7 +47,9 @@ export function firstAllowedDestination(canAccess:(permissions:string[])=>boolea
  if(canAccess(["sales.checkout"]))return "/cashier"
  if(canAccess(["members.read"]))return "/members"
  if(canAccess(["workforce.shifts.read"]))return "/operations"
+ if(canAccess(["feedback.read","feedback.reply"]))return "/feedback"
  if(canAccess(["crm.leads.read","crm.follow-ups.read"]))return "/crm"
+ if(canAccess(["notifications.read","notifications.send"]))return "/communications"
  if(canAccess(["finance.other-income.read","coaching.commissions.read"]))return "/finance"
  if(canAccess(["coaching.read","measurements.read"]))return "/trainer"
  if(canAccess(["workforce.read"]))return "/staff"

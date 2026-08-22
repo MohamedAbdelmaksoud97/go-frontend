@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useState } from "react"
-import { Activity, Compass, CreditCard, Dumbbell, ReceiptText, Sparkles, UserRound, Utensils } from "lucide-react"
+import { Activity, Compass, CreditCard, Dumbbell, MessageCircleMore, ReceiptText, Sparkles, UserRound, Utensils } from "lucide-react"
 import { useAppContext, type SelfMemberLink } from "@/components/app-context"
 import { EmployeeSelfPanel } from "@/components/employee-self-panel"
 import { MemberPortal, type MemberPortalSection } from "@/components/member-portal"
@@ -17,6 +17,7 @@ const sectionMeta: Record<MemberPortalSection, { eyebrow: string; title: string;
   membership: { eyebrow: "عضويتي", title: "تفاصيل اشتراكك", description: "تابع الباقة الحالية والمدة والزيارات المتاحة وحالة الاشتراك بكل وضوح.", icon: CreditCard },
   orders: { eyebrow: "المعاملات", title: "طلباتك وفواتيرك", description: "راقب حالة كل طلب، رقم فاتورته والمبلغ المتبقي حتى اكتمال السداد والتنفيذ.", icon: ReceiptText },
   activity: { eyebrow: "نشاطي", title: "حجوزاتك وحضورك", description: "تابع مواعيدك السابقة والقادمة، سجل حضورك وخططك التدريبية.", icon: Activity },
+  feedback: { eyebrow: "نحن نسمعك", title: "الشكاوى والاقتراحات", description: "تواصل مع فريق النادي في محادثة موثقة، وتابع كل رد حتى اكتمال الحل.", icon: MessageCircleMore },
 }
 
 export function SelfServiceContent({ section }: { section: MemberPortalSection }) {

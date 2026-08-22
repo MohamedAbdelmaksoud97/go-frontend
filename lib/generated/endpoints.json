@@ -56,6 +56,14 @@
     "description": "Member or guardian phone/password session issued."
   },
   {
+    "path": "/api/v1/auth/member/account-activations",
+    "method": "post",
+    "operationId": "activateMemberAccount",
+    "secured": false,
+    "idempotent": false,
+    "description": "Existing member account activated and linked."
+  },
+  {
     "path": "/api/v1/auth/member/test-email/password/sign-ins",
     "method": "post",
     "operationId": "signInMemberWithTestEmailPassword",
@@ -216,6 +224,14 @@
     "description": "Workforce position created."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/positions/{positionId}",
+    "method": "patch",
+    "operationId": "updateWorkforcePosition",
+    "secured": true,
+    "idempotent": false,
+    "description": "Workforce position and its effective permission grants updated."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/employees",
     "method": "get",
     "operationId": "listEmployees",
@@ -350,6 +366,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Draft package created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/packages/{packageId}",
+    "method": "patch",
+    "operationId": "updatePackage",
+    "secured": true,
+    "idempotent": false,
+    "description": "Package configuration and attendance limits updated with optimistic concurrency."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/packages/{packageId}/publications",
@@ -525,7 +549,7 @@
     "operationId": "refundPayment",
     "secured": true,
     "idempotent": true,
-    "description": "AAL2-protected refund recorded as a separate transaction."
+    "description": "Permission-protected refund recorded as a separate transaction."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/payments/{paymentId}",
@@ -573,7 +597,7 @@
     "operationId": "closeCashierShift",
     "secured": true,
     "idempotent": false,
-    "description": "AAL2-protected atomic close with expected/actual difference."
+    "description": "Permission-protected atomic close with expected/actual difference."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/expenses",
@@ -896,6 +920,14 @@
     "description": "Retail product category created."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/retail/categories/{id}",
+    "method": "patch",
+    "operationId": "updateRetailCategory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Retail category updated or archived with optimistic concurrency."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/retail/products",
     "method": "get",
     "operationId": "listRetailProducts",
@@ -910,6 +942,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Retail product and barcode created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/products/{id}",
+    "method": "patch",
+    "operationId": "updateRetailProduct",
+    "secured": true,
+    "idempotent": false,
+    "description": "Retail product updated or archived with optimistic concurrency."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/retail/sellable-products",
@@ -934,6 +974,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Effective branch retail price created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/retail/prices/{id}",
+    "method": "patch",
+    "operationId": "updateRetailPrice",
+    "secured": true,
+    "idempotent": false,
+    "description": "Retail price updated or archived with optimistic concurrency."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/retail/inventory",
@@ -1165,7 +1213,7 @@
     "operationId": "requestReportingRebuild",
     "secured": true,
     "idempotent": false,
-    "description": "AAL2-protected durable projection rebuild requested."
+    "description": "Permission-protected durable projection rebuild requested."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/reporting-rebuilds/{rebuildId}",
@@ -1488,6 +1536,22 @@
     "description": "Rate-limited public request accepted without exposing internal data."
   },
   {
+    "path": "/api/v1/public/organizations/{organizationId}/online-requests/{requestId}/files/upload-requests",
+    "method": "post",
+    "operationId": "createPublicIntakeFileUpload",
+    "secured": false,
+    "idempotent": false,
+    "description": "Short-lived, request-bound signed upload URL for an optional profile or identity image."
+  },
+  {
+    "path": "/api/v1/public/organizations/{organizationId}/online-requests/{requestId}/files/{fileId}/upload-completions",
+    "method": "post",
+    "operationId": "completePublicIntakeFileUpload",
+    "secured": false,
+    "idempotent": false,
+    "description": "Confirms the uploaded object metadata against the request."
+  },
+  {
     "path": "/api/v1/self",
     "method": "get",
     "operationId": "getSelfServiceContext",
@@ -1721,11 +1785,51 @@
   },
   {
     "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/feedback-cases",
+    "method": "get",
+    "operationId": "listSelfMemberFeedbackTickets",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member-owned complaint and suggestion tickets with unread state."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/feedback-cases",
     "method": "post",
     "operationId": "createSelfMemberFeedback",
     "secured": true,
     "idempotent": false,
-    "description": "Complaint or suggestion created for the exact linked member."
+    "description": "Complaint or suggestion ticket created for the exact linked member."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/feedback-cases/{id}",
+    "method": "get",
+    "operationId": "getSelfMemberFeedbackTicket",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member-owned ticket and complete conversation."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/feedback-cases/{id}/messages",
+    "method": "post",
+    "operationId": "replySelfMemberFeedbackTicket",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member reply appended to an open ticket."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/feedback-cases/{id}/read",
+    "method": "post",
+    "operationId": "readSelfMemberFeedbackTicket",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member conversation marked as read."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/feedback-cases/{id}/transitions",
+    "method": "post",
+    "operationId": "transitionSelfMemberFeedbackTicket",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member closes or reopens an owned ticket."
   },
   {
     "path": "/api/v1/self/organizations/{organizationId}/employee",
@@ -1872,6 +1976,14 @@
     "description": "Verified account linked to the member."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}/account-activation-codes",
+    "method": "post",
+    "operationId": "issueMemberAccountActivation",
+    "secured": true,
+    "idempotent": false,
+    "description": "Short-lived member activation code issued."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/members/{memberId}/guardians/{guardianId}/user-account-links",
     "method": "post",
     "operationId": "linkGuardianUserAccount",
@@ -1894,6 +2006,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Employee updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/employees/{employeeId}/password-resets",
+    "method": "post",
+    "operationId": "resetEmployeePassword",
+    "secured": true,
+    "idempotent": false,
+    "description": "The linked employee login password was reset by an authorized manager."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/employees/{employeeId}/user-account-links",
@@ -1992,12 +2112,36 @@
     "description": "Active locker assignment released."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/feedback-cases/{id}",
+    "method": "get",
+    "operationId": "getFeedbackTicket",
+    "secured": true,
+    "idempotent": false,
+    "description": "Complaint or suggestion ticket and complete conversation."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/feedback-cases/{id}/messages",
+    "method": "post",
+    "operationId": "replyFeedbackTicket",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized staff reply appended to an open ticket."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/feedback-cases/{id}/read",
+    "method": "post",
+    "operationId": "readFeedbackTicket",
+    "secured": true,
+    "idempotent": false,
+    "description": "Support-team conversation marked as read."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/feedback-cases/{id}/transitions",
     "method": "post",
     "operationId": "transitionFeedbackCase",
     "secured": true,
     "idempotent": false,
-    "description": "Complaint or suggestion lifecycle transitioned."
+    "description": "Ticket lifecycle transitioned by authorized staff."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/other-income-categories",
@@ -2136,6 +2280,14 @@
     "description": "Active password account provisioned; staff use email and members use phone."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}/password-resets",
+    "method": "post",
+    "operationId": "resetMemberPassword",
+    "secured": true,
+    "idempotent": false,
+    "description": "An authorized manager reset the password of an existing linked member account."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/invoices",
     "method": "get",
     "operationId": "listInvoices",
@@ -2158,5 +2310,101 @@
     "secured": true,
     "idempotent": false,
     "description": "Branch-safe file metadata list."
+  },
+  {
+    "path": "/api/v1/communications/capabilities",
+    "method": "get",
+    "operationId": "getCommunicationCapabilities",
+    "secured": true,
+    "idempotent": false,
+    "description": "Enabled in-app and future WhatsApp communication channels."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/communication-templates",
+    "method": "get",
+    "operationId": "listCommunicationTemplates",
+    "secured": true,
+    "idempotent": false,
+    "description": "Reusable branch-safe communication templates."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/communication-templates",
+    "method": "post",
+    "operationId": "createCommunicationTemplate",
+    "secured": true,
+    "idempotent": false,
+    "description": "Reusable communication template created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/communication-templates/{templateId}",
+    "method": "patch",
+    "operationId": "updateCommunicationTemplate",
+    "secured": true,
+    "idempotent": false,
+    "description": "Communication template updated or deactivated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/communication-campaigns/audience-preview",
+    "method": "post",
+    "operationId": "previewCommunicationAudience",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized audience size, delivery eligibility, and safe samples."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/communication-campaigns",
+    "method": "get",
+    "operationId": "listCommunicationCampaigns",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped communication campaign history and delivery counters."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/communication-campaigns",
+    "method": "post",
+    "operationId": "createCommunicationCampaign",
+    "secured": true,
+    "idempotent": false,
+    "description": "Immediate or scheduled in-app communication campaign created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/communication-campaigns/{campaignId}/cancellations",
+    "method": "post",
+    "operationId": "cancelCommunicationCampaign",
+    "secured": true,
+    "idempotent": false,
+    "description": "A scheduled campaign cancelled before delivery."
+  },
+  {
+    "path": "/api/v1/me/account-notifications",
+    "method": "get",
+    "operationId": "listOwnAccountNotifications",
+    "secured": true,
+    "idempotent": false,
+    "description": "Private in-app notification inbox for the authenticated account."
+  },
+  {
+    "path": "/api/v1/me/account-notifications/unread-count",
+    "method": "get",
+    "operationId": "countOwnUnreadAccountNotifications",
+    "secured": true,
+    "idempotent": false,
+    "description": "Unread inbox indicator count."
+  },
+  {
+    "path": "/api/v1/me/account-notifications/{notificationId}/read",
+    "method": "post",
+    "operationId": "readOwnAccountNotification",
+    "secured": true,
+    "idempotent": false,
+    "description": "Own inbox notification marked as read."
+  },
+  {
+    "path": "/api/v1/me/account-notifications/read-all",
+    "method": "post",
+    "operationId": "readAllOwnAccountNotifications",
+    "secured": true,
+    "idempotent": false,
+    "description": "All own inbox notifications marked as read."
   }
 ]
