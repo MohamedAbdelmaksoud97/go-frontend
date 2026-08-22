@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
   Activity, Barcode, Bell, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, Compass, CreditCard, FileText,
-  Dumbbell, LayoutDashboard, LogOut, Menu, MessageSquareText, Moon, ReceiptText, Search, Settings,
+  Dumbbell, History, LayoutDashboard, LogOut, Menu, MessageSquareText, Moon, ReceiptText, Search, Settings,
   Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
 } from "lucide-react"
 import { BrandLogo } from "@/components/brand-logo"
@@ -30,6 +30,7 @@ const navGroups = [
   { label: "الأعمال", items: [
     { href: "/cashier", label: "نقطة البيع", icon: CircleDollarSign, permissions:["sales.checkout","finance.payments.record","finance.cash-shifts.manage"] },
     { href: "/finance", label: "المالية والعمولات", icon: WalletCards, permissions:["finance.invoices.read","sales.read","finance.other-income.read","coaching.commissions.read"] },
+    { href: "/finance/shifts", label: "سجل ورديات الصندوق", icon: History, permissions:["finance.cash-shifts.audit.read"] },
     { href: "/crm", label: "العملاء والمتابعات", icon: Zap, permissions:["crm.leads.read","crm.follow-ups.read","online-requests.read"] },
     { href: "/communications", label: "الرسائل والتواصل", icon: MessageSquareText, permissions:["notifications.read","notifications.send"] },
     { href: "/operations", label: "مركز العمليات", icon: ClipboardList, permissions:["workforce.shifts.read","workforce.attendance.record","online-requests.read","lockers.read"] },

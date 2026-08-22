@@ -76,11 +76,11 @@ export default function DashboardPage(){
 }
 
 function RevenueChart({rows,asOf}:{rows:DailyMetric[];asOf?:string}){
- const values=rows.map(row=>Math.max(0,Number(row.totalRevenueMinor??row.invoicedGrossMinor??0))).filter(Number.isFinite)
- const total=values.reduce((sum,current)=>sum+current,0),maximum=Math.max(...values,1)
- const points=values.map((current,index)=>`${values.length===1?50:index*(100/(values.length-1))},${92-(current/maximum)*76}`).join(" ")
- const first=rows[0]?.businessDate,last=rows.at(-1)?.businessDate
- return <Card><CardHeader><div><CardTitle className="flex items-center gap-2"><TrendingUp className="size-5 text-amber-600"/>الإيرادات اليومية</CardTitle><CardDescription className="mt-1">الفواتير والإيرادات الأخرى في الفرع خلال آخر 30 يومًا</CardDescription></div><div className="text-left"><p className="text-xl font-black">{money(total)}</p><p className="mt-1 text-[9px] text-muted-foreground">{asOf?`آخر تحديث ${shortDateTime(asOf)}`:"من بيانات قاعدة النظام"}</p></div></CardHeader><CardContent className="pt-2">{rows.length===0?<ChartEmpty text="لا توجد حركة مالية مسجلة في هذه الفترة."/>:<><div className="relative h-64 overflow-hidden rounded-xl bg-secondary/35 px-3 pt-4"><div className="absolute inset-0 grid grid-rows-4">{[0,1,2,3].map(item=><div key={item} className="border-b border-dashed border-border/70"/>)}</div><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="relative z-10 h-[220px] w-full overflow-visible" role="img" aria-label="منحنى الإيرادات اليومية"><defs><linearGradient id="dashboard-revenue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#ffcc00" stopOpacity=".34"/><stop offset="1" stopColor="#ffcc00" stopOpacity="0"/></linearGradient></defs><polygon points={`0,100 ${points} 100,100`} fill="url(#dashboard-revenue)"/><polyline points={points} fill="none" stroke="#ffcc00" strokeWidth="2.2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"/>{values.map((current,index)=><circle key={index} cx={values.length===1?50:index*(100/(values.length-1))} cy={92-(current/maximum)*76} r="1.25" fill="#ffcc00" stroke="var(--card)" strokeWidth=".8" vectorEffect="non-scaling-stroke"><title>{money(current)} · {rows[index]?.businessDate}</title></circle>)}</svg></div><div className="mt-3 flex justify-between text-[10px] text-muted-foreground"><span>{formatBusinessDate(first)}</span><span>{formatBusinessDate(last)}</span></div></>}</CardContent></Card>
+ const series=completeRevenueSeries(rows,30)
+ const values=series.map(row=>row.amountMinor),total=values.reduce((sum,current)=>sum+current,0),maximum=Math.max(...values,1)
+ const first=series[0]?.businessDate,last=series.at(-1)?.businessDate
+ const peak=series.reduce((highest,current)=>current.amountMinor>highest.amountMinor?current:highest,series[0]??{businessDate:"",amountMinor:0})
+ return <Card><CardHeader><div><CardTitle className="flex items-center gap-2"><TrendingUp className="size-5 text-amber-600"/>الإيرادات اليومية</CardTitle><CardDescription className="mt-1">إجمالي الفواتير والإيرادات الأخرى لكل يوم في الفرع خلال آخر 30 يومًا</CardDescription></div><div className="text-left"><p className="text-xl font-black">{money(total)}</p><p className="mt-1 text-[9px] text-muted-foreground">{asOf?`آخر تحديث ${shortDateTime(asOf)}`:"من بيانات قاعدة النظام"}</p></div></CardHeader><CardContent className="pt-2">{total===0?<ChartEmpty text="لا توجد حركة مالية مسجلة في هذه الفترة."/>:<><div className="mb-3 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground"><span className="flex items-center gap-1.5"><i className="block size-2.5 rounded-sm bg-primary"/>كل عمود يمثل إيراد يوم واحد</span><span className="mr-auto">أعلى يوم: <b className="text-foreground">{formatBusinessDate(peak.businessDate)} · {money(peak.amountMinor)}</b></span></div><div className="relative h-64 overflow-hidden rounded-xl bg-secondary/35 px-4 pb-4 pt-5" role="img" aria-label="أعمدة الإيرادات اليومية خلال آخر ثلاثين يومًا"><div className="pointer-events-none absolute inset-x-4 bottom-4 top-5 grid grid-rows-4">{[0,1,2,3].map(item=><div key={item} className="border-b border-dashed border-border/70"/>)}</div><div className="relative z-10 flex h-full items-end gap-1" dir="ltr">{series.map(row=>{const height=row.amountMinor>0?Math.max(4,(row.amountMinor/maximum)*100):0;return <div key={row.businessDate} className="group relative flex h-full min-w-0 flex-1 items-end"><div className="w-full rounded-t-sm bg-primary/75 transition hover:bg-primary" style={{height:`${height}%`}}/><span className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg border bg-popover px-2 py-1 text-[10px] font-bold text-popover-foreground shadow-lg group-hover:block" style={{bottom:`calc(${height}% + 8px)`}}>{formatBusinessDate(row.businessDate)} · {money(row.amountMinor)}</span></div>})}</div></div><div className="mt-3 flex justify-between text-[10px] text-muted-foreground" dir="ltr"><span dir="rtl">{formatBusinessDate(first)}</span><span dir="rtl">{formatBusinessDate(last)}</span></div></>}</CardContent></Card>
 }
 
 function SubscriptionChart({rows}:{rows:SubscriptionStatus[]}){
@@ -97,6 +97,18 @@ function ServiceActivityChart({rows}:{rows:ServiceActivity[]}){
 }
 
 function ChartEmpty({text}:{text:string}){return <div className="grid min-h-52 place-items-center rounded-xl border border-dashed bg-secondary/20 p-6 text-center"><div><BarChart3 className="mx-auto size-9 text-muted-foreground/50"/><p className="mt-3 text-sm font-bold">لا توجد بيانات للرسم بعد</p><p className="mt-1 text-xs text-muted-foreground">{text}</p></div></div>}
+function completeRevenueSeries(rows:DailyMetric[],days:number){
+ const byDate=new Map<string,number>()
+ for(const row of rows){
+  const businessDate=String(row.businessDate??"").slice(0,10)
+  if(!/^\d{4}-\d{2}-\d{2}$/u.test(businessDate))continue
+  const provided=Number(row.totalRevenueMinor)
+  const amount=Number.isFinite(provided)?provided:(Number(row.invoicedGrossMinor??0)||0)+(Number(row.otherIncomeMinor??0)||0)
+  byDate.set(businessDate,(byDate.get(businessDate)??0)+Math.max(0,amount))
+ }
+ const {fromDate}=rollingRangeRiyadh(days),start=new Date(`${fromDate}T00:00:00Z`)
+ return Array.from({length:days},(_,index)=>{const businessDate=new Date(start.getTime()+index*86_400_000).toISOString().slice(0,10);return{businessDate,amountMinor:byDate.get(businessDate)??0}})
+}
 function value(summary:Summary|undefined,...keys:string[]){for(const key of keys){const candidate=summary?.[key];if(candidate!==undefined&&candidate!==null)return String(candidate)}return "0"}
 function number(summary:Summary|undefined,...keys:string[]){return Number(value(summary,...keys))||0}
 function money(minor:number){return new Intl.NumberFormat("ar-SA",{style:"currency",currency:"SAR",maximumFractionDigits:2}).format(minor/100)}

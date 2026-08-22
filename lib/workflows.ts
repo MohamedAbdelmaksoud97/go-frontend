@@ -36,6 +36,10 @@ const nowLocal = () => {
   const date = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
   return date.toISOString().slice(0, 16)
 }
+const normalizedOptionalPhone = (value: FormValues[string]) => {
+  const phone = String(value ?? "").replace(/[\s()-]/gu, "")
+  return phone || undefined
+}
 const members: ReferenceSource = { path: c => `/organizations/${c.organizationId}/members?branchId=${encodeURIComponent(c.branchId)}&limit=25`, labelKeys: ["name", "fullNameAr", "memberName", "fullName", "displayName"], subtitleKeys: ["memberNumber", "legacyMemberNumber", "phoneE164"], searchParam: "search" }
 const packages: ReferenceSource = { path: c => `/organizations/${c.organizationId}/packages?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "packageName", "name"], subtitleKeys: ["code"] }
 const resources: ReferenceSource = { path: c => `/organizations/${c.organizationId}/bookable-resources?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "resourceName", "name"], subtitleKeys: ["type"] }
@@ -85,8 +89,8 @@ export const workflows: Record<string, Workflow> = {
       { name: "profileImage", label: "صورة العضو (اختياري)", type: "file", hint: "JPG أو PNG، حتى 10 ميجابايت." },
       { name: "notes", label: "ملاحظات", type: "textarea", placeholder: "أي معلومات مهمة لفريق الاستقبال" },
     ],
-    initial: () => ({ fullNameAr: "", phoneE164: "+9665", gender: "MALE", birthDate: "", nationality: "SA", identityImage: undefined, profileImage: undefined, notes: "" }),
-    body: (v, c) => ({ registrationBranchId: c.branchId, name: v.fullNameAr, gender: v.gender, birthDate: v.birthDate || undefined, nationalityCode: v.nationality || undefined, contacts: v.phoneE164 ? [{ type: "PHONE", value: v.phoneE164, isPrimary: true }] : [], notes: v.notes || undefined }),
+    initial: () => ({ fullNameAr: "", phoneE164: "", gender: "MALE", birthDate: "", nationality: "SA", identityImage: undefined, profileImage: undefined, notes: "" }),
+    body: (v, c) => ({ registrationBranchId: c.branchId, name: v.fullNameAr, gender: v.gender, birthDate: v.birthDate || undefined, nationalityCode: v.nationality || undefined, contacts: normalizedOptionalPhone(v.phoneE164) ? [{ type: "PHONE", value: normalizedOptionalPhone(v.phoneE164), isPrimary: true }] : [], notes: v.notes || undefined }),
   },
   createSubscription: {
     title: "بيع باقة وإصدار فاتورة", description: "اختر العضو والباقة وتاريخ البداية. سيُنشئ النظام طلب بيع وفاتورة معلّقة، ويُفعّل الاشتراك تلقائيًا فور تحصيلها.", submitLabel: "إنشاء الاشتراك والفاتورة", successMessage: "تم إنشاء الاشتراك والفاتورة المعلّقة. يمكن تحصيلها من نقطة البيع.",
@@ -132,8 +136,8 @@ export const workflows: Record<string, Workflow> = {
       { name: "originType", label: "كيف تعرف علينا؟", type: "select", options: [{ value: "WALK_IN", label: "زيارة النادي" }, { value: "PHONE", label: "اتصال هاتفي" }, { value: "WEBSITE", label: "الموقع الإلكتروني" }, { value: "REFERRAL", label: "ترشيح" }, { value: "SOCIAL_MEDIA", label: "التواصل الاجتماعي" }, { value: "OTHER", label: "أخرى" }] },
       { name: "interestType", label: "الاهتمام", type: "select", options: [{ value: "GENERAL", label: "استفسار عام" }, { value: "PACKAGE", label: "باقة عضوية" }, { value: "PERSONAL_TRAINING", label: "تدريب شخصي" }, { value: "MEAL_PLAN", label: "خطة غذائية" }] },
       { name: "notes", label: "ملاحظات المتابعة", type: "textarea" },
-    ], initial: () => ({ fullName: "", phoneE164: "+9665", email: "", originType: "WALK_IN", interestType: "GENERAL", notes: "" }),
-    body: (v, c) => ({ branchId: c.branchId, fullName: v.fullName, phone: v.phoneE164 || undefined, email: v.email || undefined, originType: v.originType, interestType: v.interestType, notes: v.notes || undefined }),
+    ], initial: () => ({ fullName: "", phoneE164: "", email: "", originType: "WALK_IN", interestType: "GENERAL", notes: "" }),
+    body: (v, c) => ({ branchId: c.branchId, fullName: String(v.fullName).trim(), phone: normalizedOptionalPhone(v.phoneE164), email: String(v.email ?? "").trim().toLowerCase() || undefined, originType: v.originType, interestType: v.interestType, notes: String(v.notes ?? "").trim() || undefined }),
   },
   checkoutOrder: {
     title: "طلب مطعم جديد", description: "اختر العضو والصنف والكمية. سيُحتسب السعر المعتمد تلقائيًا.", submitLabel: "إنشاء الطلب", successMessage: "تم إنشاء الطلب وإرساله للمتابعة.",
@@ -155,8 +159,8 @@ export const workflows: Record<string, Workflow> = {
       { name: "positionId", label: "المسمى الوظيفي والصلاحيات", type: "reference", source: positions, required: true }, { name: "startsOn", label: "تاريخ بدء العمل", type: "date", required: true },
       { name: "identityImage", label: "صورة الهوية", type: "file", required: true, hint: "JPG أو PNG أو PDF، حتى 10 ميجابايت." },
       { name: "profileImage", label: "صورة الموظف (اختياري)", type: "file", hint: "JPG أو PNG، حتى 10 ميجابايت." },
-    ], initial: () => ({ employeeNumber: "", password: "", confirmPassword: "", fullNameAr: "", phoneE164: "+9665", email: "", positionId: "", startsOn: today() }),
-    body: (v, c) => ({ employeeNumber: v.employeeNumber, password: v.password, name: v.fullNameAr, phone: v.phoneE164 || undefined, email: v.email || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
+    ], initial: () => ({ employeeNumber: "", password: "", confirmPassword: "", fullNameAr: "", phoneE164: "", email: "", positionId: "", startsOn: today() }),
+    body: (v, c) => ({ employeeNumber: v.employeeNumber, password: v.password, name: v.fullNameAr, phone: normalizedOptionalPhone(v.phoneE164), email: String(v.email ?? "").trim().toLowerCase() || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
   },
   requestReportingRebuild: {
     title: "تحديث بيانات التقارير", description: "استخدم هذا الإجراء فقط إذا كانت أرقام التقارير لا تعكس آخر العمليات.", submitLabel: "بدء التحديث", successMessage: "بدأ تحديث بيانات التقارير. يمكنك متابعة العمل وسيكتمل في الخلفية.", confirm: "قد يستغرق تحديث التقارير عدة دقائق. هل تريد المتابعة؟",

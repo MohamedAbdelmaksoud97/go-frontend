@@ -1,7 +1,18 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
+import { refreshSessionOnce,sessionCookieOptions } from "@/lib/server-session"
 
-const API_BASE=(process.env.API_BASE_URL??process.env.NEXT_PUBLIC_API_BASE_URL??"http://127.0.0.1:3001").replace(/\/$/,"")
-const cookieOptions={httpOnly:true,sameSite:"lax" as const,secure:process.env.NODE_ENV==="production",path:"/"}
-const sessionMaxAge=60*60*24*7
-export async function POST(){const store=await cookies();const refreshToken=store.get("go_refresh_token")?.value;if(!refreshToken)return NextResponse.json({error:"refresh_unavailable"},{status:401});const response=await fetch(`${API_BASE}/api/v1/auth/sessions/refreshes`,{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({refreshToken}),cache:"no-store"});const payload=await response.json().catch(()=>null);if(!response.ok){store.delete("go_access_token");store.delete("go_refresh_token");return NextResponse.json({error:"refresh_failed"},{status:401})}const session=payload?.data as {accessToken?:string;refreshToken?:string;expiresIn?:number}|undefined;if(!session?.accessToken||!session.refreshToken){store.delete("go_access_token");store.delete("go_refresh_token");return NextResponse.json({error:"refresh_failed"},{status:502})}store.set("go_access_token",session.accessToken,{...cookieOptions,maxAge:sessionMaxAge});store.set("go_refresh_token",session.refreshToken,{...cookieOptions,maxAge:sessionMaxAge});return NextResponse.json({data:{authenticated:true}})}
+export async function POST(){
+ const store=await cookies()
+ const refreshToken=store.get("go_refresh_token")?.value
+ if(!refreshToken)return NextResponse.json({error:"refresh_unavailable"},{status:401})
+ const result=await refreshSessionOnce(refreshToken)
+ if(!result.ok){
+  const invalidSession=[400,401,403].includes(result.status)
+  if(invalidSession){store.delete("go_access_token");store.delete("go_refresh_token")}
+  return NextResponse.json({error:invalidSession?"refresh_failed":"refresh_temporarily_unavailable"},{status:invalidSession?401:result.status})
+ }
+ store.set("go_access_token",result.session.accessToken,sessionCookieOptions)
+ store.set("go_refresh_token",result.session.refreshToken,sessionCookieOptions)
+ return NextResponse.json({data:{authenticated:true}})
+}

@@ -127,7 +127,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       </header>
       <form onSubmit={submit} className="p-5 sm:p-6">
         {workflow.confirm && <div className="mb-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6"><AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" /><p>{workflow.confirm}</p></div>}
-        <div className="grid gap-5 sm:grid-cols-2">{workflow.fields.map(field => <Field key={field.name} field={field} value={values[field.name]} choices={options[field.name]} loading={loadingOptions} referenceQuery={referenceQueries[field.name] ?? ""} onReferenceSearch={query => setReferenceQueries(current => ({ ...current, [field.name]: query }))} onChange={value => setValues(current => ({ ...current, [field.name]: value }))} />)}</div>
+        <div className="grid gap-5 sm:grid-cols-2">{workflow.fields.map(field => <Field key={field.name} field={field} value={values[field.name]} choices={options[field.name]} loading={loadingOptions} referenceQuery={referenceQueries[field.name] ?? ""} onReferenceSearch={query => setReferenceQueries(current => ({ ...current, [field.name]: query }))} onChange={value => { setError(""); setValues(current => ({ ...current, [field.name]: value })) }} />)}</div>
         {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={quoteError} />}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
         <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions || (isSubscriptionSale && Boolean(selectedPackageId) && (quoteLoading || !subscriptionQuote))}>{saving && <Loader2 className="animate-spin" />}{workflow.submitLabel}</Button></footer>
@@ -163,6 +163,18 @@ function Field({ field, value, choices = [], loading, referenceQuery, onReferenc
 }
 
 function validateValues(operationId: string, values: FormValues): string {
+  const workflow = workflows[operationId]
+  for (const field of workflow?.fields ?? []) {
+    const value = values[field.name]
+    const empty = value === undefined || value === false || (typeof value === "string" && value.trim() === "")
+    if (field.required && empty) return `أكمل حقل «${field.label}» قبل المتابعة.`
+    if (field.type === "email" && typeof value === "string" && value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value.trim())) return `أدخل بريدًا إلكترونيًا صحيحًا في حقل «${field.label}».`
+    if (field.type === "tel" && typeof value === "string" && value.trim()) {
+      const normalized = value.replace(/[\s()-]/gu, "")
+      if (!/^\+[1-9]\d{7,14}$/u.test(normalized)) return `أدخل رقم الجوال بالصيغة الدولية، مثل +9665… أو +2010…`
+    }
+  }
+  if (operationId === "createCrmLead" && !String(values.phoneE164 ?? "").trim() && !String(values.email ?? "").trim()) return "أدخل رقم جوال أو بريدًا إلكترونيًا واحدًا على الأقل حتى يمكن متابعة العميل."
   if (operationId === "createEmployee") {
     const employeeNumber = String(values.employeeNumber ?? "").trim().toUpperCase()
     const password = String(values.password ?? "")

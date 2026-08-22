@@ -600,6 +600,14 @@
     "description": "Permission-protected atomic close with expected/actual difference."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/cashier-shifts/{shiftId}/ledger",
+    "method": "get",
+    "operationId": "getCashierShiftLedger",
+    "secured": true,
+    "idempotent": false,
+    "description": "Detailed, permission-protected cashier shift financial audit ledger."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/expenses",
     "method": "get",
     "operationId": "listExpenses",
@@ -1252,7 +1260,7 @@
     "method": "post",
     "operationId": "createOnlineRequest",
     "secured": true,
-    "idempotent": false,
+    "idempotent": true,
     "description": "Idempotent online request submitted for follow-up."
   },
   {
@@ -1284,7 +1292,7 @@
     "method": "post",
     "operationId": "recordEmployeeAttendance",
     "secured": true,
-    "idempotent": false,
+    "idempotent": true,
     "description": "Idempotent employee attendance event recorded."
   },
   {
@@ -1332,7 +1340,7 @@
     "method": "post",
     "operationId": "recordOtherIncome",
     "secured": true,
-    "idempotent": false,
+    "idempotent": true,
     "description": "Idempotent other income recorded; cash creates an atomic cash movement."
   },
   {
@@ -1444,7 +1452,7 @@
     "method": "post",
     "operationId": "createCrmLead",
     "secured": true,
-    "idempotent": false,
+    "idempotent": true,
     "description": "Idempotent prospective member created."
   },
   {
@@ -1484,7 +1492,7 @@
     "method": "post",
     "operationId": "createCrmLeadFollowUp",
     "secured": true,
-    "idempotent": false,
+    "idempotent": true,
     "description": "Idempotent follow-up scheduled for a lead."
   },
   {
@@ -1676,7 +1684,7 @@
     "method": "post",
     "operationId": "checkoutSelfMemberOrder",
     "secured": true,
-    "idempotent": false,
+    "idempotent": true,
     "description": "Idempotent self-service checkout with capability enforcement."
   },
   {
@@ -1860,7 +1868,7 @@
     "method": "post",
     "operationId": "recordSelfEmployeeAttendance",
     "secured": true,
-    "idempotent": false,
+    "idempotent": true,
     "description": "Idempotent self clock-in or clock-out."
   },
   {
@@ -2052,7 +2060,7 @@
     "method": "post",
     "operationId": "redeemMealPlan",
     "secured": true,
-    "idempotent": false,
+    "idempotent": true,
     "description": "Meal-plan entitlement reserved for a restaurant order idempotently."
   },
   {

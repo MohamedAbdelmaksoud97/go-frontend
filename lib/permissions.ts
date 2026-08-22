@@ -16,7 +16,8 @@ export const routePermissions:Record<string,string[]>={
  "/barcodes":["access-credentials.read","access-credentials.manage"],
  "/files":["files.read","files.manage"],
  "/cashier":["sales.checkout","finance.payments.record","finance.cash-shifts.manage"],
- "/finance":["finance.invoices.read","finance.payments.read","finance.other-income.read","coaching.commissions.read"],
+ "/finance":["finance.invoices.read","finance.payments.read","finance.other-income.read","coaching.commissions.read","finance.cash-shifts.audit.read"],
+ "/finance/shifts":["finance.cash-shifts.audit.read"],
  "/crm":["crm.leads.read","crm.follow-ups.read","online-requests.read"],
  "/communications":["notifications.read","notifications.send"],
  "/operations":["workforce.shifts.read","workforce.attendance.record","online-requests.read","lockers.read"],
@@ -50,6 +51,7 @@ export function firstAllowedDestination(canAccess:(permissions:string[])=>boolea
  if(canAccess(["feedback.read","feedback.reply"]))return "/feedback"
  if(canAccess(["crm.leads.read","crm.follow-ups.read"]))return "/crm"
  if(canAccess(["notifications.read","notifications.send"]))return "/communications"
+ if(canAccess(["finance.cash-shifts.audit.read"]))return "/finance/shifts"
  if(canAccess(["finance.other-income.read","coaching.commissions.read"]))return "/finance"
  if(canAccess(["coaching.read","measurements.read"]))return "/trainer"
  if(canAccess(["workforce.read"]))return "/staff"

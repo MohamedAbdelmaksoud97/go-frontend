@@ -3,6 +3,15 @@ export type ApiProblem={type:string;title:string;status:number;detail:string;cod
 
 let accessToken:string|undefined
 let refreshToken:string|undefined
+let sessionRefreshRequest:Promise<boolean>|undefined
+
+function refreshBrowserSession(){
+ if(sessionRefreshRequest)return sessionRefreshRequest
+ const request=fetch("/api/session/refresh",{method:"POST",cache:"no-store",credentials:"same-origin"}).then(response=>response.ok).catch(()=>false)
+ sessionRefreshRequest=request
+ void request.finally(()=>{if(sessionRefreshRequest===request)sessionRefreshRequest=undefined})
+ return request
+}
 
 export class ApiError extends Error { constructor(public problem:ApiProblem){super(problem.detail||problem.title);this.name="ApiError"} }
 export async function setSession(tokens:{accessToken:string;refreshToken?:string;expiresIn?:number}){accessToken=tokens.accessToken;refreshToken=tokens.refreshToken;await fetch("/api/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(tokens)})}
@@ -13,14 +22,16 @@ export function createIdempotencyKey(){return crypto.randomUUID()}
 export async function apiRequest<T>(path:string,init:RequestInit&{idempotencyKey?:string;fullPath?:boolean;skipRefresh?:boolean}={}):Promise<ApiSuccess<T>>{
  const correlationId=crypto.randomUUID()
  const headers=new Headers(init.headers)
+ const method=(init.method??"GET").toUpperCase()
  headers.set("Accept","application/json")
  headers.set("X-Correlation-Id",correlationId)
  if(init.body&&!headers.has("Content-Type"))headers.set("Content-Type","application/json")
  if(accessToken)headers.set("Authorization",`Bearer ${accessToken}`)
  if(init.idempotencyKey)headers.set("Idempotency-Key",init.idempotencyKey)
+ else if(method==="POST"&&!headers.has("Idempotency-Key"))headers.set("Idempotency-Key",createIdempotencyKey())
  const normalized=init.fullPath?path:`/api/v1${path}`
  let response=await fetch(`/api/backend${normalized}`,{...init,headers,cache:"no-store"})
- if(response.status===401&&!init.skipRefresh){const refreshed=await fetch("/api/session/refresh",{method:"POST"});if(refreshed.ok)response=await fetch(`/api/backend${normalized}`,{...init,headers,cache:"no-store"})}
+ if(response.status===401&&!init.skipRefresh){const refreshed=await refreshBrowserSession();if(refreshed)response=await fetch(`/api/backend${normalized}`,{...init,headers,cache:"no-store"})}
  if(response.status===204)return {data:undefined as T}
  const payload=await response.json().catch(()=>null)
  if(!response.ok){throw new ApiError(payload??{type:"about:blank",title:"تعذر إكمال الطلب",status:response.status,detail:"حدث خطأ غير متوقع. حاول مرة أخرى.",code:"unexpected_error",correlationId})}
