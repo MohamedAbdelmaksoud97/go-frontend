@@ -13,6 +13,19 @@ import { useToast } from "@/components/toast-provider"
 
 type Props = { operationId: string; organizationId: string; branchId: string; onClose: () => void; onSaved?: () => void }
 
+type SubscriptionQuote = {
+  targetId: string
+  targetName: string
+  branchId: string
+  currency: "SAR"
+  baseAmountMinor: string
+  discountMinor: string
+  netMinor: string
+  taxMinor: string
+  grossMinor: string
+  taxInclusive: boolean
+}
+
 export function ActionDialog({ operationId, organizationId, branchId, onClose, onSaved }: Props) {
   const toast = useToast()
   const workflow = workflows[operationId]
@@ -23,6 +36,13 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const [loadingOptions, setLoadingOptions] = useState(() => Boolean(hasRuntimeApi() && workflow?.fields.some(field => field.type === "reference")))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [quoteState, setQuoteState] = useState<{ key: string; loading: boolean; quote?: SubscriptionQuote; error?: string }>({ key: "", loading: false })
+  const isSubscriptionSale = operationId === "createSubscription"
+  const selectedPackageId = String(values.packageId ?? "")
+  const quoteKey = `${branchId}:${selectedPackageId}`
+  const subscriptionQuote = quoteState.key === quoteKey ? quoteState.quote : undefined
+  const quoteError = quoteState.key === quoteKey ? quoteState.error ?? "" : ""
+  const quoteLoading = Boolean(selectedPackageId && (quoteState.key !== quoteKey || quoteState.loading))
 
   useEffect(() => {
     if (!workflow || !hasRuntimeApi()) return
@@ -35,12 +55,31 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         const response = await apiRequest<unknown>(path)
         const payload = response.data
         const list = Array.isArray(payload) ? payload : payload && typeof payload === "object" && "items" in payload ? (payload as { items: unknown[] }).items : []
-        const available = field.name === "packageId" ? list.filter(item => item && typeof item === "object" && (item as Record<string, unknown>).status === "PUBLISHED") : list
+        const available = field.name === "packageId"
+          ? await sellablePackages(list, organizationId, branchId)
+          : list
         return [field.name, available.flatMap(item => toChoice(item, field.source!.labelKeys, field.source!.subtitleKeys))] as const
       } catch { return [field.name, []] as const }
     })).then(entries => { if (!cancelled) setOptions(Object.fromEntries(entries)) }).finally(() => { if (!cancelled) setLoadingOptions(false) }) }, 250)
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [context, referenceQueries, workflow])
+  }, [branchId, context, organizationId, referenceQueries, workflow])
+
+  useEffect(() => {
+    if (!isSubscriptionSale || !selectedPackageId || !organizationId || !branchId || !hasRuntimeApi()) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      if (!cancelled) setQuoteState({ key: quoteKey, loading: true })
+      void apiRequest<SubscriptionQuote>(`/organizations/${organizationId}/quotes`, {
+        method: "POST",
+        body: JSON.stringify({ branchId, targetType: "PACKAGE", targetId: selectedPackageId, quantity: 1, memberSegment: "OTHER" }),
+      }).then(response => {
+        if (!cancelled) setQuoteState({ key: quoteKey, loading: false, quote: response.data })
+      }).catch(reason => {
+        if (!cancelled) setQuoteState({ key: quoteKey, loading: false, error: humanError(reason, "تعذر التحقق من سعر الباقة في الفرع الحالي.") })
+      })
+    }, 180)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [branchId, isSubscriptionSale, organizationId, quoteKey, selectedPackageId])
 
   if (!workflow) return null
   const operation = endpoints.find(item => item.operationId === operationId)
@@ -50,10 +89,13 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
     if (!operation || !organizationId || !branchId) { setError("اختر الفرع أولًا ثم أعد المحاولة."); return }
     const validationError = validateValues(operationId, values)
     if (validationError) { setError(validationError); return }
+    if (isSubscriptionSale && !subscriptionQuote) { setError(quoteError || "انتظر حتى يتم التحقق من سعر الباقة في الفرع الحالي."); return }
     setSaving(true); setError("")
     try {
-      const isSubscriptionSale = operationId === "createSubscription"
-      const path = isSubscriptionSale ? `/organizations/${organizationId}/orders` : operation.path.replace("{organizationId}", organizationId).replace("{branchId}", branchId)
+      // executeOperation receives endpoint-catalog paths as complete API paths.
+      // The subscription sale is routed through Sales checkout, so it must carry
+      // the same /api/v1 prefix instead of being mistaken for a Next.js-local path.
+      const path = isSubscriptionSale ? `/api/v1/organizations/${organizationId}/orders` : operation.path.replace("{organizationId}", organizationId).replace("{branchId}", branchId)
       const body = isSubscriptionSale ? {
         sellingBranchId: branchId,
         memberId: values.memberId,
@@ -73,7 +115,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       }
       const invoiceNumber = response?.data.invoiceNumber
       toast.success(isSubscriptionSale && invoiceNumber ? `تم إنشاء الاشتراك والفاتورة رقم ${String(invoiceNumber)}. سيُفعّل الاشتراك تلقائيًا بعد تحصيل الفاتورة.` : workflow.successMessage); onSaved?.(); onClose()
-    } catch (reason) { setError(humanError(reason)) }
+    } catch (reason) { setError(humanError(reason, operationId === "createSubscription" ? "تعذر إنشاء الاشتراك والفاتورة." : `تعذر تنفيذ «${workflow.title}».`)) }
     finally { setSaving(false) }
   }
 
@@ -86,11 +128,28 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       <form onSubmit={submit} className="p-5 sm:p-6">
         {workflow.confirm && <div className="mb-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6"><AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" /><p>{workflow.confirm}</p></div>}
         <div className="grid gap-5 sm:grid-cols-2">{workflow.fields.map(field => <Field key={field.name} field={field} value={values[field.name]} choices={options[field.name]} loading={loadingOptions} referenceQuery={referenceQueries[field.name] ?? ""} onReferenceSearch={query => setReferenceQueries(current => ({ ...current, [field.name]: query }))} onChange={value => setValues(current => ({ ...current, [field.name]: value }))} />)}</div>
+        {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={quoteError} />}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
-        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions}>{saving && <Loader2 className="animate-spin" />}{workflow.submitLabel}</Button></footer>
+        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions || (isSubscriptionSale && Boolean(selectedPackageId) && (quoteLoading || !subscriptionQuote))}>{saving && <Loader2 className="animate-spin" />}{workflow.submitLabel}</Button></footer>
       </form>
     </section>
   </div>
+}
+
+function SubscriptionPricePreview({ quote, loading, error }: { quote?: SubscriptionQuote; loading: boolean; error: string }) {
+  if (loading) return <div className="mt-5 flex items-center gap-2 rounded-2xl border bg-secondary/40 p-4 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" /> جارٍ التحقق من السعر والضريبة في الفرع الحالي...</div>
+  if (error) return <div className="mt-5 rounded-2xl border border-red-500/25 bg-red-500/8 p-4 text-xs font-semibold leading-6 text-red-600">{error}</div>
+  if (!quote) return null
+  const hasDiscount = Number(quote.discountMinor) > 0
+  return <section className="mt-5 rounded-2xl border border-emerald-500/25 bg-emerald-500/6 p-4" aria-label="ملخص سعر الاشتراك">
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-black">ملخص السعر في الفرع الحالي</p><p className="mt-1 text-[11px] text-muted-foreground">{quote.targetName}</p></div><strong className="text-base text-emerald-600">{formatMoney(quote.grossMinor, quote.currency)}</strong></div>
+    <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-3">
+      <div><dt className="text-muted-foreground">السعر قبل الضريبة</dt><dd className="mt-1 font-bold">{formatMoney(quote.netMinor, quote.currency)}</dd></div>
+      {hasDiscount && <div><dt className="text-muted-foreground">الخصم</dt><dd className="mt-1 font-bold text-emerald-600">− {formatMoney(quote.discountMinor, quote.currency)}</dd></div>}
+      <div><dt className="text-muted-foreground">الضريبة</dt><dd className="mt-1 font-bold">{formatMoney(quote.taxMinor, quote.currency)}</dd></div>
+      <div><dt className="text-muted-foreground">الإجمالي شامل الضريبة</dt><dd className="mt-1 font-black">{formatMoney(quote.grossMinor, quote.currency)}</dd></div>
+    </dl>
+  </section>
 }
 
 function Field({ field, value, choices = [], loading, referenceQuery, onReferenceSearch, onChange }: { field: (typeof workflows)[string]["fields"][number]; value: string | boolean | File | undefined; choices?: Choice[]; loading: boolean; referenceQuery: string; onReferenceSearch: (value: string) => void; onChange: (value: string | boolean | File | undefined) => void }) {
@@ -98,7 +157,7 @@ function Field({ field, value, choices = [], loading, referenceQuery, onReferenc
   if (field.type === "checkbox") return <label className="flex cursor-pointer items-center gap-3 rounded-xl border p-4 text-xs font-bold sm:col-span-2"><input type="checkbox" className="size-4 accent-amber-500" checked={Boolean(value)} onChange={event => onChange(event.target.checked)} /><span>{field.label}</span></label>
   const className = field.type === "textarea" ? "sm:col-span-2" : ""
   return <label className={`text-xs font-bold ${className}`}><span>{field.label}{field.required && <span className="mr-1 text-red-500">*</span>}</span>
-    {field.type === "file" ? <span className="mt-2 flex min-h-24 cursor-pointer items-center gap-3 rounded-xl border border-dashed bg-background px-4 py-3 transition hover:border-primary hover:bg-primary/5"><input className="sr-only" type="file" required={field.required} accept={field.name === "profileImage" ? "image/jpeg,image/png,image/webp" : "image/jpeg,image/png,application/pdf"} onChange={event => onChange(event.target.files?.[0])} /><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${value instanceof File ? "bg-emerald-500/10 text-emerald-600" : "bg-secondary text-muted-foreground"}`}>{value instanceof File ? <FileCheck2 className="size-5" /> : <UploadCloud className="size-5" />}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{value instanceof File ? value.name : "اختر ملفًا من الجهاز"}</span><span className="mt-1 block text-[10px] font-normal text-muted-foreground">{value instanceof File ? `${(value.size / 1024 / 1024).toFixed(2)} ميجابايت · اضغط للاستبدال` : "اضغط هنا للاستعراض والاختيار"}</span></span></span> : field.type === "select" || field.type === "reference" ? <div className="mt-2 space-y-2">{field.type === "reference" && field.source?.searchParam && <div className="relative"><Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/><Input value={referenceQuery} onChange={event => onReferenceSearch(event.target.value)} className="h-10 pr-10" placeholder="ابحث في قاعدة البيانات بالاسم أو الرقم..."/></div>}<select required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"><option value="">{loading ? "جارٍ تجهيز الخيارات..." : field.placeholder ?? "اختر من القائمة"}</option>{(field.options ?? choices).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div> : field.type === "textarea" ? <textarea required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} rows={4} className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15" /> : field.type === "password" ? <span className="relative mt-2 block"><Input className="h-11 pl-11" type={showPassword ? "text" : "password"} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} autoComplete="new-password" dir="ltr" /><button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></span> : <Input className="mt-2 h-11" type={field.type ?? "text"} min={field.min} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} dir={field.type === "tel" || field.type === "email" || field.type === "number" ? "ltr" : undefined} />}
+    {field.type === "file" ? <span className="mt-2 flex min-h-24 cursor-pointer items-center gap-3 rounded-xl border border-dashed bg-background px-4 py-3 transition hover:border-primary hover:bg-primary/5"><input className="sr-only" type="file" required={field.required} accept={field.name === "profileImage" ? "image/jpeg,image/png,image/webp" : "image/jpeg,image/png,application/pdf"} onChange={event => onChange(event.target.files?.[0])} /><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${value instanceof File ? "bg-emerald-500/10 text-emerald-600" : "bg-secondary text-muted-foreground"}`}>{value instanceof File ? <FileCheck2 className="size-5" /> : <UploadCloud className="size-5" />}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{value instanceof File ? value.name : "اختر ملفًا من الجهاز"}</span><span className="mt-1 block text-[10px] font-normal text-muted-foreground">{value instanceof File ? `${(value.size / 1024 / 1024).toFixed(2)} ميجابايت · اضغط للاستبدال` : "اضغط هنا للاستعراض والاختيار"}</span></span></span> : field.type === "select" || field.type === "reference" ? <div className="mt-2 space-y-2">{field.type === "reference" && field.source?.searchParam && <div className="relative"><Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/><Input value={referenceQuery} onChange={event => onReferenceSearch(event.target.value)} className="h-10 pr-10" placeholder="ابحث في قاعدة البيانات بالاسم أو الرقم..."/></div>}<select required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"><option value="">{loading ? "جارٍ تجهيز الخيارات..." : field.placeholder ?? "اختر من القائمة"}</option>{(field.options ?? choices).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{field.name === "packageId" && !loading && choices.length === 0 && <span className="block text-[10px] font-normal leading-5 text-amber-600">لا توجد باقات منشورة ومُسعّرة للفرع الحالي. راجع أسعار الباقات في إعداد النظام.</span>}</div> : field.type === "textarea" ? <textarea required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} rows={4} className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15" /> : field.type === "password" ? <span className="relative mt-2 block"><Input className="h-11 pl-11" type={showPassword ? "text" : "password"} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} autoComplete="new-password" dir="ltr" /><button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></span> : <Input className="mt-2 h-11" type={field.type ?? "text"} min={field.min} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} dir={field.type === "tel" || field.type === "email" || field.type === "number" ? "ltr" : undefined} />}
     {field.hint && <span className="mt-2 block text-[10px] font-normal leading-5 text-muted-foreground">{field.hint}</span>}
   </label>
 }
@@ -138,6 +197,41 @@ function toChoice(item: unknown, labelKeys: string[], subtitleKeys: string[] = [
   const label = labelKeys.map(key => record[key]).find(Boolean)
   const subtitle = (subtitleKeys ?? []).map(key => record[key]).find(Boolean)
   return [{ value: id, label: [label, subtitle].filter(Boolean).join(" — ") || "سجل متاح" }]
+}
+
+async function sellablePackages(items: unknown[], organizationId: string, branchId: string): Promise<unknown[]> {
+  const published = items.filter(item => {
+    if (!item || typeof item !== "object") return false
+    const value = item as Record<string, unknown>
+    if (value.status !== "PUBLISHED") return false
+    if (value.branchAccessPolicy !== "SELECTED_BRANCHES") return true
+    return Array.isArray(value.branchIds) && value.branchIds.some(id => String(id) === branchId)
+  })
+  if (!organizationId || !branchId || !published.length) return published
+
+  const response = await apiRequest<unknown>(`/organizations/${organizationId}/prices`)
+  const payload = response.data
+  const prices = Array.isArray(payload) ? payload : payload && typeof payload === "object" && "items" in payload ? (payload as { items: unknown[] }).items : []
+  const now = Date.now()
+  const pricedPackageIds = new Set(prices.flatMap(item => {
+    if (!item || typeof item !== "object") return []
+    const price = item as Record<string, unknown>
+    if (price.targetType !== "PACKAGE" || price.status !== "ACTIVE") return []
+    const priceBranchId = String(price.branchId ?? "")
+    if (priceBranchId && priceBranchId !== branchId) return []
+    const validFrom = Date.parse(String(price.validFrom ?? ""))
+    const validUntil = price.validUntil ? Date.parse(String(price.validUntil)) : Number.POSITIVE_INFINITY
+    if (!Number.isFinite(validFrom) || validFrom > now || validUntil <= now) return []
+    const targetId = String(price.targetId ?? "")
+    return targetId ? [targetId] : []
+  }))
+  return published.filter(item => pricedPackageIds.has(String((item as Record<string, unknown>).id ?? "")))
+}
+
+function formatMoney(minor: string, currency: string) {
+  const amount = Number(minor)
+  if (!Number.isFinite(amount)) return "—"
+  return new Intl.NumberFormat("ar-SA", { style: "currency", currency }).format(amount / 100)
 }
 
 async function uploadOwnerFile(organizationId: string, ownerId: string, owner: { module: "workforce" | "members"; type: "EMPLOYEE" | "MEMBER" }, kind: "IDENTITY" | "PROFILE", file: File) {

@@ -3,8 +3,9 @@ import { ApiError } from "@/lib/api-client"
 const messages: Record<string, string> = {
   invalid_credentials: "الرقم الوظيفي أو البريد أو كلمة المرور غير صحيحة.",
   invalid_auth_response: "تعذر إنشاء جلسة الدخول. حاول مرة أخرى.",
-  internal_error: "خدمة تسجيل الدخول غير متاحة مؤقتًا. حاول بعد قليل.",
-  unexpected_error: "خدمة تسجيل الدخول غير متاحة مؤقتًا. حاول بعد قليل.",
+  feedback_not_found: "لم تعد هذه التذكرة متاحة. حدّث القائمة ثم اختر التذكرة مرة أخرى.",
+  feedback_transition_conflict: "تغيّرت حالة التذكرة أثناء عرضها. حدّث التذكرة وراجع حالتها ثم حاول مجددًا.",
+  feedback_ticket_closed: "هذه التذكرة مغلقة ولا تقبل رسائل جديدة. أعد فتحها أولًا إذا احتجت إلى متابعة جديدة.",
   auth_provider_failed: "تعذر الاتصال بخدمة حسابات الموظفين. لم يتم إنشاء الموظف أو حفظ أي بيانات؛ انتظر لحظات ثم أعد المحاولة.",
   auth_password_update_failed: "تعذر تحديث كلمة المرور لدى خدمة حسابات الموظفين. لم تتغير كلمة المرور الحالية.",
   employee_login_address_rejected: "تعذر تجهيز معرّف الدخول الداخلي للموظف. راجع الرقم الوظيفي ثم حاول مجددًا.",
@@ -29,7 +30,10 @@ const messages: Record<string, string> = {
   request_validation_failed: "تعذر حفظ التعديل لأن بيانات القائمة تغيّرت بصورة غير متوقعة. حدّث الصفحة ثم حاول مرة أخرى.",
   price_not_found: "لا يوجد سعر ساري لهذه الباقة في الفرع الحالي. أضف سعرًا للفرع من إعداد النظام ثم أعد المحاولة.",
   package_not_published: "هذه الباقة ما زالت مسودة وغير متاحة للبيع. انشرها أولًا من إعداد النظام.",
+  package_not_found: "الباقة المختارة لم تعد موجودة أو لا تنتمي إلى النادي الحالي. حدّث قائمة الباقات واخترها مجددًا.",
   package_branch_not_allowed: "هذه الباقة غير متاحة للبيع في الفرع الحالي. راجع فروع الباقة.",
+  member_not_found: "العضو المختار لم يعد موجودًا أو لا ينتمي إلى النادي الحالي. ابحث عنه مجددًا بالاسم أو رقم العضوية.",
+  order_not_found: "طلب البيع المطلوب غير موجود أو لم يعد متاحًا في نطاق الفرع الحالي.",
   member_not_active: "لا يمكن إنشاء الاشتراك لأن حالة العضو غير نشطة.",
   branch_not_active: "الفرع الحالي غير نشط ولا يقبل عمليات جديدة.",
   package_snapshot_missing: "بيانات الباقة غير مكتملة. راجع الباقة وسعرها وسياساتها ثم حاول مجددًا.",
@@ -43,13 +47,17 @@ const messages: Record<string, string> = {
 
 export function humanError(error: unknown, fallback = "تعذر إكمال الإجراء. حاول مرة أخرى.") {
   if (error instanceof ApiError) {
-    if (messages[error.problem.code]) return messages[error.problem.code]
+    const isGenericServerError = error.problem.code === "internal_error" || error.problem.code === "unexpected_error"
+    if (!isGenericServerError && messages[error.problem.code]) return messages[error.problem.code]
     if (error.problem.status === 401) return "انتهت جلستك. سجّل الدخول مرة أخرى."
     if (error.problem.status === 403) return "لا تملك الصلاحية اللازمة لإتمام هذا الإجراء."
     if (error.problem.status === 404) return "لم يعد هذا السجل متاحًا. حدّث الصفحة وحاول مجددًا."
     if (error.problem.status === 409) return "تم تحديث البيانات من مكان آخر. حدّث الصفحة ثم حاول مجددًا."
     if (error.problem.status === 429) return "عدد المحاولات كبير. انتظر قليلًا ثم حاول مجددًا."
-    if (error.problem.status >= 500) return "الخدمة غير متاحة مؤقتًا. حاول بعد قليل."
+    if (error.problem.status >= 500) {
+      const tracking = error.problem.correlationId ? ` رقم التتبع: ${error.problem.correlationId}` : ""
+      return `${fallback} حاول مجددًا، وإذا تكرر الخطأ أرسل رقم التتبع لمسؤول النظام.${tracking}`
+    }
     return error.problem.detail || fallback
   }
   return fallback

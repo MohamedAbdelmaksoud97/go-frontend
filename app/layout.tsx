@@ -8,6 +8,11 @@ export const metadata: Metadata = {
     template: "%s | GO Fitness",
   },
   description: "منصة GO Fitness المتكاملة لإدارة النادي والفروع والأعضاء.",
+  icons: {
+    icon: [{ url: "/go-fitness-logo.png", type: "image/png" }],
+    shortcut: "/go-fitness-logo.png",
+    apple: "/go-fitness-logo.png",
+  },
 };
 
 const themeScript = `
