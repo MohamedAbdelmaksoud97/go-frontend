@@ -1888,6 +1888,14 @@
     "description": "Currently assigned trainer members."
   },
   {
+    "path": "/api/v1/self/organizations/{organizationId}/trainer/members/{memberId}/measurements",
+    "method": "get",
+    "operationId": "listSelfTrainerMemberMeasurements",
+    "secured": true,
+    "idempotent": false,
+    "description": "Measurement history for a member currently assigned to the trainer."
+  },
+  {
     "path": "/api/v1/self/organizations/{organizationId}/trainer/schedule",
     "method": "get",
     "operationId": "listSelfTrainerSchedule",
@@ -1910,6 +1918,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Training plans owned by the trainer."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/trainer/training-plans",
+    "method": "post",
+    "operationId": "createSelfTrainerTrainingPlan",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active training plan created for a currently assigned member."
   },
   {
     "path": "/api/v1/self/organizations/{organizationId}/trainer/training-plans/{planId}/items/{itemId}/transitions",

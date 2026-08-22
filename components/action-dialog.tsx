@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/toast-provider"
 
-type Props = { operationId: string; organizationId: string; branchId: string; onClose: () => void; onSaved?: () => void }
+type Props = { operationId: string; organizationId: string; branchId: string; onClose: () => void; onSaved?: () => void; initialValues?: FormValues }
 
 type SubscriptionQuote = {
   targetId: string
@@ -26,11 +26,11 @@ type SubscriptionQuote = {
   taxInclusive: boolean
 }
 
-export function ActionDialog({ operationId, organizationId, branchId, onClose, onSaved }: Props) {
+export function ActionDialog({ operationId, organizationId, branchId, onClose, onSaved, initialValues }: Props) {
   const toast = useToast()
   const workflow = workflows[operationId]
   const context = useMemo(() => ({ organizationId, branchId }), [organizationId, branchId])
-  const [values, setValues] = useState<FormValues>(() => workflow?.initial(context) ?? {})
+  const [values, setValues] = useState<FormValues>(() => ({ ...(workflow?.initial(context) ?? {}), ...initialValues }))
   const [options, setOptions] = useState<Record<string, Choice[]>>({})
   const [referenceQueries, setReferenceQueries] = useState<Record<string, string>>({})
   const [loadingOptions, setLoadingOptions] = useState(() => Boolean(hasRuntimeApi() && workflow?.fields.some(field => field.type === "reference")))

@@ -24,7 +24,7 @@ export const routePermissions:Record<string,string[]>={
  "/feedback":["feedback.read","feedback.reply"],
  "/restaurant":["restaurant.orders.read","restaurant.menu.read","restaurant.catalog.read"],
  "/staff":["workforce.read"],
- "/trainer":["coaching.read","coaching.training-plans.read","measurements.read"],
+ "/trainer":["coaching.read","coaching.training-plans.read","measurements.read","coaching.assignments.manage"],
  "/reports":["reporting.read"],
  "/master-data":["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"],
  "/system-settings":["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"],
@@ -53,7 +53,7 @@ export function firstAllowedDestination(canAccess:(permissions:string[])=>boolea
  if(canAccess(["notifications.read","notifications.send"]))return "/communications"
  if(canAccess(["finance.cash-shifts.audit.read"]))return "/finance/shifts"
  if(canAccess(["finance.other-income.read","coaching.commissions.read"]))return "/finance"
- if(canAccess(["coaching.read","measurements.read"]))return "/trainer"
+ if(canAccess(["coaching.read","measurements.read","coaching.assignments.manage"]))return "/trainer"
  if(canAccess(["workforce.read"]))return "/staff"
  if(canAccess(routePermissions["/system-settings"]??[]))return "/system-settings/branches"
  return "/self-service"

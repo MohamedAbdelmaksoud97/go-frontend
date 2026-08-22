@@ -1,2 +1,5 @@
-import { TrainerWorkspace } from "@/components/trainer-workspace"
-export default function TrainerPage(){return <TrainerWorkspace/>}
+import { TrainerHub } from "@/components/trainer-hub"
+
+export default function TrainerPage() {
+  return <TrainerHub />
+}

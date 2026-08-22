@@ -36,7 +36,7 @@ const navGroups = [
     { href: "/operations", label: "مركز العمليات", icon: ClipboardList, permissions:["workforce.shifts.read","workforce.attendance.record","online-requests.read","lockers.read"] },
     { href: "/feedback", label: "الشكاوى والاقتراحات", icon: MessageSquareText, permissions:["feedback.read","feedback.reply"] },
     { href: "/restaurant", label: "المطعم", icon: Utensils, permissions:["restaurant.orders.read","restaurant.menu.read","restaurant.catalog.read"] },
-    { href: "/trainer", label: "مساحة المدرب", icon: Dumbbell, permissions:["coaching.read","coaching.training-plans.read","measurements.read"] },
+    { href: "/trainer", label: "التدريب والمدربون", icon: Dumbbell, permissions:["coaching.read","coaching.training-plans.read","measurements.read","coaching.assignments.manage"] },
     { href: "/staff", label: "الموظفون", icon: UserRoundCheck, permissions:["workforce.read"] },
   ]},
   { label: "الإدارة", items: [

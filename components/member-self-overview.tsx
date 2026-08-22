@@ -113,6 +113,7 @@ function summary(row: Row, active: string) {
   if (active === "restaurant-orders") return join([row.createdAt && formatDate(row.createdAt), branch && `فرع ${branch}`, `الإجمالي ${money(row.grossMinor)}`, status(row.status), row.invoiceNumber && `فاتورة ${row.invoiceNumber}`, row.invoiceStatus && status(row.invoiceStatus)])
   if (active === "reservations") return join([row.startsAt && formatDate(row.startsAt), branch && `فرع ${branch}`, row.seats && `${row.seats} مقعد`, status(row.status)])
   if (active === "attendance") return join([row.attemptedAt && formatDate(row.attemptedAt), branch && `فرع ${branch}`, row.subscriptionNumber && `اشتراك ${row.subscriptionNumber}`, status(row.decision)])
+  if (active === "training-plans") { const items = Array.isArray(row.items) ? row.items as Row[] : []; const completed = items.filter(item => item.completionStatus === "COMPLETED").length; return join([row.trainerName && `المدرب ${row.trainerName}`, row.goal && `الهدف: ${row.goal}`, row.startsOn && `${dateOnly(row.startsOn)}${row.endsOn ? ` — ${dateOnly(row.endsOn)}` : ""}`, items.length > 0 && `${completed} من ${items.length} تمارين مكتملة`, status(row.status)]) }
   const value = row.startsAt ?? row.attemptedAt ?? row.issuedAt ?? row.createdAt ?? row.termStart
   return join([value && formatDate(value), status(row.status ?? row.decision ?? "")])
 }
