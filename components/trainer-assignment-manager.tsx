@@ -45,7 +45,7 @@ export function TrainerAssignmentManager() {
     setLoading(true); setError("")
     try {
       const [trainerResponse, memberResponse] = await Promise.all([
-        apiRequest<unknown>(`/organizations/${context.organizationId}/trainers?limit=100`),
+        apiRequest<unknown>(`/organizations/${context.organizationId}/trainers?branchId=${encodeURIComponent(context.branchId)}&limit=100`),
         apiRequest<unknown>(`/organizations/${context.organizationId}/members?branchId=${context.branchId}&limit=100`),
       ])
       const nextTrainers = list(trainerResponse.data).map(trainer)

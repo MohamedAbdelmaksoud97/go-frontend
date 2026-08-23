@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ChefHat, ClipboardList, Flame, Plus, Save, Send, ShoppingBag, Trash2 } from "lucide-react"
+import { ChefHat, ClipboardList, Clock3, Flame, MapPin, PackageOpen, Plus, Save, Send, ShoppingBag, Trash2, UserRound } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,8 @@ type Meal = Row & { id: string; name: string; code: string; categoryId: string; 
 type Nutrition = { caloriesKcal: number; proteinGrams: number; carbohydratesGrams: number; fatGrams: number; fiberGrams: number; sugarGrams: number; sodiumMilligrams: number }
 type MenuItem = { mealId: string; enabled: boolean; availableQuantity?: number; specialPriceMinor?: string }
 type Menu = { businessDate: string; status: "DRAFT" | "PUBLISHED" | "CLOSED"; version: number; items: MenuItem[] }
+type OrderLine = { id?: string; quote?: { targetName?: string; targetCode?: string; quantity?: number | string } }
+type RestaurantOrder = Row & { id: string; branchId: string; status: string; sourceType?: string; salesOrderId?: string; subscriptionId?: string; memberName?: string; memberNumber?: string; createdAt?: string; grossMinor?: string; currency?: string; version: number; lines?: OrderLine[] }
 
 const emptyNutrition: Nutrition = { caloriesKcal: 0, proteinGrams: 0, carbohydratesGrams: 0, fatGrams: 0, fiberGrams: 0, sugarGrams: 0, sodiumMilligrams: 0 }
 
@@ -28,7 +30,8 @@ export function RestaurantManagementPage() {
   const [meals, setMeals] = useState<Meal[]>([])
   const [menu, setMenu] = useState<Menu | undefined>()
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [orders, setOrders] = useState<Row[]>([])
+  const [orders, setOrders] = useState<RestaurantOrder[]>([])
+  const [kitchenScope, setKitchenScope] = useState<"CURRENT" | "ALL">("CURRENT")
   const [loading, setLoading] = useState(hasRuntimeApi())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -36,6 +39,10 @@ export function RestaurantManagementPage() {
   const [priceForm, setPriceForm] = useState({ mealId: "", amount: "", taxRatePercent: "15", taxInclusive: true })
 
   const categoryName = useMemo(() => new Map(categories.map(item => [String(item.id), String(item.name ?? item.nameAr ?? "تصنيف")])) , [categories])
+  const branchName = useMemo(() => new Map(context.branches.map(branch => [branch.id, branch.nameAr ?? branch.name ?? "فرع غير مسمى"])), [context.branches])
+  const canReadAllRestaurantBranches = context.grants.some(grant => grant.organizationId === context.organizationId && grant.permission === "restaurant.orders.read" && grant.scopeType === "ORGANIZATION")
+  const canPrepareOrders = context.canAccess(["restaurant.orders.prepare"])
+  const effectiveKitchenScope = canReadAllRestaurantBranches ? kitchenScope : "CURRENT"
 
   async function load() {
     if (!hasRuntimeApi() || !context.organizationId || !context.branchId) { setLoading(false); return }
@@ -46,14 +53,16 @@ export function RestaurantManagementPage() {
         apiRequest<Row[] | { items: Row[] }>(`${base}/restaurant/meal-categories?branchId=${encodeURIComponent(context.branchId)}&limit=100`),
         apiRequest<Meal[] | { items: Meal[] }>(`${base}/restaurant/meals?branchId=${encodeURIComponent(context.branchId)}&limit=100`),
       ])
+      const orderBranch = effectiveKitchenScope === "ALL" ? "" : `&branchId=${encodeURIComponent(context.branchId)}`
       const [orderResult, menuResult] = await Promise.allSettled([
-        apiRequest<Row[] | { items: Row[] }>(`${base}/restaurant-orders?limit=100`),
+        apiRequest<RestaurantOrder[] | { items: RestaurantOrder[] }>(`${base}/restaurant-orders?limit=100${orderBranch}`),
         apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${date}`).catch(reason => isNotFound(reason) ? undefined : Promise.reject(reason)),
       ])
       const nextCategories = list(categoryResponse.data)
       const nextMeals = list(mealResponse.data) as Meal[]
       const currentMenu = menuResult.status === "fulfilled" ? menuResult.value?.data : undefined
-      setCategories(nextCategories); setMeals(nextMeals); setOrders(orderResult.status === "fulfilled" ? list(orderResult.value.data) : []); setMenu(currentMenu)
+      if (orderResult.status === "rejected") throw orderResult.reason
+      setCategories(nextCategories); setMeals(nextMeals); setOrders(orderList(orderResult.value.data)); setMenu(currentMenu)
       setMenuItems(currentMenu?.items ?? [])
       setMealForm(current => current.categoryId || !nextCategories[0]?.id ? current : { ...current, categoryId: String(nextCategories[0].id) })
     } catch (reason) { setError(humanError(reason, "تعذر تحميل بيانات المطعم.")) }
@@ -61,7 +70,7 @@ export function RestaurantManagementPage() {
   }
 
   useEffect(() => { const frame = requestAnimationFrame(() => { void load() }); return () => cancelAnimationFrame(frame) // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [context.organizationId, context.branchId, date])
+  }, [context.organizationId, context.branchId, date, effectiveKitchenScope])
 
   function setMealField(key: string, value: string | boolean) { setMealForm(current => ({ ...current, [key]: value } as typeof current)) }
   function addMenuMeal(mealId: string) { setMenuItems(current => current.some(item => item.mealId === mealId) ? current : [...current, { mealId, enabled: true }]) }
@@ -115,7 +124,7 @@ export function RestaurantManagementPage() {
     } catch (reason) { setError(humanError(reason, "تعذر إيقاف عرض القائمة.")) } finally { setSaving(false) }
   }
 
-  async function transitionOrder(order: Row, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") {
+  async function transitionOrder(order: RestaurantOrder, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") {
     if (!context.organizationId || !order.id) return
     setSaving(true); setError("")
     try { await apiRequest(`/organizations/${context.organizationId}/restaurant-orders/${order.id}/transitions`, { method: "POST", body: JSON.stringify({ expectedVersion: order.version, action }) }); toast.success("تم تحديث حالة الطلب بنجاح."); await load() }
@@ -125,7 +134,7 @@ export function RestaurantManagementPage() {
   return <div className="fade-up space-y-5">
     <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><div className="flex gap-2"><Button variant={tab === "menu" ? "default" : "outline"} onClick={() => setTab("menu")}><ClipboardList />قائمة اليوم</Button><Button variant={tab === "catalog" ? "default" : "outline"} onClick={() => setTab("catalog")}><ChefHat />الوجبات والأسعار</Button><Button variant={tab === "kitchen" ? "default" : "outline"} onClick={() => setTab("kitchen")}><ShoppingBag />المطبخ</Button></div></header>
     {error && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : tab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} /> : tab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} saving={saving} />}
+    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : tab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} /> : tab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
   </div>
 }
 
@@ -172,12 +181,22 @@ function CatalogPanel({ categories, categoryName, meals, mealForm, setMealField,
   </div>
 }
 
-function KitchenPanel({ orders, transition, saving }: { orders: Row[]; transition: (order: Row, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") => void; saving: boolean }) {
+function KitchenPanel({ orders, transition, saving, scope, setScope, canReadAllBranches, canPrepare, currentBranchName, branchName }: { orders: RestaurantOrder[]; transition: (order: RestaurantOrder, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") => void; saving: boolean; scope: "CURRENT" | "ALL"; setScope: (scope: "CURRENT" | "ALL") => void; canReadAllBranches: boolean; canPrepare: boolean; currentBranchName: string; branchName: Map<string, string> }) {
   const active = orders.filter(order => ["CONFIRMED", "PREPARING", "READY"].includes(String(order.status)))
-  return <div className="grid gap-4 md:grid-cols-3">{(["CONFIRMED", "PREPARING", "READY"] as const).map(status => <Card key={status}><CardContent className="p-5"><div className="flex items-center justify-between"><h2 className="font-black">{status === "CONFIRMED" ? "طلبات جديدة" : status === "PREPARING" ? "قيد التحضير" : "جاهز للاستلام"}</h2><Badge>{active.filter(order => order.status === status).length}</Badge></div><div className="mt-4 space-y-3">{active.filter(order => order.status === status).map(order => <div key={String(order.id)} className="rounded-xl border p-3"><p className="font-bold">طلب {String(order.id).slice(0, 8)}</p><p className="mt-1 text-xs text-muted-foreground">{Array.isArray(order.lines) ? order.lines.map(line => String((((line as Row).quote as Row | undefined)?.targetName) ?? "صنف")).join("، ") : ""}</p>{status === "CONFIRMED" ? <Button className="mt-3 w-full" size="sm" onClick={() => transition(order, "START_PREPARING")} disabled={saving}>بدء التحضير</Button> : status === "PREPARING" ? <Button className="mt-3 w-full" size="sm" onClick={() => transition(order, "MARK_READY")} disabled={saving}>جاهز</Button> : <Button className="mt-3 w-full" size="sm" onClick={() => transition(order, "COMPLETE")} disabled={saving}>تسليم وإكمال</Button>}</div>)}{active.filter(order => order.status === status).length === 0 ? <p className="py-8 text-center text-xs text-muted-foreground">لا توجد طلبات.</p> : null}</div></CardContent></Card>)}</div>
+  return <div className="space-y-4"><Card><CardContent className="flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center"><div><p className="font-black">نطاق طلبات المطبخ</p><p className="mt-1 text-xs text-muted-foreground">تعرض اللوحة طلبات {scope === "ALL" ? "جميع الفروع" : currentBranchName} فقط.</p></div><select aria-label="نطاق طلبات المطبخ" value={scope} onChange={event => setScope(event.target.value as "CURRENT" | "ALL")} className="h-11 min-w-56 rounded-xl border bg-background px-3 text-sm font-bold"><option value="CURRENT">الفرع الحالي — {currentBranchName}</option>{canReadAllBranches ? <option value="ALL">كل الفروع</option> : null}</select></CardContent></Card><div className="grid gap-4 xl:grid-cols-3">{(["CONFIRMED", "PREPARING", "READY"] as const).map(status => <Card key={status}><CardContent className="p-5"><div className="flex items-center justify-between"><h2 className="font-black">{status === "CONFIRMED" ? "طلبات جديدة" : status === "PREPARING" ? "قيد التحضير" : "جاهز للاستلام"}</h2><Badge>{active.filter(order => order.status === status).length}</Badge></div><div className="mt-4 space-y-3">{active.filter(order => order.status === status).map(order => <OrderCard key={order.id} order={order} branch={branchName.get(order.branchId) ?? "فرع غير معروف"} canPrepare={canPrepare} saving={saving} action={status === "CONFIRMED" ? "START_PREPARING" : status === "PREPARING" ? "MARK_READY" : "COMPLETE"} actionLabel={status === "CONFIRMED" ? "بدء التحضير" : status === "PREPARING" ? "جاهز للاستلام" : "تسليم وإكمال"} transition={transition} />)}{active.filter(order => order.status === status).length === 0 ? <p className="py-8 text-center text-xs text-muted-foreground">لا توجد طلبات في هذا النطاق.</p> : null}</div></CardContent></Card>)}</div></div>
+}
+
+function OrderCard({ order, branch, canPrepare, saving, action, actionLabel, transition }: { order: RestaurantOrder; branch: string; canPrepare: boolean; saving: boolean; action: "START_PREPARING" | "MARK_READY" | "COMPLETE"; actionLabel: string; transition: (order: RestaurantOrder, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") => void }) {
+  const lines = order.lines ?? []
+  const itemCount = lines.reduce((total, line) => total + Math.max(1, number(line.quote?.quantity ?? 1)), 0)
+  const customer = order.memberName ? `${order.memberName}${order.memberNumber ? ` · ${order.memberNumber}` : ""}` : order.sourceType === "SALES" ? "طلب نقطة بيع غير مرتبط بعضو" : "بيانات العضو غير متاحة"
+  const sourceReference = order.salesOrderId ?? order.subscriptionId
+  const total = number(order.grossMinor) === 0 && order.sourceType === "MEAL_PLAN" ? "ضمن خطة الوجبات" : sar(number(order.grossMinor) / 100)
+  return <article className="rounded-2xl border bg-background/40 p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="font-black">طلب #{order.id.slice(0, 8).toUpperCase()}</p><div className="mt-2 flex flex-wrap gap-2"><Badge variant="outline">{order.sourceType === "MEAL_PLAN" ? "خطة وجبات" : "شراء مباشر"}</Badge>{sourceReference ? <Badge variant="secondary">مرجع #{sourceReference.slice(0, 8).toUpperCase()}</Badge> : null}</div></div><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-black text-primary">{itemCount} {itemCount === 1 ? "وحدة" : "وحدات"}</span></div><div className="mt-4 space-y-2 text-xs text-muted-foreground"><p className="flex items-center gap-2"><UserRound className="size-4 shrink-0" /><span className="font-bold text-foreground">{customer}</span></p><p className="flex items-center gap-2"><MapPin className="size-4 shrink-0" />{branch}</p>{order.createdAt ? <p className="flex items-center gap-2"><Clock3 className="size-4 shrink-0" />{formatOrderDate(order.createdAt)}</p> : null}</div><div className="mt-4 space-y-2 rounded-xl bg-muted/40 p-3">{lines.length ? lines.map((line, index) => <div key={line.id ?? `${order.id}-${index}`} className="flex items-start justify-between gap-3 text-sm"><span className="font-bold">{line.quote?.targetName ?? line.quote?.targetCode ?? "صنف غير مسمى"}</span><span className="shrink-0 font-black text-primary">الكمية: {Math.max(1, number(line.quote?.quantity ?? 1))}</span></div>) : <p className="flex items-center gap-2 text-xs text-muted-foreground"><PackageOpen className="size-4" />لا تتوفر تفاصيل الأصناف لهذا الطلب.</p>}</div><div className="mt-3 flex items-center justify-between border-t pt-3 text-sm"><span className="text-muted-foreground">الإجمالي</span><span className="font-black">{total}</span></div>{canPrepare ? <Button className="mt-4 w-full" size="sm" onClick={() => transition(order, action)} disabled={saving}>{actionLabel}</Button> : <p className="mt-4 rounded-xl bg-muted px-3 py-2 text-center text-xs text-muted-foreground">للعرض فقط — لا تملك صلاحية تحديث حالة الطلب.</p>}</article>
 }
 
 function list(value: unknown): Row[] { if (Array.isArray(value)) return value.filter((item): item is Row => Boolean(item) && typeof item === "object"); if (value && typeof value === "object" && Array.isArray((value as { items?: unknown }).items)) return (value as { items: Row[] }).items; return [] }
+function orderList(value: unknown): RestaurantOrder[] { return list(value).filter((item): item is RestaurantOrder => typeof item.id === "string" && typeof item.branchId === "string" && typeof item.status === "string" && typeof item.version === "number") }
 function number(value: unknown): number { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0 }
 function priceBreakdown(amount: string, taxRatePercent: string, taxInclusive: boolean): { net: number; tax: number; gross: number } | undefined { if (amount.trim() === "" || taxRatePercent.trim() === "") return undefined; const entered = Number(amount); const rate = Number(taxRatePercent); if (!Number.isFinite(entered) || entered < 0 || !Number.isFinite(rate) || rate < 0 || rate > 100) return undefined; const factor = 1 + rate / 100; const net = taxInclusive ? entered / factor : entered; const tax = net * rate / 100; return { net, tax, gross: net + tax } }
 function sar(value: number): string { return new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value) }
@@ -185,3 +204,4 @@ function split(value: string): string[] { return value.split(/[،,]/u).map(item 
 function isNotFound(value: unknown): boolean { return typeof value === "object" && value !== null && "problem" in value && Number((value as { problem?: { status?: number } }).problem?.status) === 404 }
 function nutritionLabel(key: keyof Nutrition): string { return ({ caloriesKcal: "السعرات kcal", proteinGrams: "البروتين (غ)", carbohydratesGrams: "الكربوهيدرات (غ)", fatGrams: "الدهون (غ)", fiberGrams: "الألياف (غ)", sugarGrams: "السكريات (غ)", sodiumMilligrams: "الصوديوم (ملغ)" } as const)[key] }
 function todayRiyadh(): string { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const get = (type: string) => parts.find(part => part.type === type)?.value ?? ""; return `${get("year")}-${get("month")}-${get("day")}` }
+function formatOrderDate(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "وقت غير متاح" : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(date) }
