@@ -59,8 +59,15 @@ export default function DashboardPage(){
  useEffect(()=>{const frame=requestAnimationFrame(()=>void load());return()=>cancelAnimationFrame(frame)},[context.branchId,context.organizationId]) // eslint-disable-line react-hooks/exhaustive-deps
  if(context.loading||!canView)return <div className="grid min-h-[55vh] place-items-center"><Loader2 className="animate-spin text-primary"/></div>
  const activeMembers=value(summary,"activeMembers","active_members"),activeSubscriptions=value(summary,"activeSubscriptions","active_subscriptions"),attendance=value(summary,"acceptedAttendance","accepted_attendance"),revenue=number(summary,"invoicedGrossMinor","invoiced_gross_minor")+number(summary,"otherIncomeMinor","other_income_minor"),pending=value(summary,"pendingOnlineRequests","pending_online_requests"),feedback=value(summary,"openFeedbackCases","open_feedback_cases")
+ const quickAction=[
+  {permissions:["members.manage"],label:"تسجيل عضو جديد",href:"/members?create=1"},
+  {permissions:["sales.checkout"],label:"إنشاء اشتراك جديد",href:"/subscriptions?create=1"},
+  {permissions:["attendance.check-in"],label:"تسجيل دخول عضو",href:"/attendance?create=1"},
+  {permissions:["bookings.create"],label:"إنشاء حجز جديد",href:"/bookings?create=1"},
+  {permissions:["crm.leads.manage"],label:"إضافة عميل محتمل",href:"/crm?create=1"},
+ ].find(item=>context.canAccess(item.permissions))
  const cards=[{label:"الأعضاء النشطون",value:activeMembers,icon:Users,href:"/members",permissions:["members.read"]},{label:"الاشتراكات النشطة",value:activeSubscriptions,icon:CreditCard,href:"/subscriptions",permissions:["subscriptions.read"]},{label:"زيارات اليوم المقبولة",value:attendance,icon:Activity,href:"/attendance",permissions:["attendance.read"]},{label:"إيرادات اليوم",value:money(revenue),icon:CircleDollarSign,href:"/finance",permissions:["finance.invoices.read","finance.other-income.read"]}]
- return <div className="fade-up"><PageHeading eyebrow={dateLabel()} title={`مرحبًا، ${context.account?.displayName?.trim()||"مدير النظام"}`} description="ملخص حي من قاعدة البيانات للفرع الحالي. لا تعرض هذه الصفحة أرقامًا تجريبية أو تقديرية." />
+ return <div className="fade-up"><PageHeading eyebrow={dateLabel()} title={`مرحبًا، ${context.account?.displayName?.trim()||"مدير النظام"}`} description="نظرة شاملة على أداء الفرع اليوم وأهم المؤشرات التي تساعدك على متابعة العمل واتخاذ القرار." action={quickAction?.label} actionHref={quickAction?.href} />
   {error&&<div className="mb-5 flex items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/8 p-4 text-sm text-red-600"><AlertCircle/><span>{error}</span><Button className="mr-auto" variant="outline" size="sm" onClick={()=>void load()}><RefreshCw/>إعادة المحاولة</Button></div>}
   {chartWarning&&<div className="mb-5 flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/8 p-4 text-sm text-amber-600"><BarChart3/><span>{chartWarning}</span><Button className="mr-auto" variant="outline" size="sm" onClick={()=>void load()}><RefreshCw/>إعادة التحميل</Button></div>}
   {loading?<div className="grid min-h-72 place-items-center"><Loader2 className="size-8 animate-spin text-primary"/></div>:<>

@@ -42,13 +42,13 @@ type RecordAction = {
   responseMessage?: (data: ApiRecord) => string
 }
 
-export function ResourcePage({ config }: { config: SectionConfig }) {
+export function ResourcePage({ config, openCreate = false }: { config: SectionConfig; openCreate?: boolean }) {
   const context = useAppContext()
   const [query, setQuery] = useState("")
   const [databaseQuery, setDatabaseQuery] = useState("")
   const [status, setStatus] = useState("")
   const [filterBranchId, setFilterBranchId] = useState(context.branchId)
-  const [showAction, setShowAction] = useState(false)
+  const [showAction, setShowAction] = useState(openCreate)
   const [selectedRow, setSelectedRow] = useState<{ row: string[]; record: ApiRecord }>()
   const [serverRows, setServerRows] = useState<string[][]>(config.rows)
   const [serverRecords, setServerRecords] = useState<ApiRecord[]>([])
