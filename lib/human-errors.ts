@@ -129,7 +129,7 @@ export function humanError(
     if (!isGenericServerError && messages[error.problem.code])
       return messages[error.problem.code];
     if (error.problem.status === 401)
-      return "انتهت جلستك. سجّل الدخول مرة أخرى. ";
+      return "انتهت جلستك. سجّل الدخول مرة أخرى.  ";
     if (error.problem.status === 403)
       return "لا تملك الصلاحية اللازمة لإتمام هذا الإجراء.";
     if (error.problem.status === 404)
