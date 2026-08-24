@@ -140,11 +140,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="فتح القائمة"><Menu /></Button>
         <GlobalSearch memberOnlyAccount={memberOnlyAccount} />
         <div className="mr-auto flex items-center gap-2">
-          {context.branches.length>0&&<button className="hidden items-center gap-2 rounded-xl border bg-card px-3 py-2 text-right sm:flex" aria-label="تغيير الفرع" onClick={()=>router.push('/select-context')}>
-            <span className="grid size-7 place-items-center rounded-lg bg-primary/15 text-amber-600"><Building2 className="size-4" /></span>
-            <span><span className="block text-[9px] text-muted-foreground">الفرع الحالي</span><span className="block text-xs font-bold">{currentBranch?.nameAr??currentBranch?.name??(context.loading?"جارٍ تحميل الفروع…":"لم يُحدد فرع")}</span></span>
-            <ChevronDown className="size-3 text-muted-foreground" />
-          </button>}
+          {context.branches.length>0&&<>
+            <button
+              className="flex min-w-0 max-w-[42vw] items-center gap-2 rounded-xl border bg-card px-2.5 py-2 text-right transition hover:border-primary/60 hover:bg-secondary sm:hidden"
+              aria-label={`تغيير الفرع. الفرع الحالي: ${currentBranch?.nameAr??currentBranch?.name??"غير محدد"}`}
+              onClick={()=>router.push('/select-context')}
+            >
+              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/15 text-amber-600"><Building2 className="size-4" /></span>
+              <span className="min-w-0 flex-1"><span className="block text-[8px] leading-none text-muted-foreground">الفرع الحالي</span><span className="mt-1 block truncate text-[10px] font-bold">{currentBranch?.nameAr??currentBranch?.name??"لم يُحدد فرع"}</span></span>
+              <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+            </button>
+            <button className="hidden items-center gap-2 rounded-xl border bg-card px-3 py-2 text-right transition hover:border-primary/60 hover:bg-secondary sm:flex" aria-label="تغيير الفرع" onClick={()=>router.push('/select-context')}>
+              <span className="grid size-7 place-items-center rounded-lg bg-primary/15 text-amber-600"><Building2 className="size-4" /></span>
+              <span><span className="block text-[9px] text-muted-foreground">الفرع الحالي</span><span className="block text-xs font-bold">{currentBranch?.nameAr??currentBranch?.name??(context.loading?"جارٍ تحميل الفروع…":"لم يُحدد فرع")}</span></span>
+              <ChevronDown className="size-3 text-muted-foreground" />
+            </button>
+          </>}
           <Button variant="outline" size="icon" onClick={toggleTheme} aria-label={dark ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"}>{dark ? <Sun /> : <Moon />}</Button>
           <div className="relative">
             <Button variant="outline" size="icon" onClick={() => setNotices(v => !v)} aria-label="الإشعارات"><Bell /></Button>
