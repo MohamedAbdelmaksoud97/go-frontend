@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
 import { AlertTriangle, BarChart3, ChevronLeft, ChevronRight, Download, Eye, EyeOff, LockKeyhole, MoreHorizontal, Plus, Search, ShieldAlert, SlidersHorizontal, Sparkles, X } from "lucide-react"
 import type { SectionConfig } from "@/lib/sections"
 import { StatusBadge } from "@/components/status-badge"
@@ -21,7 +22,8 @@ type ApiRecord = Record<string, unknown>
 type RecordActionField = {
   name: string
   label: string
-  type: "text" | "tel" | "email" | "number" | "textarea" | "password"
+  type: "text" | "tel" | "email" | "number" | "textarea" | "password" | "date" | "select"
+  options?: Array<{ value: string; label: string }>
   initial?: string
   placeholder?: string
   hint?: string
@@ -42,10 +44,10 @@ type RecordAction = {
   responseMessage?: (data: ApiRecord) => string
 }
 
-export function ResourcePage({ config, openCreate = false }: { config: SectionConfig; openCreate?: boolean }) {
+export function ResourcePage({ config, openCreate = false, initialSearch = "" }: { config: SectionConfig; openCreate?: boolean; initialSearch?: string }) {
   const context = useAppContext()
-  const [query, setQuery] = useState("")
-  const [databaseQuery, setDatabaseQuery] = useState("")
+  const [query, setQuery] = useState(initialSearch)
+  const [databaseQuery, setDatabaseQuery] = useState(initialSearch.trim())
   const [status, setStatus] = useState("")
   const [filterBranchId, setFilterBranchId] = useState(context.branchId)
   const [showAction, setShowAction] = useState(openCreate)
@@ -62,7 +64,8 @@ export function ResourcePage({ config, openCreate = false }: { config: SectionCo
   const createPermission = config.createOperationId === undefined ? undefined : operationPermissions[config.createOperationId]
   const canRead = listPermission === undefined || context.canAccess([listPermission])
   const canCreate = createPermission !== undefined && context.canAccess([createPermission])
-  const serverFiltered = config.listOperationId === "listMembers" || config.listOperationId === "listSubscriptions"
+    && (config.createOperationId !== "createEmployee" || context.canAccess(["workforce.accounts.manage"]))
+  const serverFiltered = config.listOperationId === "listMembers" || config.listOperationId === "listSubscriptions" || config.listOperationId === "listEmployees"
   const statuses = useMemo(() => statusOptions(config.listOperationId, serverRows, config.statusIndex), [config.listOperationId, config.statusIndex, serverRows])
   const rows = useMemo(() => serverRows.filter(row => (serverFiltered || row.some(cell => cell.toLowerCase().includes(query.toLowerCase()))) && (serverFiltered || !status || config.statusIndex === undefined || row[config.statusIndex] === status)), [config.statusIndex, query, serverFiltered, serverRows, status])
 
@@ -123,7 +126,7 @@ export function ResourcePage({ config, openCreate = false }: { config: SectionCo
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/8 text-amber-700 dark:text-primary">{config.eyebrow}</Badge><h1 className="text-2xl font-black tracking-tight sm:text-3xl">{config.title}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{config.description}</p></div><div className="flex gap-2"><Button size="lg" variant="outline" onClick={exportCsv} disabled={!rows.length}><Download />تصدير</Button>{canCreate && <Button size="lg" className="brand-shadow" onClick={() => setShowAction(true)}><Plus />{config.action}</Button>}</div></div>
     <section className="grid gap-4 md:grid-cols-3">{config.metrics.map((metric, index) => <Card key={metric.label}><CardContent className="flex items-center gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-xl ${index === 0 ? "bg-primary/15 text-amber-600" : index === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{index === 0 ? <BarChart3 /> : index === 1 ? <Sparkles /> : <SlidersHorizontal />}</span><div><p className="text-[11px] font-semibold text-muted-foreground">{metricLabel(config.listOperationId, index, metric.label)}</p><p className="mt-1 text-xl font-black">{metricValue(config.listOperationId, index, serverRecords)}</p><p className="mt-1 text-[9px] text-muted-foreground">{metricNote(serverRecords.length, metric.note)}</p></div></CardContent></Card>)}</section>
     <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}{serverFiltered && context.branches.length > 1 && <select aria-label="تصفية حسب الفرع" value={filterBranchId} onChange={event => setFilterBranchId(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الفروع المسموح بها</option>{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.nameAr ?? branch.name ?? "فرع"}</option>)}</select>}</div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="w-10 px-4"><span className="sr-only">عرض التفاصيل</span></th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : cell}</td>)}<td className="px-4"><Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => { const sourceIndex = serverRows.indexOf(row); setSelectedRow({ row, record: serverRecords[sourceIndex] ?? {} }) }}><MoreHorizontal /></Button></td></tr>)}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="w-10 px-4"><span className="sr-only">عرض التفاصيل</span></th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : config.listOperationId === "listMembers" && columnIndex === 0 && memberId ? <Link href={`/members/${memberId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف العضو ${cell}`}>{cell}</Link> : cell}</td>)}<td className="px-4"><Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button></td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
       <div className="flex items-center justify-between border-t p-4"><p className="text-[10px] text-muted-foreground">عرض {rows.length} سجلًا · الصفحة {page + 1}</p><div className="flex items-center gap-1"><Button variant="outline" size="icon-sm" disabled={page === 0 || loading} aria-label="الصفحة السابقة" onClick={() => void loadPage(page - 1)}><ChevronRight /></Button>{Array.from({ length: knownPages }, (_, index) => <Button key={index} variant={index === page ? "default" : "outline"} size="icon-sm" disabled={loading} aria-label={`الصفحة ${index + 1}`} onClick={() => void loadPage(index)}>{index + 1}</Button>)}<Button variant="outline" size="icon-sm" disabled={loading || !pageCache.current[page]?.nextCursor} aria-label="الصفحة التالية" onClick={() => void loadPage(page + 1)}><ChevronLeft /></Button></div></div>
     </Card>
     {showAction && config.createOperationId && canCreate && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} onSaved={() => { pageCache.current = []; void loadPage(0) }} />}
@@ -137,10 +140,25 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
   const [error, setError] = useState("")
   const [actionResult, setActionResult] = useState("")
   const [pendingAction, setPendingAction] = useState<RecordAction>()
+  const [positionOptions, setPositionOptions] = useState<Array<{ value: string; label: string }>>([])
   const status = String(record.status ?? "")
   const id = String(record.id ?? record.subscriptionId ?? record.reservationId ?? "")
   const version = Number(record.version ?? 1)
   const actions: RecordAction[] = []
+
+  useEffect(() => {
+    if (operationId !== "listEmployees" || !organizationId || !context.canAccess(["workforce.assignments.manage"])) return
+    let cancelled = false
+    void apiRequest<unknown>(`/organizations/${organizationId}/positions?limit=100`).then(response => {
+      if (cancelled) return
+      setPositionOptions(toList(response.data).flatMap(position => {
+        const value = String(position.id ?? "")
+        const label = String(position.nameAr ?? position.name ?? position.code ?? "مسمى وظيفي")
+        return value ? [{ value, label }] : []
+      }))
+    }).catch(() => { if (!cancelled) setPositionOptions([]) })
+    return () => { cancelled = true }
+  }, [context, operationId, organizationId])
 
   if (operationId === "listMembers" && id && String(record.accountStatus ?? "NOT_LINKED") !== "LINKED") actions.push({
     label: "إصدار رمز تفعيل حساب العضو",
@@ -166,6 +184,16 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
     body: values => ({ password: values.password }),
   })
 
+  if (operationId === "listMembers" && id) actions.push({
+    label: "تعديل الملاحظات الداخلية الحساسة",
+    permission: "members.sensitive.manage",
+    method: "PATCH",
+    path: `/organizations/${organizationId}/members/${id}`,
+    description: "هذه الملاحظات مخصصة للموظفين المصرح لهم فقط، ولا تظهر للعضو أو لموظف لا يملك صلاحية الاطلاع على البيانات الحساسة.",
+    fields: [{ name: "notes", label: "الملاحظات الداخلية", type: "textarea", initial: String(record.notes ?? ""), placeholder: "اكتب الملاحظة أو اترك الحقل فارغًا لمسحها" }],
+    body: values => ({ expectedVersion: version, notes: values.notes.trim() || null }),
+  })
+
   if (operationId === "listSubscriptions" && id) {
     if (status === "PENDING_ACTIVATION") actions.push({ label: "تفعيل الاشتراك", permission: "subscriptions.activate", path: `/organizations/${organizationId}/subscriptions/${id}/activations`, body: () => ({ expectedVersion: version }) })
     if (status === "ACTIVE") actions.push({
@@ -181,6 +209,18 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
     })
     if (status === "FROZEN") actions.push({ label: "استئناف الاشتراك", permission: "subscriptions.freeze", path: `/organizations/${organizationId}/subscriptions/${id}/resumptions`, body: () => ({ expectedVersion: version }) })
     if (["ACTIVE", "FROZEN"].includes(status)) {
+      actions.push({
+        label: "تعديل مدة أو رصيد زيارات الاشتراك",
+        permission: "subscriptions.adjustments.manage",
+        path: `/organizations/${organizationId}/subscriptions/${id}/adjustments`,
+        description: "إجراء استثنائي موثّق يضيف أيامًا إلى نهاية الاشتراك أو زيارات إلى رصيده. لا يستخدم بدل التجديد أو التجميد.",
+        fields: [
+          { name: "type", label: "نوع التعديل", type: "select", required: true, options: [{ value: "EXTEND_DAYS", label: "إضافة أيام إلى مدة الاشتراك" }, { value: "ADD_VISITS", label: "إضافة زيارات إلى رصيد الاشتراك" }] },
+          { name: "value", label: "عدد الأيام أو الزيارات", type: "number", min: 1, required: true, initial: "1" },
+          { name: "reason", label: "سبب التعديل", type: "textarea", required: true, placeholder: "مثال: تعويض عن توقف خدمة موثّق" },
+        ],
+        body: values => ({ expectedVersion: version, type: values.type, value: Number(values.value), reason: values.reason.trim() }),
+      })
       actions.push({ label: "تجديد الاشتراك", permission: "subscriptions.renew", path: `/organizations/${organizationId}/subscriptions/${id}/renewals`, body: () => ({ expectedVersion: version }) })
       actions.push({
         label: "إلغاء الاشتراك",
@@ -210,6 +250,19 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
 
   if (operationId === "listEmployees" && id) {
     actions.push({
+      label: "إضافة تعيين وظيفي أو نقل لفرع",
+      permission: "workforce.assignments.manage",
+      path: `/organizations/${organizationId}/employees/${id}/assignments`,
+      description: "اختر الفرع والمسمى الوظيفي وتاريخ البداية. صلاحيات المسمى ستنعكس تلقائيًا على حساب الموظف داخل هذا الفرع.",
+      fields: [
+        { name: "branchId", label: "الفرع", type: "select", required: true, options: context.branches.map(branch => ({ value: branch.id, label: branch.nameAr ?? branch.name ?? "فرع" })) },
+        { name: "positionId", label: "المسمى الوظيفي والصلاحيات", type: "select", required: true, options: positionOptions },
+        { name: "validFrom", label: "تاريخ بداية التعيين", type: "date", required: true, initial: businessDate(new Date()) },
+        { name: "validUntil", label: "تاريخ نهاية التعيين (اختياري)", type: "date" },
+      ],
+      body: values => ({ branchId: values.branchId, positionId: values.positionId, validFrom: new Date(`${values.validFrom}T00:00:00+03:00`).toISOString(), ...(values.validUntil ? { validUntil: new Date(`${values.validUntil}T23:59:59+03:00`).toISOString() } : {}) }),
+    })
+    actions.push({
       label: "تعديل بيانات الموظف",
       permission: "workforce.manage",
       method: "PATCH",
@@ -224,7 +277,7 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
     })
     actions.push({
       label: "إنشاء أو تغيير كلمة مرور الدخول",
-      permission: "workforce.manage",
+      permission: "workforce.accounts.manage",
       path: `/organizations/${organizationId}/employees/${id}/password-resets`,
       description: "أنشئ كلمة مرور مؤقتة قوية وأرسلها للموظف عبر قناة آمنة. يستطيع الموظف استخدامها مع رقمه الوظيفي.",
       confirmLabel: "حفظ كلمة المرور",
@@ -311,7 +364,7 @@ function RecordOperationDialog({ action, busy, error, onClose, onSubmit }: { act
       <form onSubmit={submit} className="p-5 sm:p-6">
         {(action.fields ?? []).length > 0 ? <div className="grid gap-5">{action.fields?.map(field => <label key={field.name} className="grid gap-2 text-sm font-bold">
           <span>{field.label}{field.required && <span className="mr-1 text-destructive" aria-hidden="true">*</span>}</span>
-          {field.type === "textarea" ? <textarea value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} rows={4} className="min-h-28 w-full resize-y rounded-xl border bg-background px-4 py-3 text-sm font-medium outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15" /> : <div className="relative"><Input type={field.type === "password" ? (showPassword ? "text" : "password") : field.type} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} min={field.min} autoComplete={field.type === "password" ? "new-password" : undefined} className={field.type === "password" ? "pl-12" : undefined} />{field.type === "password" && <button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>}</div>}
+          {field.type === "textarea" ? <textarea value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} rows={4} className="min-h-28 w-full resize-y rounded-xl border bg-background px-4 py-3 text-sm font-medium outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15" /> : field.type === "select" ? <select required={field.required} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary"><option value="">اختر من القائمة</option>{field.options?.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <div className="relative"><Input type={field.type === "password" ? (showPassword ? "text" : "password") : field.type} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} min={field.min} autoComplete={field.type === "password" ? "new-password" : undefined} className={field.type === "password" ? "pl-12" : undefined} />{field.type === "password" && <button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>}</div>}
           {field.hint && <span className="text-[11px] font-normal leading-5 text-muted-foreground">{field.hint}</span>}
         </label>)}</div> : <div className={`rounded-2xl p-4 text-sm leading-7 ${action.danger ? "bg-destructive/10 text-destructive" : "bg-secondary/60"}`}>راجع أثر هذا الإجراء ثم أكّد التنفيذ. لا تغلق الصفحة أثناء الحفظ.</div>}
         {(validationError || error) && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{validationError || error}</p>}

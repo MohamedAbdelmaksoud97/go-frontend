@@ -1,0 +1,239 @@
+"use client"
+
+import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
+import {
+  ArrowRight, CalendarDays, Camera, CreditCard, FileBadge, FileText,
+  Loader2, Mail, MapPin, Package, Phone, RefreshCw, ShoppingBag, UserRound,
+  UtensilsCrossed,
+} from "lucide-react"
+import { useAppContext } from "@/components/app-context"
+import { StatusBadge } from "@/components/status-badge"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
+import { humanError } from "@/lib/human-errors"
+import { cn } from "@/lib/utils"
+
+type Row = Record<string, unknown>
+type Branch = { id: string; nameAr?: string; name?: string }
+type SectionKey = "profile" | "subscriptions" | "bookings" | "finance" | "purchases" | "restaurant" | "files"
+type ProfileData = {
+  member?: Row
+  subscriptions: Row[]
+  bookings: Row[]
+  invoices: Row[]
+  payments: Row[]
+  orders: Row[]
+  restaurantOrders: Row[]
+  files: Row[]
+  fileUrls: Record<string, string>
+  errors: Partial<Record<SectionKey, string>>
+}
+
+const emptyData: ProfileData = { subscriptions: [], bookings: [], invoices: [], payments: [], orders: [], restaurantOrders: [], files: [], fileUrls: {}, errors: {} }
+
+export function MemberProfilePage({ memberId }: { memberId: string }) {
+  const context = useAppContext()
+  const [data, setData] = useState<ProfileData>(emptyData)
+  const [loading, setLoading] = useState(hasRuntimeApi())
+  const [fatalError, setFatalError] = useState("")
+  const [active, setActive] = useState<SectionKey>("profile")
+  const [reloadKey, setReloadKey] = useState(0)
+  const [loadedAt] = useState(() => Date.now())
+
+  const permissions = useMemo(() => ({
+    subscriptions: context.canAccess(["subscriptions.read"]),
+    bookings: context.canAccess(["bookings.read"]),
+    finance: context.canAccess(["finance.invoices.read"]),
+    purchases: context.canAccess(["sales.read"]),
+    restaurant: context.canAccess(["restaurant.orders.read"]),
+    files: context.canAccess(["files.read"]),
+  }), [context])
+  const branchesKey = context.branches.map(branch => branch.id).join(",")
+
+  useEffect(() => {
+    if (context.loading || !context.organizationId || !memberId || !hasRuntimeApi()) return
+    let cancelled = false
+    const organizationId = context.organizationId
+    const branchList = context.branches.length ? context.branches : context.branchId ? [{ id: context.branchId }] : []
+
+    async function acrossBranches(path: (branchId: string) => string) {
+      const settled = await Promise.allSettled(branchList.map(branch => apiRequest<Row[] | { items: Row[] }>(path(branch.id))))
+      const successful = settled.filter((item): item is PromiseFulfilledResult<{ data: Row[] | { items: Row[] } }> => item.status === "fulfilled")
+      if (!successful.length && settled.length) throw (settled[0] as PromiseRejectedResult).reason
+      return unique(successful.flatMap(item => rows(item.value.data)))
+    }
+
+    async function optional(key: SectionKey, operation: () => Promise<Row[]>) {
+      try { return { key, rows: await operation() } }
+      catch (error) { return { key, rows: [] as Row[], error: humanError(error, "تعذر تحميل هذا الجزء من ملف العضو.") } }
+    }
+
+    async function load() {
+      setLoading(true); setFatalError("")
+      try {
+        const memberResponse = await apiRequest<Row>(`/organizations/${organizationId}/members/${memberId}`)
+        const jobs: Promise<{ key: SectionKey; rows: Row[]; error?: string }>[] = []
+        if (permissions.subscriptions) jobs.push(optional("subscriptions", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/subscriptions?memberId=${memberId}&limit=100`)).data)))
+        if (permissions.bookings) jobs.push(optional("bookings", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/reservations?memberId=${memberId}&limit=100`)).data)))
+        if (permissions.finance) jobs.push(optional("finance", async () => {
+          const [invoices, payments] = await Promise.all([
+            acrossBranches(branchId => `/organizations/${organizationId}/invoices?branchId=${branchId}&memberId=${memberId}&limit=100`),
+            acrossBranches(branchId => `/organizations/${organizationId}/payments?branchId=${branchId}&memberId=${memberId}&limit=100`),
+          ])
+          return [
+            ...invoices.map(row => ({ ...row, profileRecordType: "INVOICE" })),
+            ...payments.map(row => ({ ...row, profileRecordType: "PAYMENT" })),
+          ]
+        }))
+        if (permissions.purchases) jobs.push(optional("purchases", () => acrossBranches(branchId => `/organizations/${organizationId}/orders?branchId=${branchId}&memberId=${memberId}&limit=100`)))
+        if (permissions.restaurant) jobs.push(optional("restaurant", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/restaurant-orders?memberId=${memberId}&limit=100`)).data)))
+        if (permissions.files) jobs.push(optional("files", () => acrossBranches(branchId => `/organizations/${organizationId}/files?branchId=${branchId}&ownerType=MEMBER&ownerId=${memberId}&limit=100`)))
+        const result = await Promise.all(jobs)
+        const next: ProfileData = { ...emptyData, member: memberResponse.data, errors: {} }
+        for (const item of result) {
+          if (item.error) next.errors[item.key] = item.error
+          if (item.key === "subscriptions") next.subscriptions = newest(item.rows, "termStart")
+          if (item.key === "bookings") next.bookings = newest(item.rows, "startsAt")
+          if (item.key === "finance") {
+            next.invoices = newest(item.rows.filter(row => text(row.profileRecordType) === "INVOICE"), "issuedAt")
+            next.payments = newest(item.rows.filter(row => text(row.profileRecordType) === "PAYMENT"), "receivedAt")
+          }
+          if (item.key === "purchases") next.orders = newest(item.rows, "createdAt")
+          if (item.key === "restaurant") next.restaurantOrders = newest(item.rows, "createdAt")
+          if (item.key === "files") next.files = newest(item.rows, "createdAt")
+        }
+        const visibleFiles = next.files.filter(file => text(file.uploadStatus) === "UPLOADED" && text(file.scanStatus) === "CLEAN")
+        const urlResults = await Promise.allSettled(visibleFiles.slice(0, 12).map(async file => {
+          const response = await apiRequest<{ downloadUrl?: string }>(`/organizations/${organizationId}/files/${text(file.id)}/download-url`)
+          return [text(file.id), response.data.downloadUrl ?? ""] as const
+        }))
+        next.fileUrls = Object.fromEntries(urlResults.filter((item): item is PromiseFulfilledResult<readonly [string, string]> => item.status === "fulfilled").map(item => item.value).filter(([, url]) => url))
+        if (!cancelled) setData(next)
+      } catch (error) {
+        if (!cancelled) setFatalError(humanError(error, "تعذر فتح ملف العضو. تأكد أن السجل ما زال متاحًا لك."))
+      } finally { if (!cancelled) setLoading(false) }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [branchesKey, context.branchId, context.branches, context.loading, context.organizationId, memberId, permissions.bookings, permissions.files, permissions.finance, permissions.purchases, permissions.restaurant, permissions.subscriptions, reloadKey])
+
+  if (context.loading || loading) return <div className="grid min-h-[55vh] place-items-center"><div className="text-center"><Loader2 className="mx-auto size-9 animate-spin text-primary"/><p className="mt-3 text-sm text-muted-foreground">جارٍ تجهيز ملف العضو…</p></div></div>
+  if (!context.canAccess(["members.read"])) return <Message title="لا تملك صلاحية عرض ملفات الأعضاء" detail="اطلب من مدير النظام منحك صلاحية عرض الأعضاء في هذا الفرع." />
+  if (fatalError || !data.member) return <Message title="تعذر فتح ملف العضو" detail={fatalError || "لم يعد سجل العضو متاحًا."} retry={() => setReloadKey(value => value + 1)} />
+
+  const member = data.member
+  const contacts = Array.isArray(member.contacts) ? member.contacts.filter(isRow) : []
+  const photo = data.files.find(file => text(file.purpose) === "PROFILE_PHOTO" && data.fileUrls[text(file.id)])
+  const identity = data.files.find(file => text(file.purpose) === "IDENTITY_DOCUMENT")
+  const photoUrl = photo ? data.fileUrls[text(photo.id)] : ""
+  const activeSubscriptions = data.subscriptions.filter(row => text(row.status) === "ACTIVE").length
+  const upcomingBookings = data.bookings.filter(row => new Date(text(row.startsAt)).getTime() >= loadedAt && text(row.status) !== "CANCELLED").length
+  const outstanding = data.invoices.reduce((total, row) => total + minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.paidMinor))), 0)
+  const branchName = branchLabel(text(member.registrationBranchId), context.branches)
+  const tabs = [
+    { key: "profile" as const, label: "الملف الشخصي", icon: UserRound, show: true },
+    { key: "subscriptions" as const, label: "الاشتراكات والباقات", icon: CreditCard, show: permissions.subscriptions },
+    { key: "bookings" as const, label: "الحجوزات", icon: CalendarDays, show: permissions.bookings },
+    { key: "finance" as const, label: "المالية والفواتير", icon: FileText, show: permissions.finance },
+    { key: "purchases" as const, label: "المشتريات", icon: ShoppingBag, show: permissions.purchases },
+    { key: "restaurant" as const, label: "طلبات المطبخ", icon: UtensilsCrossed, show: permissions.restaurant },
+    { key: "files" as const, label: "المستندات", icon: FileBadge, show: permissions.files },
+  ].filter(tab => tab.show)
+
+  return <div className="mx-auto max-w-7xl space-y-6 fade-up">
+    <Link href="/members" className="inline-flex items-center gap-2 text-sm font-bold text-muted-foreground transition hover:text-primary"><ArrowRight className="size-4"/>العودة إلى قائمة الأعضاء</Link>
+    <Card className="overflow-hidden border-primary/25">
+      <div className="bg-gradient-to-l from-primary/15 via-primary/[.06] to-transparent p-6 sm:p-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+          <Avatar name={text(member.name, "عضو النادي")} url={photoUrl}/>
+          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black sm:text-3xl">{text(member.name, "عضو النادي")}</h1><StatusBadge status={text(member.status, "ACTIVE")}/></div><div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground"><span dir="ltr">رقم العضوية: <strong>{text(member.memberNumber)}</strong></span>{Boolean(member.legacyMemberNumber) && <span dir="ltr">الرقم القديم: <strong>{text(member.legacyMemberNumber)}</strong></span>}<span className="inline-flex items-center gap-1"><MapPin className="size-3.5"/>{branchName}</span></div></div>
+          <Button variant="outline" onClick={() => setReloadKey(value => value + 1)}><RefreshCw/>تحديث الملف</Button>
+        </div>
+      </div>
+      <div className="grid gap-px border-t bg-border sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="اشتراكات نشطة" value={String(activeSubscriptions)} icon={Package}/>
+        <Metric label="حجوزات قادمة" value={String(upcomingBookings)} icon={CalendarDays}/>
+        <Metric label="رصيد مستحق" value={money(outstanding)} icon={CreditCard}/>
+        <Metric label="إجمالي الطلبات" value={String(data.orders.length + data.restaurantOrders.length)} icon={ShoppingBag}/>
+      </div>
+    </Card>
+
+    <nav className="flex gap-2 overflow-x-auto rounded-2xl border bg-card p-2" aria-label="أقسام ملف العضو">{tabs.map(tab => { const Icon = tab.icon; return <button key={tab.key} type="button" onClick={() => setActive(tab.key)} className={cn("inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-xs font-bold transition", active === tab.key ? "bg-primary text-primary-foreground" : "hover:bg-secondary")}><Icon className="size-4"/>{tab.label}</button> })}</nav>
+
+    {active === "profile" && <ProfileSection member={member} contacts={contacts} branchName={branchName} identity={identity} identityUrl={identity ? data.fileUrls[text(identity.id)] : ""} showSensitiveNotes={context.canAccess(["members.sensitive.read"])} />} 
+    {active === "subscriptions" && <SubscriptionSection rows={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>} 
+    {active === "bookings" && <BookingSection rows={data.bookings} branches={context.branches} error={data.errors.bookings}/>} 
+    {active === "finance" && <InvoiceSection rows={data.invoices} payments={data.payments} branches={context.branches} error={data.errors.finance}/>} 
+    {active === "purchases" && <PurchaseSection rows={data.orders} branches={context.branches} error={data.errors.purchases}/>} 
+    {active === "restaurant" && <RestaurantSection rows={data.restaurantOrders} branches={context.branches} error={data.errors.restaurant}/>} 
+    {active === "files" && <FilesSection rows={data.files} urls={data.fileUrls} error={data.errors.files}/>} 
+  </div>
+}
+
+function ProfileSection({ member, contacts, branchName, identity, identityUrl, showSensitiveNotes }: { member: Row; contacts: Row[]; branchName: string; identity?: Row; identityUrl?: string; showSensitiveNotes: boolean }) {
+  const phone = contacts.find(row => text(row.type) === "PHONE")
+  const email = contacts.find(row => text(row.type) === "EMAIL")
+  return <div className="grid gap-5 lg:grid-cols-[1.35fr_.65fr]">
+    <Card><CardHeader><CardTitle>البيانات الشخصية</CardTitle><Badge variant="secondary">بيانات العضو المعتمدة</Badge></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <Info label="الاسم" value={text(member.name)} icon={UserRound}/><Info label="رقم الجوال" value={text(phone?.value)} icon={Phone} ltr/><Info label="البريد الإلكتروني" value={text(email?.value)} icon={Mail} ltr/>
+      <Info label="تاريخ الميلاد" value={date(member.birthDate)} icon={CalendarDays}/><Info label="الجنس" value={genderLabel(text(member.gender))} icon={UserRound}/><Info label="الجنسية" value={text(member.nationalityCode, "غير مسجلة")} icon={FileBadge}/>
+      <Info label="فرع التسجيل" value={branchName} icon={MapPin}/><Info label="تاريخ التسجيل" value={date(member.registeredOn)} icon={CalendarDays}/><Info label="حساب الدخول" value={accountLabel(text(member.accountStatus))} icon={UserRound}/>
+      {showSensitiveNotes && Boolean(member.notes) && <div className="rounded-xl bg-secondary/55 p-4 sm:col-span-2 lg:col-span-3"><p className="text-[10px] font-bold text-muted-foreground">ملاحظات داخلية</p><p className="mt-2 whitespace-pre-wrap text-sm leading-7">{text(member.notes)}</p></div>}
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle>صورة الهوية</CardTitle></CardHeader><CardContent>{!identity ? <Empty compact text="لم تُرفع صورة هوية لهذا العضو."/> : <DocumentPreview file={identity} url={identityUrl}/>}</CardContent></Card>
+  </div>
+}
+
+function SubscriptionSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="الاشتراكات والباقات" count={items.length} error={error}>{items.length ? <div className="grid gap-3 lg:grid-cols-2">{items.map(row => { const snapshot = isRow(row.commercialSnapshot) ? row.commercialSnapshot : {}; return <article key={text(row.id)} className="rounded-2xl border bg-card p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-black">{text(snapshot.packageName, "باقة النادي")}</p><p className="mt-1 text-xs text-muted-foreground" dir="ltr">{text(row.subscriptionNumber)}</p></div><StatusBadge status={text(row.status)}/></div><div className="mt-5 grid grid-cols-2 gap-3 text-xs"><Small label="مدة الاشتراك" value={`${date(row.termStart)} — ${date(row.termEnd)}`}/><Small label="الفرع" value={branchLabel(text(row.sellingBranchId), branches)}/><Small label="القيمة" value={money(minor(snapshot.grossMinor))}/><Small label="الاستخدام" value={row.visitAllowance == null ? "حسب صلاحيات الباقة" : `${minor(row.visitsUsed)} من ${minor(row.visitAllowance)} زيارة`}/></div></article> })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}</SectionShell> }
+
+function BookingSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="الحجوزات" count={items.length} error={error}>{items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-3 p-5 sm:grid-cols-[1fr_auto] sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(row.resourceName, "حجز خدمة أو مرفق")}</p><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.startsAt)} حتى {dateTime(row.endsAt)} · {branchLabel(text(row.branchId), branches)} · {minor(row.seats, 1)} مقعد</p></div><strong>{money(minor(row.grossMinor))}</strong></article>)}</div> : <Empty text="لا توجد حجوزات مسجلة لهذا العضو."/>}</SectionShell> }
+
+function InvoiceSection({ rows: items, payments, branches, error }: ListProps & { payments: Row[] }) {
+  return <SectionShell title="الفواتير والتفاصيل المالية" count={items.length + payments.length} error={error}>
+    <div className="space-y-5">
+      <div>
+        <h3 className="mb-3 text-sm font-black">الفواتير</h3>
+        {items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-4 p-5 md:grid-cols-[1fr_repeat(3,auto)] md:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">فاتورة <span dir="ltr">{text(row.invoiceNumber)}</span></p><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.issuedAt)} · {branchLabel(text(row.sellingBranchId), branches)}</p></div><Small label="الإجمالي" value={money(minor(row.grossMinor))}/><Small label="المدفوع" value={money(minor(row.paidMinor))}/><Small label="المتبقي" value={money(minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.paidMinor))))}/></article>)}</div> : <Empty compact text="لا توجد فواتير أو ذمم مالية لهذا العضو."/>}
+      </div>
+      <div>
+        <h3 className="mb-3 text-sm font-black">سجل المدفوعات</h3>
+        {payments.length ? <div className="divide-y rounded-2xl border bg-card">{payments.map(row => <article key={text(row.id)} className="grid gap-4 p-5 sm:grid-cols-[1fr_auto_auto] sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">دفعة <span dir="ltr">#{text(row.id).slice(0, 8).toUpperCase()}</span></p><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.receivedAt)} · {branchLabel(text(row.collectionBranchId), branches)}</p></div><Small label="طريقة الدفع" value={paymentMethod(text(row.paymentMethodCode))}/><strong>{money(minor(row.amountMinor))}</strong></article>)}</div> : <Empty compact text="لا توجد مدفوعات مسجلة لهذا العضو."/>}
+      </div>
+    </div>
+  </SectionShell>
+}
+
+function PurchaseSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="مشتريات المتجر والخدمات" count={items.length} error={error}>{items.length ? <div className="grid gap-3 lg:grid-cols-2">{items.map(row => { const lines = Array.isArray(row.lineItems) ? row.lineItems.filter(isRow) : []; return <article key={text(row.id)} className="rounded-2xl border bg-card p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-black">طلب <span dir="ltr">{text(row.orderNumber)}</span></p><p className="mt-1 text-xs text-muted-foreground">{dateTime(row.createdAt)} · {branchLabel(text(row.sellingBranchId), branches)}</p></div><StatusBadge status={text(row.status)}/></div><div className="mt-4 space-y-2">{lines.length ? lines.map((line, index) => <div key={`${text(line.code)}-${index}`} className="flex justify-between gap-4 rounded-xl bg-secondary/45 p-3 text-xs"><span>{text(line.name, "صنف")}</span><strong>{minor(line.quantity, 1)} × {money(Math.round(minor(line.grossMinor) / Math.max(1, minor(line.quantity, 1))))}</strong></div>) : <p className="text-xs text-muted-foreground">تفاصيل الأصناف غير متاحة لهذا الطلب القديم.</p>}</div><p className="mt-4 border-t pt-3 text-left font-black">الإجمالي: {money(minor(row.grossMinor))}</p></article> })}</div> : <Empty text="لا توجد مشتريات أو طلبات بيع لهذا العضو."/>}</SectionShell> }
+
+function RestaurantSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="طلبات المطبخ" count={items.length} error={error}>{items.length ? <div className="grid gap-3 lg:grid-cols-2">{items.map(row => { const lines = Array.isArray(row.lines) ? row.lines.filter(isRow) : []; return <article key={text(row.id)} className="rounded-2xl border bg-card p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-black">طلب مطبخ <span dir="ltr">#{text(row.id).slice(0, 8).toUpperCase()}</span></p><p className="mt-1 text-xs text-muted-foreground">{dateTime(row.createdAt)} · {branchLabel(text(row.branchId), branches)}</p></div><StatusBadge status={text(row.status)}/></div><div className="mt-4 space-y-2">{lines.map((line, index) => { const quote = isRow(line.quote) ? line.quote : {}; return <div key={`${text(line.id)}-${index}`} className="flex justify-between rounded-xl bg-secondary/45 p-3 text-xs"><span>{text(quote.targetName, "وجبة")}</span><strong>الكمية: {minor(quote.quantity, 1)}</strong></div> })}{!lines.length && <p className="text-xs text-muted-foreground">تفاصيل الوجبات غير متاحة.</p>}</div><p className="mt-4 border-t pt-3 text-left font-black">{text(row.sourceType) === "MEAL_PLAN" ? "ضمن الخطة الغذائية" : money(minor(row.grossMinor))}</p></article> })}</div> : <Empty text="لا توجد طلبات مطبخ لهذا العضو."/>}</SectionShell> }
+
+function FilesSection({ rows: items, urls, error }: { rows: Row[]; urls: Record<string, string>; error?: string }) { return <SectionShell title="الصور والمستندات" count={items.length} error={error}>{items.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{items.map(file => <DocumentPreview key={text(file.id)} file={file} url={urls[text(file.id)]}/>)}</div> : <Empty text="لا توجد صور أو مستندات مرفوعة لهذا العضو."/>}</SectionShell> }
+
+type ListProps = { rows: Row[]; branches: Branch[]; error?: string }
+function SectionShell({ title, count, error, children }: { title: string; count: number; error?: string; children: React.ReactNode }) { return <section><div className="mb-4 flex items-center gap-3"><h2 className="text-xl font-black">{title}</h2><Badge variant="secondary">{count}</Badge></div>{error && <p role="alert" className="mb-4 rounded-xl bg-red-500/10 p-4 text-xs text-red-600">{error}</p>}{children}</section> }
+function Avatar({ name, url }: { name: string; url?: string }) { return <div className="relative grid size-24 shrink-0 place-items-center overflow-hidden rounded-3xl border-2 border-primary/30 bg-primary/15 text-2xl font-black text-primary" style={url ? { backgroundImage: `url(${JSON.stringify(url).slice(1, -1)})`, backgroundPosition: "center", backgroundSize: "cover" } : undefined}>{!url && initials(name)}{url && <span className="sr-only">صورة {name}</span>}<Camera className="absolute bottom-1 left-1 size-4 rounded-full bg-card p-0.5"/></div> }
+function Metric({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Package }) { return <div className="flex items-center gap-3 bg-card p-5"><span className="grid size-10 place-items-center rounded-xl bg-primary/12 text-primary"><Icon className="size-5"/></span><div><p className="text-[10px] font-bold text-muted-foreground">{label}</p><p className="mt-1 text-lg font-black">{value}</p></div></div> }
+function Info({ label, value, icon: Icon, ltr = false }: { label: string; value: string; icon: typeof UserRound; ltr?: boolean }) { return <div className="rounded-xl bg-secondary/55 p-4"><p className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground"><Icon className="size-3.5"/>{label}</p><p className="mt-2 break-words text-sm font-bold" dir={ltr ? "ltr" : undefined}>{value}</p></div> }
+function Small({ label, value }: { label: string; value: string }) { return <div><p className="text-[10px] font-bold text-muted-foreground">{label}</p><p className="mt-1 text-xs font-bold">{value}</p></div> }
+function Empty({ text: value, compact = false }: { text: string; compact?: boolean }) { return <div className={cn("grid place-items-center rounded-2xl border border-dashed text-center text-xs text-muted-foreground", compact ? "min-h-44 p-5" : "min-h-64 p-8")}><div><FileText className="mx-auto mb-3 size-9 opacity-30"/>{value}</div></div> }
+function Message({ title, detail, retry }: { title: string; detail: string; retry?: () => void }) { return <div className="grid min-h-[55vh] place-items-center text-center"><div><UserRound className="mx-auto size-12 text-muted-foreground/35"/><h1 className="mt-4 text-xl font-black">{title}</h1><p className="mt-2 max-w-lg text-sm text-muted-foreground">{detail}</p>{retry && <Button className="mt-5" onClick={retry}><RefreshCw/>إعادة المحاولة</Button>}</div></div> }
+function DocumentPreview({ file, url }: { file: Row; url?: string }) { const image = text(file.expectedMimeType).startsWith("image/"); const content = <div className="overflow-hidden rounded-2xl border bg-card"><div className="grid h-36 place-items-center bg-secondary/45" style={url && image ? { backgroundImage: `url(${JSON.stringify(url).slice(1, -1)})`, backgroundPosition: "center", backgroundSize: "cover" } : undefined}>{(!url || !image) && <FileBadge className="size-10 text-muted-foreground/35"/>}</div><div className="p-4"><p className="truncate text-sm font-black">{fileLabel(text(file.purpose))}</p><p className="mt-1 truncate text-[10px] text-muted-foreground">{text(file.originalFilename, "مستند")}</p><div className="mt-3 flex gap-2"><StatusBadge status={text(file.uploadStatus)}/><StatusBadge status={text(file.scanStatus)}/></div></div></div>; return url ? <a href={url} target="_blank" rel="noreferrer" className="block transition hover:-translate-y-0.5" title="فتح المستند">{content}</a> : content }
+
+function rows(data: Row[] | { items: Row[] }) { return Array.isArray(data) ? data : Array.isArray(data.items) ? data.items : [] }
+function unique(items: Row[]) { const map = new Map(items.map(item => [text(item.id), item])); return [...map.values()] }
+function newest(items: Row[], key: string) { return [...items].sort((a, b) => new Date(text(b[key], "1970-01-01")).getTime() - new Date(text(a[key], "1970-01-01")).getTime()) }
+function isRow(value: unknown): value is Row { return typeof value === "object" && value !== null && !Array.isArray(value) }
+function text(value: unknown, fallback = "غير مسجل") { return value === null || value === undefined || String(value).trim() === "" ? fallback : String(value) }
+function minor(value: unknown, fallback = 0) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : fallback }
+function money(value: number) { return new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", minimumFractionDigits: 2 }).format(value / 100) }
+function date(value: unknown) { if (!value) return "غير مسجل"; const parsed = new Date(String(value)); return Number.isNaN(parsed.getTime()) ? text(value) : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium" }).format(parsed) }
+function dateTime(value: unknown) { if (!value) return "غير مسجل"; const parsed = new Date(String(value)); return Number.isNaN(parsed.getTime()) ? text(value) : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short" }).format(parsed) }
+function branchLabel(id: string, branches: Branch[]) { const branch = branches.find(item => item.id === id); return branch?.nameAr ?? branch?.name ?? (id && id !== "غير مسجل" ? `فرع ${id.slice(0, 8)}` : "غير محدد") }
+function genderLabel(value: string) { return ({ MALE: "ذكر", FEMALE: "أنثى", UNSPECIFIED: "غير محدد" } as Record<string, string>)[value] ?? value }
+function accountLabel(value: string) { return ({ LINKED: "حساب دخول مفعّل", ACTIVATION_PENDING: "بانتظار تفعيل الحساب", NOT_LINKED: "غير مرتبط بحساب" } as Record<string, string>)[value] ?? "غير مرتبط بحساب" }
+function paymentMethod(value: string) { return ({ CASH: "نقدي", CARD: "بطاقة", BANK_TRANSFER: "تحويل بنكي", WALLET: "محفظة إلكترونية", OTHER: "طريقة أخرى" } as Record<string, string>)[value] ?? value }
+function fileLabel(value: string) { return ({ PROFILE_PHOTO: "الصورة الشخصية", IDENTITY_DOCUMENT: "إثبات الهوية", CONSENT: "نموذج الموافقة", EMPLOYMENT_DOCUMENT: "مستند" } as Record<string, string>)[value] ?? "مستند العضو" }
+function initials(value: string) { return value.trim().split(/\s+/u).slice(0, 2).map(part => part[0]).join("") || "ع" }

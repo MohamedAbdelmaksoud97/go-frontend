@@ -3,29 +3,33 @@
 import { useState } from "react"
 import { Dumbbell, ShieldCheck, UserRoundCog } from "lucide-react"
 import { TrainerAssignmentManager } from "@/components/trainer-assignment-manager"
+import { TrainerConfigurationManager } from "@/components/trainer-configuration-manager"
 import { TrainerWorkspace } from "@/components/trainer-workspace"
 import { useAppContext } from "@/components/app-context"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 
-type Mode = "management" | "workspace"
+type Mode = "management" | "configuration" | "workspace"
 
 export function TrainerHub() {
   const context = useAppContext()
-  const canManage = context.canAccess(["coaching.assignments.manage"])
+  const canManageAssignments = context.canAccess(["coaching.assignments.manage"])
+  const canConfigure = context.canAccess(["coaching.manage", "coaching.schedule.manage"])
+  const canManage = canManageAssignments || canConfigure
   const employee = context.self.employees?.find(item => item.organizationId === context.organizationId)
   const hasTrainerProfile = Boolean(employee?.trainerProfileId)
   const [chosenMode, setMode] = useState<Mode | null>(null)
-  const mode = chosenMode ?? (canManage ? "management" : "workspace")
+  const mode = chosenMode ?? (canManageAssignments ? "management" : canConfigure ? "configuration" : "workspace")
 
   if (canManage) {
     return <div className="space-y-5">
-      {hasTrainerProfile && <div className="flex flex-wrap gap-2" aria-label="اختيار مساحة التدريب">
-        <Button variant={mode === "management" ? "default" : "outline"} onClick={() => setMode("management")}><UserRoundCog />إدارة تعيينات المدربين</Button>
-        <Button variant={mode === "workspace" ? "default" : "outline"} onClick={() => setMode("workspace")}><Dumbbell />مساحتي كمدرب</Button>
-      </div>}
-      {mode === "management" || !hasTrainerProfile ? <TrainerAssignmentManager /> : <TrainerWorkspace />}
+      <div className="flex flex-wrap gap-2" aria-label="اختيار مساحة التدريب">
+        {canManageAssignments && <Button variant={mode === "management" ? "default" : "outline"} onClick={() => setMode("management")}><UserRoundCog />تعيينات المدربين</Button>}
+        {canConfigure && <Button variant={mode === "configuration" ? "default" : "outline"} onClick={() => setMode("configuration")}><ShieldCheck />ملفات المدربين والجداول</Button>}
+        {hasTrainerProfile && <Button variant={mode === "workspace" ? "default" : "outline"} onClick={() => setMode("workspace")}><Dumbbell />مساحتي كمدرب</Button>}
+      </div>
+      {mode === "configuration" ? <TrainerConfigurationManager /> : mode === "management" ? <TrainerAssignmentManager /> : <TrainerWorkspace />}
     </div>
   }
 

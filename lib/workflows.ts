@@ -1,6 +1,6 @@
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy"
 
-export type Choice = { value: string; label: string }
+export type Choice = { value: string; label: string; disabled?: boolean }
 export type FormValues = Record<string, string | boolean | File | undefined>
 export type ReferenceSource = {
   path: (context: WorkflowContext) => string
@@ -47,8 +47,6 @@ const services: ReferenceSource = { path: c => `/organizations/${c.organizationI
 const invoices: ReferenceSource = { path: c => `/organizations/${c.organizationId}/invoices?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["invoiceNumber", "number"], subtitleKeys: ["buyerName", "outstandingMinor"] }
 const positions: ReferenceSource = { path: c => `/organizations/${c.organizationId}/positions?limit=100`, labelKeys: ["nameAr", "positionName", "name"], subtitleKeys: ["code"] }
 const meals: ReferenceSource = { path: c => `/organizations/${c.organizationId}/restaurant/meals?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "mealName", "name"], subtitleKeys: ["categoryName"] }
-const roles: ReferenceSource = { path: c => `/organizations/${c.organizationId}/roles`, labelKeys: ["name"], subtitleKeys: ["systemKey"] }
-const branches: ReferenceSource = { path: c => `/organizations/${c.organizationId}/branches`, labelKeys: ["nameAr", "name"], subtitleKeys: ["code"] }
 const employees: ReferenceSource = { path: c => `/organizations/${c.organizationId}/employees?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["name", "fullNameAr", "displayName"], subtitleKeys: ["employeeNumber"] }
 const otherIncomeCategories: ReferenceSource = { path: c => `/organizations/${c.organizationId}/other-income-categories`, labelKeys: ["name", "nameAr"], subtitleKeys: ["code"] }
 const expenseCategories: ReferenceSource = { path: c => `/organizations/${c.organizationId}/expense-categories`, labelKeys: ["name", "nameAr"], subtitleKeys: ["code"] }
@@ -165,10 +163,5 @@ export const workflows: Record<string, Workflow> = {
   requestReportingRebuild: {
     title: "تحديث بيانات التقارير", description: "استخدم هذا الإجراء فقط إذا كانت أرقام التقارير لا تعكس آخر العمليات.", submitLabel: "بدء التحديث", successMessage: "بدأ تحديث بيانات التقارير. يمكنك متابعة العمل وسيكتمل في الخلفية.", confirm: "قد يستغرق تحديث التقارير عدة دقائق. هل تريد المتابعة؟",
     fields: [{ name: "reason", label: "سبب التحديث", type: "textarea", required: true, placeholder: "اكتب سبب طلب التحديث" }], initial: () => ({ reason: "" }), body: v => ({ reason: v.reason }),
-  },
-  provisionUserAccount: {
-    title: "إضافة حساب موظف", description: "أنشئ الحساب واربطه بالدور والفرع في خطوة واحدة. كل الأدوار مرتبطة بفرع محدد؛ System Administrator فقط يغطي النادي كاملًا.", submitLabel: "إنشاء الحساب", successMessage: "تم إنشاء الحساب وربطه بنطاق عمله.",
-    fields: [{ name: "email", label: "البريد الإلكتروني للموظف", type: "email", required: true, placeholder: "name@example.com" }, { name: "password", label: "كلمة المرور المؤقتة", type: "password", required: true, hint: `${MIN_PASSWORD_LENGTH} محارف على الأقل؛ أرقام أو حروف أو خليط، ولا تُحفظ أو تُعرض بعد الإرسال.` }, { name: "roleId", label: "الدور الوظيفي", type: "reference", source: roles, required: true }, { name: "branchId", label: "فرع عمل الموظف", type: "reference", source: branches, hint: "مطلوب لكل دور عدا System Administrator؛ اتركه فارغًا عند اختيار System Administrator فقط." }],
-    initial: () => ({ email: "", password: "", roleId: "", branchId: "" }), body: v => ({ loginMethod: "STAFF_EMAIL_PASSWORD", email: v.email, password: v.password, roleId: v.roleId, branchId: v.branchId || undefined }),
   },
 }

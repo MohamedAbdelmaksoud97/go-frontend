@@ -5,17 +5,17 @@ import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
   Activity, Barcode, Bell, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, Compass, CreditCard, FileText,
-  Dumbbell, History, LayoutDashboard, LogOut, Menu, MessageSquareText, Moon, ReceiptText, Search, Settings,
+  Dumbbell, History, LayoutDashboard, LogOut, Menu, MessageSquareText, Moon, ReceiptText, Settings,
   Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
 } from "lucide-react"
 import { BrandLogo } from "@/components/brand-logo"
 import { useAppContext } from "@/components/app-context"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { apiRequest, clearSession } from "@/lib/api-client"
-import { firstAllowedDestination, permissionsForRoute } from "@/lib/permissions"
+import { firstAllowedDestination, permissionsForRoute, systemSettingsPermissions } from "@/lib/permissions"
 import type { AccountNotification } from "@/components/account-notification-inbox"
+import { GlobalSearch } from "@/components/global-search"
 
 const navGroups = [
   { label: "نظرة عامة", items: [{ href: "/", label: "لوحة التحكم", icon: LayoutDashboard, permissions:["reporting.read"] }] },
@@ -32,16 +32,17 @@ const navGroups = [
     { href: "/finance", label: "المالية والعمولات", icon: WalletCards, permissions:["finance.invoices.read","sales.read","finance.other-income.read","coaching.commissions.read"] },
     { href: "/finance/shifts", label: "سجل ورديات الصندوق", icon: History, permissions:["finance.cash-shifts.audit.read"] },
     { href: "/crm", label: "العملاء والمتابعات", icon: Zap, permissions:["crm.leads.read","crm.follow-ups.read","online-requests.read"] },
-    { href: "/communications", label: "الرسائل والتواصل", icon: MessageSquareText, permissions:["notifications.read","notifications.send"] },
+    { href: "/communications", label: "الرسائل والتواصل", icon: MessageSquareText, permissions:["notifications.read","notifications.send","notifications.whatsapp.read","notifications.whatsapp.manage"] },
     { href: "/operations", label: "مركز العمليات", icon: ClipboardList, permissions:["workforce.shifts.read","workforce.attendance.record","online-requests.read","lockers.read"] },
     { href: "/feedback", label: "الشكاوى والاقتراحات", icon: MessageSquareText, permissions:["feedback.read","feedback.reply"] },
-    { href: "/restaurant", label: "المطعم", icon: Utensils, permissions:["restaurant.orders.read","restaurant.menu.read","restaurant.catalog.read"] },
+    { href: "/restaurant", label: "المطعم", icon: Utensils, permissions:["restaurant.orders.read","restaurant.menu.read","restaurant.catalog.read","restaurant.meal-plans.redeem"] },
     { href: "/trainer", label: "التدريب والمدربون", icon: Dumbbell, permissions:["coaching.read","coaching.training-plans.read","measurements.read","coaching.assignments.manage"] },
     { href: "/staff", label: "الموظفون", icon: UserRoundCheck, permissions:["workforce.read"] },
   ]},
   { label: "الإدارة", items: [
     { href: "/reports", label: "التقارير", icon: ClipboardList, permissions:["reporting.read"] },
-    { href: "/system-settings/branches", label: "إعداد النظام", icon: Settings, permissions:["organization.manage","catalog.manage","commercial.manage","iam.roles.manage","workforce.manage","bookings.facilities.manage","restaurant.catalog.manage","retail.catalog.read","retail.inventory.read","finance.expenses.read"] },
+    { href: "/audit", label: "سجل نشاط النظام", icon: History, permissions:["iam.audit.read"] },
+    { href: "/system-settings/branches", label: "إعداد النظام", icon: Settings, permissions:[...systemSettingsPermissions] },
   ]},
   { label: "مساحتي", items: [
     { href: "/notifications", label: "الإشعارات", icon: Bell, permissions:[] },
@@ -65,7 +66,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [notices, setNotices] = useState(false)
   const [notificationItems,setNotificationItems]=useState<AccountNotification[]>([])
   const [unreadNotifications,setUnreadNotifications]=useState(0)
-  const [globalSearch, setGlobalSearch] = useState("")
   const hasMember = Boolean(context.self.members?.length)
   const memberOnlyAccount = hasMember && context.grants.length === 0
   const accountName = context.account?.displayName?.trim() || "الحساب"
@@ -100,8 +100,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     document.documentElement.classList.toggle("dark", next)
     localStorage.setItem("go-theme", next ? "dark" : "light")
   }
-
-  function submitSearch(event:React.FormEvent){event.preventDefault();const value=globalSearch.trim().toLowerCase();if(!value)return;if(memberOnlyAccount){const memberDestinations=[{terms:["شكوى","اقتراح","تذكرة"],href:"/self-service/feedback"},{terms:["إشعار","رسالة","تنبيه"],href:"/notifications"},{terms:["باقة","خدمة","حجز","موعد"],href:"/self-service/discover"},{terms:["وجبة","مطعم","طعام"],href:"/self-service/meals"},{terms:["عضوية","اشتراك"],href:"/self-service/membership"},{terms:["طلب","فاتورة","سداد"],href:"/self-service/orders"},{terms:["حضور","تدريب","نشاط"],href:"/self-service/activity"}];router.push(memberDestinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??"/self-service");return}const destinations=[{terms:["شكوى","اقتراح","تذكرة"],href:"/feedback"},{terms:["رسالة","إشعار","تواصل","حملة"],href:"/communications"},{terms:["عضو","أعضاء","member"],href:"/members"},{terms:["اشتراك","باقة","subscription"],href:"/subscriptions"},{terms:["حضور","دخول","attendance"],href:"/attendance"},{terms:["حجز","موعد","booking"],href:"/bookings"},{terms:["فاتورة","دفعة","مالية","invoice"],href:"/finance"},{terms:["عميل","متابعة"],href:"/crm"},{terms:["مناوبة","خزانة","طلب إلكتروني"],href:"/operations"},{terms:["مطعم","وجبة"],href:"/restaurant"},{terms:["مدرب","تمرين","قياس"],href:"/trainer"},{terms:["موظف"],href:"/staff"},{terms:["تقرير"],href:"/reports"}].filter(item=>context.canAccess(routePermissionsFor(item.href)));router.push(destinations.find(item=>item.terms.some(term=>value.includes(term)))?.href??fallbackDestination)}
 
   if (context.loading||!routeAllowed) return <div dir="rtl" className="grid min-h-screen place-items-center bg-background"><div className="text-center"><span className="mx-auto block size-10 animate-spin rounded-full border-4 border-primary border-t-transparent"/><p className="mt-4 text-sm font-semibold text-muted-foreground">جارٍ تحميل مساحة العمل المناسبة…</p></div></div>
 
@@ -140,10 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen min-w-0 w-full overflow-hidden lg:pr-[270px]">
       <header className="glass sticky top-0 z-30 flex h-[76px] items-center gap-3 border-b px-4 lg:px-7">
         <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="فتح القائمة"><Menu /></Button>
-        <form onSubmit={submitSearch} className="relative hidden w-full max-w-sm md:block">
-          <Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={globalSearch} onChange={event=>setGlobalSearch(event.target.value)} className="border-transparent bg-secondary/70 pr-10" placeholder={memberOnlyAccount?"ابحث عن باقة، وجبة، فاتورة...":"ابحث عن عضو، فاتورة، حجز..."} aria-label="البحث العام" />
-        </form>
+        <GlobalSearch memberOnlyAccount={memberOnlyAccount} />
         <div className="mr-auto flex items-center gap-2">
           {context.branches.length>0&&<button className="hidden items-center gap-2 rounded-xl border bg-card px-3 py-2 text-right sm:flex" aria-label="تغيير الفرع" onClick={()=>router.push('/select-context')}>
             <span className="grid size-7 place-items-center rounded-lg bg-primary/15 text-amber-600"><Building2 className="size-4" /></span>
@@ -166,5 +161,3 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   </div>
 }
-
-function routePermissionsFor(path:string){return permissionsForRoute(path)??[]}

@@ -432,14 +432,6 @@
     "description": "Subscriptions restricted to the effective selling-branch scope."
   },
   {
-    "path": "/api/v1/organizations/{organizationId}/subscriptions",
-    "method": "post",
-    "operationId": "createSubscription",
-    "secured": true,
-    "idempotent": false,
-    "description": "Subscription created with captured commercial and policy snapshots."
-  },
-  {
     "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}",
     "method": "get",
     "operationId": "getSubscription",
@@ -2294,14 +2286,6 @@
     "secured": true,
     "idempotent": false,
     "description": "Organization-linked internal user accounts."
-  },
-  {
-    "path": "/api/v1/organizations/{organizationId}/user-accounts",
-    "method": "post",
-    "operationId": "provisionUserAccount",
-    "secured": true,
-    "idempotent": false,
-    "description": "Active password account provisioned; staff use email and members use phone."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/members/{memberId}/password-resets",

@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Building2, Check, ChevronLeft, Loader2, Pencil, Plus, RefreshCw, Search, Settings2, ShieldAlert, X } from "lucide-react"
+import { Building2, Check, ChevronLeft, CircleAlert, CircleCheckBig, Lightbulb, Loader2, Pencil, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, X } from "lucide-react"
 import { apiRequest, createIdempotencyKey, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { useAppContext } from "@/components/app-context"
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { StatusBadge } from "@/components/status-badge"
+import { permissionImplications } from "@/lib/permissions"
 
 type Value = string | boolean | string[]
 type Values = Record<string, Value>
@@ -55,10 +56,18 @@ const money = (value: unknown) => typeof value === "string" || typeof value === 
 
 const configs: MasterConfig[] = [
   {
-    id: "branches", label: "الفروع", description: "الفروع، المناطق الزمنية وعناوين التشغيل.", permission: "organization.read", managePermission: "branch.manage", path: "/organizations/{organizationId}/branches", createPath: "/organizations/{organizationId}/branches", updatePath: id => `/organizations/{organizationId}/branches/${id}`,
+    id: "organization", label: "بيانات النادي", description: "الاسم والرمز والمنطقة الزمنية والحالة العامة للنادي.", permission: "organization.read", managePermission: "organization.read", path: "/organizations/{organizationId}",
+    columns: [{ label: "الرمز", key: "code" }, { label: "اسم النادي", key: "name" }, { label: "المنطقة الزمنية", key: "timezone" }, { label: "الحالة", key: "status" }],
+  },
+  {
+    id: "branches", label: "الفروع", description: "الفروع، المناطق الزمنية وعناوين التشغيل.", permission: "branch.read", managePermission: "branch.manage", path: "/organizations/{organizationId}/branches", createPath: "/organizations/{organizationId}/branches", updatePath: id => `/organizations/{organizationId}/branches/${id}`,
     columns: [{ label: "الرمز", key: "code" }, { label: "الاسم", key: "name" }, { label: "المنطقة الزمنية", key: "timezone" }, { label: "العنوان", key: "address" }, { label: "الحالة", key: "status" }],
     createFields: [{ name: "code", label: "رمز الفرع", required: true }, { name: "name", label: "اسم الفرع", required: true }, { name: "timezone", label: "المنطقة الزمنية", hint: "مثال: Asia/Riyadh" }, { name: "address", label: "العنوان", type: "textarea" }],
     editFields: [{ name: "name", label: "اسم الفرع", required: true }, { name: "timezone", label: "المنطقة الزمنية" }, { name: "address", label: "العنوان", type: "textarea" }, { name: "status", label: "الحالة", type: "select", options: [{ value: "ACTIVE", label: "نشط" }, { value: "INACTIVE", label: "غير نشط" }] }],
+  },
+  {
+    id: "user-accounts", label: "حسابات الموظفين", description: "الحسابات المرتبطة بالموظفين وحالة إتاحة تسجيل الدخول لكل حساب.", permission: "iam.accounts.read", managePermission: "iam.accounts.read", path: "/organizations/{organizationId}/user-accounts?ownerType=EMPLOYEE&limit=500",
+    columns: [{ label: "الموظف", key: "displayName" }, { label: "الرقم الوظيفي", key: "employeeNumber" }, { label: "البريد الإلكتروني", key: "email" }, { label: "الجوال", key: "phoneE164" }, { label: "حساب الدخول", key: "hasLoginAccount" }, { label: "الحالة", key: "status" }],
   },
   {
     id: "activities", label: "الرياضات والأنشطة", description: "تعريف الأنشطة التي ترتبط بالخدمات والمرافق.", permission: "catalog.read", managePermission: "catalog.manage", path: "/organizations/{organizationId}/activities", createPath: "/organizations/{organizationId}/activities", updatePath: id => `/organizations/{organizationId}/activities/${id}`,
@@ -122,7 +131,7 @@ const configs: MasterConfig[] = [
     initial: { scopeType: "SELECTED_BRANCHES" }, createBody: values => ({ userAccountId: values.userAccountId, roleId: values.roleId, scopeType: values.scopeType, branchIds: asArray(values.branchIds) }),
   },
   {
-    id: "cash-points", label: "نقاط التحصيل", description: "الصناديق ونقاط البيع الخاصة بالفرع المحدد حاليًا.", permission: "finance.cash-points.manage", managePermission: "finance.cash-points.manage", path: "/organizations/{organizationId}/cash-points", createPath: "/organizations/{organizationId}/cash-points", branchScoped: true,
+    id: "cash-points", label: "نقاط التحصيل", description: "الصناديق ونقاط البيع الخاصة بالفرع المحدد حاليًا.", permission: "finance.cash-points.read", managePermission: "finance.cash-points.manage", path: "/organizations/{organizationId}/cash-points", createPath: "/organizations/{organizationId}/cash-points", branchScoped: true,
     columns: [{ label: "الرمز", key: "code" }, { label: "اسم نقطة التحصيل", key: "name" }, { label: "الحالة", key: "status" }],
     createFields: [{ name: "code", label: "رمز نقطة التحصيل", required: true }, { name: "name", label: "اسم نقطة التحصيل", required: true }],
   },
@@ -204,7 +213,7 @@ const configs: MasterConfig[] = [
 ]
 
 const navigationGroups = [
-  { label: "النادي والموظفون", ids: ["branches", "positions"] },
+  { label: "النادي والموظفون", ids: ["organization", "branches", "positions", "user-accounts"] },
   { label: "الصلاحيات الإضافية", ids: ["roles", "role-assignments"] },
   { label: "الخدمات والتسعير", ids: ["activities", "categories", "services", "packages", "prices", "promotions", "commercial-policies"] },
   { label: "المرافق والتشغيل", ids: ["facilities", "bookable-resources", "cash-points", "lockers"] },
@@ -215,7 +224,7 @@ const navigationGroups = [
   { label: "التواصل", ids: ["notification-templates"] },
 ] as const
 
-function listOf(data: unknown): RecordItem[] { if (Array.isArray(data)) return data.filter((item): item is RecordItem => Boolean(item) && typeof item === "object"); if (data && typeof data === "object" && "items" in data && Array.isArray((data as { items?: unknown }).items)) return (data as { items: RecordItem[] }).items; return [] }
+function listOf(data: unknown): RecordItem[] { if (Array.isArray(data)) return data.filter((item): item is RecordItem => Boolean(item) && typeof item === "object"); if (data && typeof data === "object" && "items" in data && Array.isArray((data as { items?: unknown }).items)) return (data as { items: RecordItem[] }).items; if (data && typeof data === "object") return [data as RecordItem]; return [] }
 function itemId(item: RecordItem) { return String(item.id ?? item.roleId ?? item.activityId ?? item.branchId ?? "") }
 function text(value: unknown, key?: string) {
   if (value === null || value === undefined || value === "") return "—"
@@ -237,7 +246,7 @@ function text(value: unknown, key?: string) {
   if (key?.toLowerCase().endsWith("id") && isUuid(String(value))) return "بيانات مرتبطة"
   return String(value)
 }
-function itemText(item: RecordItem, key: string, branches: BranchLookup[] = []) { if (key === "benefitValue" && item.benefitType === "PERCENTAGE") return `${Number(item[key]) / 100}%`; if (key === "branchId") { const branch = branches.find(candidate => candidate.id === item[key]); return branch?.nameAr ?? branch?.name ?? (item[key] ? "فرع محدد" : "جميع الفروع") } return text(item[key], key) }
+function itemText(item: RecordItem, key: string, branches: BranchLookup[] = []) { if (key === "benefitValue" && item.benefitType === "PERCENTAGE") return `${Number(item[key]) / 100}%`; if (key === "branchId") { const branch = branches.find(candidate => candidate.id === item[key]); return branch?.nameAr ?? branch?.name ?? (item[key] ? "فرع محدد" : "جميع الفروع") } if (key === "hasLoginAccount") return item[key] ? "مفعّل" : "غير مُنشأ"; return text(item[key], key) }
 function isUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value) }
 function valueFrom(item: RecordItem, key: string): Value { const value = item[key]; if (Array.isArray(value)) return value.map(entry => typeof entry === "string" ? entry : String((entry as RecordItem).permission ?? (entry as RecordItem).id ?? "")).filter(Boolean); return typeof value === "boolean" ? value : value === null || value === undefined ? "" : String(value) }
 function formValueFrom(configId: string, item: RecordItem, key: string): Value { if (configId === "retail-prices" && key === "amount") return String(Number(item.amountMinor ?? 0) / 100); if (configId === "retail-prices" && key === "taxRate") return String(Number(item.taxRateBps ?? 0) / 100); if(configId==="packages"&&key==="accessFrequency")return item.visitLimitPeriod?String(item.visitLimitPeriod):item.visitAllowance?"TOTAL":"UNLIMITED";if(configId==="packages"&&key==="serviceIds"&&Array.isArray(item.entitlements))return item.entitlements.map(entry=>String((entry as RecordItem).serviceId??"")).filter(Boolean); return valueFrom(item, key) }
@@ -374,7 +383,14 @@ function MasterForm({ config, mode, item, organizationId, branchId, references, 
   return <div className="fixed inset-0 z-[80] grid place-items-end bg-black/60 backdrop-blur-sm sm:place-items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section role="dialog" aria-modal="true" aria-labelledby="master-form-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:max-w-2xl sm:rounded-[28px]"><header className="sticky top-0 z-10 flex items-start border-b bg-card/95 p-5 backdrop-blur"><div><p className="text-[11px] font-bold text-amber-700">البيانات الرئيسية</p><h2 id="master-form-title" className="mt-1 text-xl font-black">{mode === "create" ? `إضافة ${config.label}` : `تعديل ${config.label}`}</h2></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} aria-label="إغلاق"><X /></Button></header><form onSubmit={submit} className="p-5 sm:p-6"><div className="grid gap-5 sm:grid-cols-2">{visibleFields.map(field => { const source = config.id === "prices" && field.name === "targetId" ? values.targetType === "SERVICE" ? "services" : "packages" : field.source; const referenceKey = source === "facilities" ? `facilities:${branchId}` : source; const choices = (referenceKey ? references[referenceKey] ?? [] : []).filter(choice => !field.sourceFilter || choice[field.sourceFilter.key] === field.sourceFilter.value); return <MasterField key={field.name} field={field} value={values[field.name]} choices={choices} onChange={value => setValues(current => ({ ...current, [field.name]: value }))} /> })}</div>{error && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}<footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>إلغاء</Button><Button type="submit" className="sm:mr-auto" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Check />}حفظ التغييرات</Button></footer></form></section></div>
 }
 
-type PermissionChoice = { code: string; label: string; group: string; groupOrder: number }
+type PermissionGuidance = {
+  summary: string
+  allows: string[]
+  limits: string[]
+  recommendation: string
+  sensitivity: "عادية" | "مهمة" | "حساسة"
+}
+type PermissionChoice = { code: string; label: string; group: string; groupOrder: number; guidance: PermissionGuidance }
 
 const permissionGroups = [
   { title: "إدارة النادي والفروع", prefixes: ["organization.", "branch.", "iam."] },
@@ -403,24 +419,216 @@ const permissionSubjects: Record<string, string> = {
 
 const permissionActions: Record<string, string> = { read: "الاطلاع على", reply: "الرد على", manage: "إدارة", create: "إنشاء", activate: "تفعيل", freeze: "تجميد", cancel: "إلغاء", renew: "تجديد", checkout: "إتمام البيع", record: "تسجيل", issue: "إصدار", approve: "اعتماد", pay: "دفع", "check-in": "تسجيل دخول", prepare: "تحضير", redeem: "استبدال", send: "إرسال", rebuild: "إعادة بناء", execute: "تنفيذ", operations: "اعتماد تشغيلي", commercial: "اعتماد تجاري", finance: "اعتماد مالي" }
 
+const permissionContexts: Record<string, string> = {
+  organization: "بيانات النادي الأساسية وحالته العامة",
+  branch: "بيانات الفروع وعناوينها وحالة تشغيلها",
+  "iam.accounts": "حسابات دخول الموظفين وحالتها",
+  "iam.roles": "مجموعات الصلاحيات الاستثنائية",
+  "iam.assignments": "إسناد مجموعات صلاحيات إضافية إلى الموظفين",
+  "iam.audit": "سجل الإجراءات والتغييرات التي تمت داخل النظام",
+  members: "ملفات الأعضاء وبيانات التواصل والعضوية",
+  "members.sensitive": "الصور والهوية والبيانات الشخصية الحساسة للأعضاء",
+  "members.accounts": "ربط ملف العضو بحساب دخوله وإدارة هذا الربط",
+  workforce: "ملفات الموظفين والمسميات الوظيفية وحالتهم",
+  "workforce.assignments": "تعيين الموظفين في الفروع والمسميات الوظيفية",
+  "workforce.accounts": "إنشاء حسابات دخول الموظفين وإعادة ضبطها",
+  "workforce.shifts": "جداول مناوبات الموظفين وحالتها",
+  "workforce.attendance": "حركات حضور وانصراف الموظفين",
+  files: "المستندات والصور المرفوعة إلى ملفات الأعضاء والموظفين",
+  catalog: "تعريف الخدمات والأنشطة وتصنيفاتها",
+  "catalog.availability": "أوقات إتاحة الخدمات في الفروع",
+  commercial: "الباقات ومحتواها ومددها وحالة نشرها",
+  pricing: "أسعار الباقات والخدمات لكل فرع",
+  promotions: "العروض والخصومات وشروط تطبيقها",
+  policies: "سياسات الاشتراكات والتجميد والإلغاء",
+  subscriptions: "اشتراكات الأعضاء ومددها وحالتها",
+  "subscriptions.adjustments": "التعديلات اليدوية الموثقة على الاشتراكات",
+  sales: "طلبات البيع وبنودها وحالتها",
+  "finance.invoices": "الفواتير ومبالغها وحالة سدادها",
+  "finance.payments": "عمليات التحصيل وطرق الدفع والمبالغ المسجلة",
+  "finance.refunds": "إرجاع المبالغ المحصلة إلى أصحابها",
+  "finance.expenses": "المصروفات ودورة اعتمادها وسدادها",
+  "finance.cash-points": "نقاط التحصيل المرتبطة بالفروع",
+  "finance.cash-shifts": "ورديات الصندوق والرصيد الافتتاحي والختامي",
+  "finance.cash-shifts.audit": "الحركة المالية التفصيلية داخل ورديات الصندوق",
+  "finance.other-income": "الإيرادات غير الناتجة عن الفواتير المعتادة",
+  attendance: "دخول الأعضاء والتحقق من صلاحية اشتراكاتهم",
+  bookings: "حجوزات الخدمات والمواعيد وحالتها",
+  "bookings.facilities": "المرافق والموارد القابلة للحجز",
+  "access-credentials": "بطاقات ووسائل دخول الأعضاء والموظفين",
+  lockers: "الخزائن وإسنادها إلى الأعضاء",
+  "restaurant.catalog": "تعريف الوجبات وتصنيفاتها وقيمها الغذائية",
+  "restaurant.pricing": "أسعار الوجبات لكل فرع",
+  "restaurant.menu": "قائمة الوجبات المتاحة للمشتركين في كل يوم",
+  "restaurant.orders": "طلبات الوجبات ومسار تجهيزها وتسليمها",
+  "restaurant.meal-plans": "استحقاقات الوجبات المضمنة في الاشتراكات",
+  "retail.catalog": "منتجات المتجر وتصنيفاتها",
+  "retail.pricing": "أسعار منتجات المتجر لكل فرع",
+  "retail.inventory": "أرصدة مخزون المتجر وحركات التسوية",
+  coaching: "بيانات المدربين وتخصصاتهم",
+  "coaching.assignments": "ربط المدربين بالأعضاء داخل الفرع",
+  "coaching.schedule": "مواعيد وتوافر المدربين",
+  "coaching.commissions": "عمولات المدربين وحالتها المالية",
+  "coaching.training-plans": "خطط التدريب المرتبطة بالأعضاء",
+  measurements: "قياسات الأعضاء وتطورها",
+  "measurement-types": "أنواع القياسات ووحداتها",
+  notifications: "الإشعارات المرسلة داخل حسابات المستخدمين",
+  "notifications.whatsapp": "إعدادات وإرسال رسائل واتساب عند تفعيل المزود",
+  "notification-templates": "النصوص المحفوظة والقابلة لإعادة الاستخدام في الرسائل",
+  "crm.leads": "بيانات العملاء المحتملين ومراحل اهتمامهم",
+  "crm.follow-ups": "مواعيد ونتائج متابعة العملاء المحتملين",
+  "online-requests": "طلبات الأعضاء القادمة من بوابة الخدمة الذاتية",
+  feedback: "محادثات الشكاوى والاقتراحات بين الأعضاء والإدارة",
+  reporting: "التقارير والمؤشرات الإدارية والتشغيلية",
+}
+
+const actionGuidance: Record<string, { capability: string; limits: string; recommendation: string }> = {
+  read: { capability: "فتح القسم والبحث والتصفية وعرض تفاصيل السجلات المتاحة", limits: "لا تسمح هذه الصلاحية بإنشاء السجلات أو تعديلها أو حذفها أو اعتماد أي إجراء.", recommendation: "تُمنح لمن يحتاج المتابعة أو المراجعة دون تنفيذ تغييرات." },
+  manage: { capability: "إنشاء السجلات وتعديلها وتغيير حالتها وتنفيذ إجراءات إدارتها المتاحة", limits: "لا تمنح صلاحيات مالية أو اعتمادات مستقلة ما لم تكن الصلاحية خاصة بهذا النوع من العمليات.", recommendation: "تُمنح فقط للمسؤول المباشر عن هذا الجزء من العمل." },
+  create: { capability: "إنشاء سجلات جديدة وإدخال بياناتها الأولية", limits: "لا تعني بالضرورة القدرة على تعديل السجلات بعد إنشائها أو اعتمادها أو إلغائها.", recommendation: "مناسبة لموظف الاستقبال أو التشغيل الذي يبدأ الإجراء ثم يراجعه مسؤول آخر." },
+  activate: { capability: "تفعيل السجل بعد استيفاء المتطلبات ليصبح قابلًا للاستخدام", limits: "لا تسمح بتغيير الأسعار أو تسجيل الدفع أو إلغاء الاشتراك.", recommendation: "تُمنح للموظف المسؤول عن مراجعة جاهزية الاشتراك وبدء سريانه." },
+  freeze: { capability: "تجميد الاشتراك واستئنافه وفق السياسة المعتمدة مع توثيق المدة", limits: "لا تسمح بإلغاء الاشتراك أو تعديل قيمته المالية.", recommendation: "تُمنح لخدمة العملاء أو المدير المخول بتطبيق سياسة التجميد." },
+  cancel: { capability: "إلغاء الاشتراك وفق السياسة المسجلة وتوثيق السبب والتاريخ", limits: "لا تسمح وحدها برد الأموال؛ الاسترجاع المالي يحتاج صلاحية مستقلة.", recommendation: "صلاحية حساسة تُمنح لمسؤول يستطيع مراجعة أثر الإلغاء على العضو والفاتورة." },
+  renew: { capability: "إنشاء تجديد للاشتراك وربطه بالاشتراك السابق", limits: "لا تسجل التحصيل النقدي تلقائيًا؛ الدفع يخضع لصلاحيات التحصيل.", recommendation: "تُمنح لموظفي المبيعات أو خدمة الأعضاء المسؤولين عن التجديدات." },
+  checkout: { capability: "إنشاء طلب بيع وفاتورة للباقات والخدمات والوجبات ومنتجات المتجر المتاحة", limits: "لا تسمح بتسجيل استرجاع مالي أو تغيير إعدادات الأسعار والمنتجات.", recommendation: "تُمنح للكاشير أو موظف المبيعات الذي ينفذ عمليات البيع الفعلية." },
+  record: { capability: "تسجيل الحركة التشغيلية أو المالية باسم الموظف وفي وقت تنفيذها", limits: "لا تسمح بتعديل السياسات أو حذف السجل التاريخي بعد تسجيله.", recommendation: "تُمنح لمن ينفذ هذه الحركة فعليًا أثناء الوردية." },
+  issue: { capability: "إصدار العملية المطلوبة وربطها بالسجل الأصلي مع توثيق المنفذ والسبب", limits: "لا تمنح صلاحية تعديل بيانات المصدر أو تجاوز المبلغ المتاح.", recommendation: "تُمنح لمسؤول موثوق بعد تحديد ضوابط واضحة للمراجعة." },
+  approve: { capability: "اعتماد الطلب لينتقل إلى المرحلة التالية من دورة العمل", limits: "الاعتماد لا يعني السداد الفعلي ما لم تُمنح صلاحية الدفع أيضًا.", recommendation: "يفضل فصلها عن منشئ الطلب لتحقيق مراجعة داخلية سليمة." },
+  pay: { capability: "تسجيل سداد المصروف المعتمد وإغلاق التزامه المالي", limits: "لا تسمح بإنشاء المصروف أو اعتماده إذا لم تكن الصلاحيات الأخرى ممنوحة.", recommendation: "تُمنح للمسؤول المالي الذي ينفذ الدفع ويتحقق من مستنداته." },
+  "check-in": { capability: "تسجيل دخول عضو والتحقق من حالة اشتراكه وحقه في الزيارة", limits: "لا تسمح بتعديل الاشتراك أو تجاوز نتيجة التحقق دون صلاحية أخرى.", recommendation: "مناسبة لموظف الاستقبال أو بوابة الدخول." },
+  prepare: { capability: "تحديث طلبات المطبخ أثناء التحضير حتى تصبح جاهزة للتسليم", limits: "لا تسمح بتغيير سعر الطلب أو تحصيله أو تعديل كتالوج الوجبات.", recommendation: "تُمنح للشيف أو فريق تجهيز الطلبات داخل الفرع." },
+  redeem: { capability: "استهلاك وجبة مستحقة من خطة وجبات العضو وتوثيق الاستخدام", limits: "لا تسمح ببيع وجبة جديدة أو تعديل اشتراك العضو.", recommendation: "تُمنح للموظف الذي يتحقق من الاستحقاق عند التسليم." },
+  send: { capability: "إنشاء الرسائل وإرسالها إلى المستلمين المحددين أو الشرائح المختارة", limits: "لا تسمح بتعديل بيانات الأعضاء، ويجب الالتزام بسياسة التواصل وعدم الإرسال غير الضروري.", recommendation: "تُمنح لمسؤول التواصل أو التسويق بعد اعتماد أسلوب الرسائل والجمهور." },
+  reply: { capability: "قراءة محادثة الشكوى أو الاقتراح والرد باسم الإدارة وتحديث مسارها", limits: "لا تمنح صلاحيات معالجة مالية أو تشغيلية خارج المحادثة نفسها.", recommendation: "تُمنح لفريق خدمة العملاء المسؤول عن المتابعة حتى الإغلاق." },
+  rebuild: { capability: "إعادة احتساب بيانات التقارير عند الحاجة لتحديث المؤشرات", limits: "لا تغير السجلات التشغيلية الأصلية، لكنها قد تكون عملية ثقيلة ويجب استخدامها عند الحاجة فقط.", recommendation: "تُمنح لمسؤول النظام أو التقارير المتقدم." },
+}
+
+const permissionSpecificNotes: Partial<Record<string, string[]>> = {
+  "members.sensitive.read": ["تشمل الاطلاع على صورة العضو وصورة الهوية والبيانات المصنفة حساسة."],
+  "members.sensitive.manage": ["تشمل رفع أو استبدال مستندات الهوية والصور الحساسة؛ ويجب قصرها على أقل عدد ممكن من الموظفين."],
+  "members.accounts.manage": ["تشمل ربط ملف العضو بحساب دخوله وفك الربط وإدارة إتاحة الحساب دون إنشاء عضو مكرر."],
+  "workforce.accounts.manage": ["تشمل إنشاء حساب دخول للموظف وإعادة تعيين كلمة مروره وتعطيل دخوله عند انتهاء عمله."],
+  "iam.assignments.manage": ["تُستخدم للصلاحيات الاستثنائية فقط؛ صلاحيات العمل المعتادة يجب أن تأتي من المسمى الوظيفي."],
+  "finance.cash-shifts.audit.read": ["تعرض من فتح الوردية وأغلقها، وجميع الحركات النقدية والفروقات والمراجع المرتبطة بها."],
+  "finance.payments.record": ["تسجل التحصيل على فاتورة معلقة وتربطه بالوردية ونقطة التحصيل والموظف المنفذ."],
+  "finance.refunds.issue": ["تنشئ استرجاعًا ماليًا موثقًا على دفعة سابقة؛ وهي من أعلى الصلاحيات المالية حساسية."],
+  "coaching.assignments.manage": ["تتيح اختيار مدرب وعضو من الفرع نفسه وتحديد بداية التعيين ونهايته الاختيارية."],
+  "restaurant.menu.manage": ["تحدد الوجبات الظاهرة للمشتركين في يوم وفرع معين، ويمكن إخفاؤها أو تعديل إتاحتها."],
+  "restaurant.orders.manage": ["تتيح إدارة دورة الطلب كاملة، بما فيها الحالات التي تتجاوز مهمة التحضير اليومية."],
+  "notifications.whatsapp.manage": ["لن ترسل رسالة خارجية قبل تفعيل مزود واتساب؛ يظل الإرسال داخل النظام متاحًا وفق صلاحيات الإشعارات."],
+  "reporting.read": ["قد تكشف مؤشرات مالية وتشغيلية مجمعة؛ امنحها للإدارة ومن يحتاج اتخاذ القرار فقط."],
+}
+
+function buildPermissionGuidance(code: string, subjectKey: string, subject: string, action: string): PermissionGuidance {
+  const guide = actionGuidance[action] ?? {
+    capability: `تنفيذ الإجراء المسمى «${permissionActions[action] ?? action}» على ${subject}`,
+    limits: "لا تمنح أي صلاحيات أخرى خارج هذا الإجراء ونطاق الفروع المحدد للموظف.",
+    recommendation: "تُمنح فقط إذا كانت هذه المهمة جزءًا واضحًا من مسؤوليات الموظف اليومية.",
+  }
+  const implied = permissionImplications[code] ?? []
+  const financial = code.startsWith("finance.") || code === "sales.checkout" || code.startsWith("coaching.commissions")
+  const privateData = code.startsWith("members.sensitive") || code.includes("accounts.manage") || code.startsWith("iam.")
+  const highImpact = financial || privateData || ["cancel", "approve", "pay", "issue", "send", "rebuild"].includes(action)
+  const sensitivity: PermissionGuidance["sensitivity"] = highImpact ? "حساسة" : action === "read" ? "عادية" : "مهمة"
+  return {
+    summary: `تتيح هذه الصلاحية للموظف ${guide.capability} ضمن نطاق الفروع الممنوح له.`,
+    allows: [permissionContexts[subjectKey] ?? `السجلات والعمليات المرتبطة بـ${subject}`, ...(permissionSpecificNotes[code] ?? []), ...(implied.length ? ["تُظهر تلقائيًا بيانات القراءة الأساسية اللازمة لإتمام المهمة دون الحاجة لمنحها يدويًا."] : [])],
+    limits: [guide.limits, "لا يستطيع الموظف العمل على فرع خارج نطاق تعيينه، إلا إذا مُنحت الصلاحية صراحة على مستوى كل النادي."],
+    recommendation: `${guide.recommendation} راجع الحاجة إليها دوريًا وألغها عند تغير مهام الموظف.`,
+    sensitivity,
+  }
+}
+
 function permissionChoice(code: string): PermissionChoice {
   const parts = code.split(".")
   const action = parts.at(-1) ?? code
   const subjectKey = parts.slice(0, -1).join(".")
   const subject = permissionSubjects[subjectKey] ?? permissionSubjects[parts[0]] ?? subjectKey.replaceAll("-", " ")
   const groupOrder = permissionGroups.findIndex(group => group.prefixes.some(prefix => code.startsWith(prefix)))
-  return { code, label: `${permissionActions[action] ?? action} ${subject}`, group: permissionGroups[groupOrder]?.title ?? "صلاحيات أخرى", groupOrder: groupOrder < 0 ? permissionGroups.length : groupOrder }
+  return {
+    code,
+    label: `${permissionActions[action] ?? action} ${subject}`,
+    group: permissionGroups[groupOrder]?.title ?? "صلاحيات أخرى",
+    groupOrder: groupOrder < 0 ? permissionGroups.length : groupOrder,
+    guidance: buildPermissionGuidance(code, subjectKey, subject, action),
+  }
 }
 
 function PermissionPicker({ field, value, choices, onChange }: { field: Field; value: Value | undefined; choices: RecordItem[]; onChange: (value: Value) => void }) {
   const [query, setQuery] = useState("")
+  const [explainedPermission, setExplainedPermission] = useState<PermissionChoice>()
   const selected = asArray(value)
   const permissions = useMemo(() => choices.map(choice => String(choice.code ?? choice.permission ?? itemId(choice))).filter(Boolean).map(permissionChoice).sort((a, b) => a.groupOrder - b.groupOrder || a.label.localeCompare(b.label, "ar")), [choices])
   const grouped = useMemo(() => Array.from(new Map(permissions.filter(permission => `${permission.label} ${permission.code}`.toLowerCase().includes(query.toLowerCase())).map(permission => [permission.group, [] as PermissionChoice[]])).entries()).map(([group]) => ({ group, entries: permissions.filter(permission => permission.group === group && `${permission.label} ${permission.code}`.toLowerCase().includes(query.toLowerCase())) })), [permissions, query])
   const toggle = (code: string, checked: boolean) => onChange(checked ? [...selected, code] : selected.filter(value => value !== code))
   const toggleGroup = (codes: string[]) => { const allSelected = codes.every(code => selected.includes(code)); onChange(allSelected ? selected.filter(code => !codes.includes(code)) : [...new Set([...selected, ...codes])]) }
 
-  return <fieldset className="sm:col-span-2"><legend className="text-sm font-black">{field.label}<span className="mr-1 text-destructive">*</span></legend><p className="mt-1 text-[11px] leading-6 text-muted-foreground">اختر ما يحتاجه هذا الدور فقط. جُمعت الصلاحيات المتقاربة لتسهيل المراجعة، ويمكنك تحديد أو إلغاء مجموعة كاملة.</p><div className="mt-3 flex items-center gap-3 rounded-xl border bg-secondary/30 px-3"><Search className="size-4 text-muted-foreground" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="ابحث: أعضاء، فواتير، حجز…" className="h-10 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground" /><span className="whitespace-nowrap text-[10px] font-bold text-muted-foreground">{selected.length} محددة</span></div><div className="mt-3 max-h-[52vh] space-y-3 overflow-y-auto pl-1"><div className="grid gap-3 lg:grid-cols-2">{grouped.map(({ group, entries }) => { const codes = entries.map(entry => entry.code); const selectedCount = codes.filter(code => selected.includes(code)).length; return <section key={group} className="overflow-hidden rounded-xl border bg-card"><header className="flex items-center justify-between gap-3 border-b bg-secondary/45 px-3 py-2.5"><div><h3 className="text-xs font-black">{group}</h3><p className="mt-0.5 text-[10px] text-muted-foreground">{selectedCount} من {entries.length} محددة</p></div><Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={() => toggleGroup(codes)}>{selectedCount === entries.length ? "إلغاء الكل" : "تحديد الكل"}</Button></header><div className="divide-y">{entries.map(permission => <label key={permission.code} className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition hover:bg-secondary/50"><input type="checkbox" className="size-4 shrink-0 accent-amber-500" checked={selected.includes(permission.code)} onChange={event => toggle(permission.code, event.target.checked)} /><span className="min-w-0"><span className="block text-xs font-bold">{permission.label}</span><code dir="ltr" className="mt-0.5 block text-left text-[9px] text-muted-foreground">{permission.code}</code></span></label>)}</div></section> })}</div>{!grouped.length && <p className="rounded-xl border border-dashed p-6 text-center text-xs text-muted-foreground">لا توجد صلاحيات مطابقة للبحث.</p>}</div></fieldset>
+  return <fieldset className="sm:col-span-2">
+    <legend className="text-sm font-black">{field.label}<span className="mr-1 text-destructive">*</span></legend>
+    <p className="mt-1 text-[11px] leading-6 text-muted-foreground">اختر ما يحتاجه هذا الدور فقط. اضغط علامة المعلومات بجانب أي صلاحية لقراءة دليلها قبل منحها.</p>
+    <div className="mt-3 flex items-center gap-3 rounded-xl border bg-secondary/30 px-3">
+      <Search className="size-4 text-muted-foreground" />
+      <input value={query} onChange={event => setQuery(event.target.value)} placeholder="ابحث: أعضاء، فواتير، حجز…" className="h-10 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground" />
+      <span className="whitespace-nowrap text-[10px] font-bold text-muted-foreground">{selected.length} محددة</span>
+    </div>
+    <div className="mt-3 max-h-[52vh] space-y-3 overflow-y-auto pl-1">
+      <div className="grid gap-3 lg:grid-cols-2">
+        {grouped.map(({ group, entries }) => {
+          const codes = entries.map(entry => entry.code)
+          const selectedCount = codes.filter(code => selected.includes(code)).length
+          return <section key={group} className="overflow-hidden rounded-xl border bg-card">
+            <header className="flex items-center justify-between gap-3 border-b bg-secondary/45 px-3 py-2.5">
+              <div><h3 className="text-xs font-black">{group}</h3><p className="mt-0.5 text-[10px] text-muted-foreground">{selectedCount} من {entries.length} محددة</p></div>
+              <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={() => toggleGroup(codes)}>{selectedCount === entries.length ? "إلغاء الكل" : "تحديد الكل"}</Button>
+            </header>
+            <div className="divide-y">
+              {entries.map(permission => <div key={permission.code} className="flex items-center gap-2 px-3 py-2 transition hover:bg-secondary/50">
+                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-0.5">
+                  <input type="checkbox" className="size-4 shrink-0 accent-amber-500" checked={selected.includes(permission.code)} onChange={event => toggle(permission.code, event.target.checked)} />
+                  <span className="min-w-0"><span className="block text-xs font-bold">{permission.label}</span><span className="mt-0.5 block text-[9px] text-muted-foreground">مستوى التأثير: {permission.guidance.sensitivity}</span></span>
+                </label>
+                <button type="button" onClick={() => setExplainedPermission(permission)} className="grid size-8 shrink-0 place-items-center rounded-lg border bg-background text-amber-700 transition hover:border-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label={`شرح صلاحية ${permission.label}`} title="عرض دليل الصلاحية">
+                  <CircleAlert className="size-4" />
+                </button>
+              </div>)}
+            </div>
+          </section>
+        })}
+      </div>
+      {!grouped.length && <p className="rounded-xl border border-dashed p-6 text-center text-xs text-muted-foreground">لا توجد صلاحيات مطابقة للبحث.</p>}
+    </div>
+    {explainedPermission && <PermissionGuideDialog permission={explainedPermission} onClose={() => setExplainedPermission(undefined)} />}
+  </fieldset>
+}
+
+function PermissionGuideDialog({ permission, onClose }: { permission: PermissionChoice; onClose: () => void }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose() }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [onClose])
+
+  const sensitivityClass = permission.guidance.sensitivity === "حساسة" ? "border-red-500/30 bg-red-500/10 text-red-600" : permission.guidance.sensitivity === "مهمة" ? "border-amber-500/30 bg-amber-500/10 text-amber-700" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+  return <div className="fixed inset-0 z-[100] grid place-items-end bg-black/70 backdrop-blur-sm sm:place-items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <section role="dialog" aria-modal="true" aria-labelledby="permission-guide-title" className="max-h-[92vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:max-w-xl sm:rounded-[28px]">
+      <header className="sticky top-0 z-10 flex items-start gap-4 border-b bg-card/95 p-5 backdrop-blur">
+        <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-amber-700"><CircleAlert className="size-5" /></span>
+        <div className="min-w-0 flex-1"><p className="text-[11px] font-bold text-amber-700">دليل منح الصلاحية</p><h2 id="permission-guide-title" className="mt-1 text-xl font-black">{permission.label}</h2><p className="mt-1 text-xs text-muted-foreground">{permission.group}</p></div>
+        <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="إغلاق دليل الصلاحية"><X /></Button>
+      </header>
+      <div className="space-y-5 p-5 sm:p-6">
+        <div className="rounded-2xl border bg-secondary/30 p-4"><div className="flex flex-wrap items-center gap-2"><Badge variant="outline" className={sensitivityClass}>صلاحية {permission.guidance.sensitivity}</Badge><Badge variant="outline">تعمل حسب نطاق الفروع</Badge></div><p className="mt-3 text-sm font-semibold leading-7">{permission.guidance.summary}</p></div>
+        <GuideSection icon={CircleCheckBig} title="ما الذي سيتمكن الموظف من عمله؟" items={permission.guidance.allows} tone="text-emerald-600" />
+        <GuideSection icon={ShieldCheck} title="ما حدود هذه الصلاحية؟" items={permission.guidance.limits} tone="text-blue-600" />
+        <div className="flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4"><Lightbulb className="mt-0.5 size-5 shrink-0 text-amber-700"/><div><h3 className="text-sm font-black">توصية إدارية</h3><p className="mt-1 text-xs leading-6 text-muted-foreground">{permission.guidance.recommendation}</p></div></div>
+      </div>
+      <footer className="sticky bottom-0 border-t bg-card/95 p-4 backdrop-blur"><Button type="button" className="w-full" onClick={onClose}>فهمت الصلاحية</Button></footer>
+    </section>
+  </div>
+}
+
+function GuideSection({ icon: Icon, title, items, tone }: { icon: typeof CircleAlert; title: string; items: string[]; tone: string }) {
+  return <section><h3 className="flex items-center gap-2 text-sm font-black"><Icon className={`size-5 ${tone}`}/>{title}</h3><ul className="mt-3 space-y-2 pr-7">{items.map((item, index) => <li key={`${item}-${index}`} className="relative text-xs leading-6 text-muted-foreground before:absolute before:-right-4 before:top-2.5 before:size-1.5 before:rounded-full before:bg-current">{item}</li>)}</ul></section>
 }
 
 function MasterField({ field, value, choices, onChange }: { field: Field; value: Value | undefined; choices: RecordItem[]; onChange: (value: Value) => void }) {

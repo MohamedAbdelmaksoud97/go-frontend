@@ -55,7 +55,7 @@ const cashierPermissions = [
   "finance.invoices.read",
   "finance.payments.read",
   "finance.payments.record",
-  "finance.cash-points.manage",
+  "finance.cash-points.read",
   "finance.cash-shifts.manage",
 ];
 
