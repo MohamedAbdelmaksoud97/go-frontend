@@ -5,7 +5,7 @@ import Link from "next/link"
 import {
   ArrowRight, BadgePercent, Banknote, Building2, FileText,
   Hash, Loader2, Package, ReceiptText, RefreshCw, RotateCcw, ShoppingBag,
-  UserRound, WalletCards,
+  UserRound, WalletCards, Printer,
 } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { StatusBadge } from "@/components/status-badge"
@@ -74,7 +74,10 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
         <h1 className="mt-3 text-3xl font-black sm:text-4xl">فاتورة {invoice.invoiceNumber}</h1>
         <p className="mt-2 text-sm text-muted-foreground">تفاصيل البنود والتحصيل والضرائب والبيانات المرتبطة بهذه الفاتورة.</p>
       </div>
-      <Button variant="outline" onClick={() => setReloadKey(value => value + 1)}><RefreshCw/>تحديث التفاصيل</Button>
+      <div className="flex flex-wrap gap-2 print:hidden">
+        <Button variant="outline" onClick={() => window.print()}><Printer/>طباعة الفاتورة</Button>
+        <Button variant="outline" onClick={() => setReloadKey(value => value + 1)}><RefreshCw/>تحديث التفاصيل</Button>
+      </div>
     </div>
 
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

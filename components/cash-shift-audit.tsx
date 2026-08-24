@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { DateTimeInput } from "@/components/date-time-input"
 import { apiRequest } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 
@@ -126,8 +127,8 @@ export function CashShiftAudit() {
     <Card className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
       <label className="space-y-2 text-sm font-bold"><span>الفرع</span><select className="h-11 w-full rounded-xl border bg-background px-3" value={effectiveBranchId} onChange={event => setBranchId(event.target.value)}>{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.nameAr || branch.name || "فرع النادي"}</option>)}</select></label>
       <label className="space-y-2 text-sm font-bold"><span>حالة الوردية</span><select className="h-11 w-full rounded-xl border bg-background px-3" value={status} onChange={event => setStatus(event.target.value)}><option value="">كل الحالات</option><option value="OPEN">مفتوحة</option><option value="CLOSED">مغلقة</option></select></label>
-      <label className="space-y-2 text-sm font-bold"><span>من تاريخ</span><Input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
-      <label className="space-y-2 text-sm font-bold"><span>إلى تاريخ</span><Input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
+      <label className="space-y-2 text-sm font-bold"><span>من تاريخ</span><DateTimeInput type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
+      <label className="space-y-2 text-sm font-bold"><span>إلى تاريخ</span><DateTimeInput type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
       <div className="space-y-2"><label className="text-sm font-bold" htmlFor="shift-search">بحث</label><div className="flex gap-2"><Input id="shift-search" placeholder="الموظف، الرقم الوظيفي أو نقطة التحصيل" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void load() }} /><Button aria-label="بحث" onClick={() => void load()}><Search /></Button></div></div>
     </Card>
 

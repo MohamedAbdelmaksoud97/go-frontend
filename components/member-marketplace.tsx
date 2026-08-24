@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CalendarDays, CalendarPlus, CheckCircle2, CreditCard, Loader2, RefreshCw, ShoppingBag, X } from "lucide-react"
+import { CalendarDays, CalendarPlus, CheckCircle2, CreditCard, FileText, Loader2, Printer, RefreshCw, ShoppingBag, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -13,13 +13,14 @@ type Row = Record<string, unknown>
 type Member = { organizationId: string; memberId: string; canBook?: boolean; canManageMembership?: boolean }
 type Tab = "packages" | "services" | "booking"
 type Quote = { targetName: string; baseAmountMinor: string; discountMinor: string; netMinor: string; taxMinor: string; grossMinor: string; taxInclusive: boolean; promotion?: { name: string } }
-type PendingCheckout = { item: Row; type: "PACKAGE" | "SERVICE"; quote: Quote }
+type PendingCheckout = { item: Row; type: "PACKAGE" | "SERVICE"; quote: Quote; contracts: Row[] }
 
 export function MemberMarketplace({ member, branchId, branchName }: { member: Member; branchId: string; branchName?: string }) {
   const toast = useToast()
   const [tab, setTab] = useState<Tab>(member.canManageMembership ? "packages" : "booking")
   const [items, setItems] = useState<Row[]>([])
   const [slots, setSlots] = useState<Row[]>([])
+  const [services, setServices] = useState<Row[]>([])
   const [resource, setResource] = useState<Row>()
   const [pending, setPending] = useState<PendingCheckout>()
   const [loading, setLoading] = useState(true)
@@ -33,7 +34,13 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
     try {
       const suffix = tab === "packages" ? "packages" : tab === "services" ? "services" : "bookable-resources"
       const response = await apiRequest<unknown>(`/self/organizations/${member.organizationId}/${suffix}?branchId=${branchId}`)
-      setItems(list(response.data))
+      const loadedItems = list(response.data)
+      setItems(loadedItems)
+      if (tab === "services") setServices(loadedItems)
+      else {
+        const serviceResponse = await apiRequest<unknown>(`/self/organizations/${member.organizationId}/services?branchId=${branchId}`)
+        setServices(list(serviceResponse.data))
+      }
     } catch (reason) {
       setError(humanError(reason, "تعذر تحميل الخيارات المتاحة في هذا الفرع.")); setItems([])
     } finally { setLoading(false) }
@@ -49,7 +56,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
         method: "POST",
         body: JSON.stringify({ branchId, targetType: type, targetId: id, quantity: 1, memberSegment: "OTHER" }),
       })).data
-      setPending({ item, type, quote })
+      setPending({ item, type, quote, contracts: contractsFor(item, type, services) })
     } catch (reason) { setError(humanError(reason, "تعذر حساب السعر النهائي لهذا الطلب.")) }
     finally { setBusy("") }
   }
@@ -118,6 +125,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
               <div className="flex items-start justify-between gap-3"><div><p className="font-black">{String(item.name ?? item.code ?? "خيار متاح")}</p><p className="mt-1 text-xs leading-6 text-muted-foreground">{String(item.description ?? item.facilityName ?? item.categoryName ?? "متاح للحجز والشراء من بوابة العضو")}</p></div>{item.amountMinor != null && <Badge variant="outline">{money(item.amountMinor)} ر.س</Badge>}</div>
               {tab === "packages" && <PackageDetails item={item} />}
               {tab === "services" && Boolean(item.categoryName) && <p className="mt-3 text-xs text-muted-foreground">التصنيف: {String(item.categoryName)}</p>}
+              <ContractSummary contracts={tab === "packages" ? contractsFor(item, "PACKAGE", services) : tab === "services" ? contractsFor(item, "SERVICE", services) : contractsForResource(item, services)} />
               <Button className="mt-4 w-full" size="sm" disabled={Boolean(busy)} onClick={() => tab === "booking" ? void chooseResource(item) : void prepareCheckout(item, tab === "packages" ? "PACKAGE" : "SERVICE")}>{busy === String(item.id) ? <Loader2 className="animate-spin" /> : tab === "booking" ? <CalendarPlus /> : <ShoppingBag />}{tab === "booking" ? "عرض المواعيد المتاحة" : "عرض السعر النهائي"}</Button>
             </article>)}
             {!items.length && <div className="rounded-2xl border border-dashed p-10 text-center lg:col-span-2"><CalendarDays className="mx-auto size-9 text-muted-foreground/50" /><p className="mt-3 text-sm font-bold">لا توجد خيارات منشورة في هذا الفرع حاليًا</p><p className="mt-1 text-xs text-muted-foreground">يمكنك اختيار فرع آخر من القائمة بالأعلى.</p></div>}
@@ -136,6 +144,7 @@ function QuoteDialog({ pending, busy, onClose, onConfirm }: { pending: PendingCh
     <div className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl"><div className="flex items-start gap-3"><span className="grid size-12 place-items-center rounded-2xl bg-primary/15 text-primary"><CheckCircle2 /></span><div><p className="text-xs font-bold text-primary">مراجعة الطلب</p><h3 id="member-quote-title" className="mt-1 text-xl font-black">{quote.targetName}</h3></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} disabled={busy} aria-label="إغلاق"><X /></Button></div>
       <dl className="mt-6 space-y-3 rounded-2xl bg-secondary/50 p-4 text-sm"><PriceRow label="السعر قبل الخصم" value={quote.baseAmountMinor} />{Number(quote.discountMinor) > 0 && <PriceRow label={`الخصم${quote.promotion ? ` — ${quote.promotion.name}` : ""}`} value={quote.discountMinor} negative />}<PriceRow label="الصافي قبل الضريبة" value={quote.netMinor} /><PriceRow label="الضريبة" value={quote.taxMinor} /><div className="border-t pt-3"><PriceRow label="الإجمالي المطلوب في الاستقبال" value={quote.grossMinor} strong /></div></dl>
       <p className="mt-4 text-xs leading-6 text-muted-foreground">سيُنشأ الطلب وفاتورة برقم واضح. يكتمل تفعيل الاشتراك أو الخدمة بعد السداد في استقبال النادي.</p>
+      <ContractSummary contracts={pending.contracts} expanded />
       <div className="mt-6 flex gap-3"><Button className="flex-1" onClick={onConfirm} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <CreditCard />}تأكيد وإنشاء الفاتورة</Button><Button variant="outline" onClick={onClose} disabled={busy}>رجوع</Button></div>
     </div>
   </div>
@@ -148,3 +157,30 @@ function money(value: unknown) { return new Intl.NumberFormat("ar-SA", { minimum
 function date(value: unknown) { const parsed = new Date(String(value)); return Number.isNaN(parsed.getTime()) ? "موعد" : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(parsed) }
 function bookingType(value: unknown): "COURT" | "CLASS" | "PERSONAL_TRAINING" { const type = String(value); return type === "CLASS" || type === "PERSONAL_TRAINING" ? type : "COURT" }
 function invoiceSuccess(order: Row, message: string) { const invoiceNumber = String(order.invoiceNumber ?? ""); return invoiceNumber ? `${message} رقم الفاتورة: ${invoiceNumber}.` : message }
+function contractsFor(item: Row, type: "PACKAGE" | "SERVICE", services: Row[]) {
+  const relatedServices = type === "SERVICE" ? [item] : (() => {
+    const entitlements = Array.isArray(item.entitlements) ? item.entitlements as Row[] : []
+    const ids = new Set(entitlements.map(entry => String(entry.serviceId ?? "")))
+    return services.filter(service => ids.has(String(service.id ?? "")))
+  })()
+  const unique = new Map<string, Row>()
+  for (const service of relatedServices) for (const activity of Array.isArray(service.activities) ? service.activities as Row[] : []) {
+    if (activity.contractContent) unique.set(String(activity.id), activity)
+  }
+  return [...unique.values()]
+}
+function contractsForResource(resource: Row, services: Row[]) {
+  const service = services.find(item => String(item.id) === String(resource.serviceId))
+  return service ? contractsFor(service, "SERVICE", services) : []
+}
+function ContractSummary({ contracts, expanded = false }: { contracts: Row[]; expanded?: boolean }) {
+  if (!contracts.length) return null
+  return <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3"><p className="flex items-center gap-2 text-xs font-black"><FileText className="size-4 text-primary"/>عقود يجب الاطلاع عليها</p><div className="mt-2 space-y-2">{contracts.map(contract => <details key={String(contract.id)} open={expanded} className="rounded-lg bg-card p-3"><summary className="cursor-pointer text-xs font-bold">{String(contract.contractTitle ?? `عقد ${contract.name ?? "النشاط"}`)}</summary><p className="mt-3 whitespace-pre-wrap text-xs leading-6 text-muted-foreground">{String(contract.contractContent ?? "")}</p><Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => printContract(contract)}><Printer/>طباعة العقد</Button></details>)}</div></div>
+}
+function printContract(contract: Row) {
+  const popup = window.open("", "_blank", "noopener,noreferrer")
+  if (!popup) return
+  popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${escapeHtml(String(contract.contractTitle ?? "عقد النشاط"))}</title><style>body{font-family:Cairo,Arial,sans-serif;max-width:850px;margin:40px auto;line-height:2;padding:0 24px}h1{border-bottom:2px solid;padding-bottom:16px}p{white-space:pre-wrap}</style></head><body><h1>${escapeHtml(String(contract.contractTitle ?? `عقد ${contract.name ?? "النشاط"}`))}</h1><p>${escapeHtml(String(contract.contractContent ?? ""))}</p><script>window.onload=()=>window.print()</script></body></html>`)
+  popup.document.close()
+}
+function escapeHtml(value: string) { return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character] ?? character)) }

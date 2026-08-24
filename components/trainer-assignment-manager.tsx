@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { DateTimeInput } from "@/components/date-time-input"
 import { useToast } from "@/components/toast-provider"
 import { apiRequest } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
@@ -14,7 +15,7 @@ import { humanError } from "@/lib/human-errors"
 type Row = Record<string, unknown>
 type BranchAssignment = { id: string; branchId: string; validFrom: string; validUntil?: string; status: "ACTIVE" | "ENDED" }
 type Trainer = { id: string; displayName: string; status: "ACTIVE" | "INACTIVE"; assignments?: BranchAssignment[] }
-type Member = { id: string; name: string; memberNumber: string; status: string }
+type Member = { id: string; name: string; memberNumber: string; phoneE164?: string; nationalId?: string; status: string }
 type MemberAssignment = { id: string; memberId: string; memberName?: string; memberNumber?: string; memberStatus?: string; branchId: string; branchName?: string; validFrom: string; validUntil?: string; status: string }
 
 export function TrainerAssignmentManager() {
@@ -25,6 +26,8 @@ export function TrainerAssignmentManager() {
   const [assignments, setAssignments] = useState<MemberAssignment[]>([])
   const [selectedTrainerId, setSelectedTrainerId] = useState("")
   const [query, setQuery] = useState("")
+  const [memberSearchResults, setMemberSearchResults] = useState<Member[] | null>(null)
+  const [memberSearchLoading, setMemberSearchLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [assignmentsLoading, setAssignmentsLoading] = useState(false)
   const [error, setError] = useState("")
@@ -38,7 +41,11 @@ export function TrainerAssignmentManager() {
   const selectedTrainer = trainers.find(item => item.id === selectedTrainerId)
   const isAssignedToBranch = Boolean(selectedTrainer?.assignments?.some(item => item.branchId === context.branchId && item.status === "ACTIVE" && isCurrent(item)))
   const activeAssignments = assignments.filter(item => item.status === "ACTIVE" && isCurrent(item))
-  const filteredMembers = useMemo(() => members.filter(item => normalize(`${item.name} ${item.memberNumber}`).includes(normalize(query))), [members, query])
+  const filteredMembers = useMemo(() => {
+    const source = memberSearchResults ?? members
+    if (memberSearchResults) return source
+    return source.filter(item => normalize(`${item.name} ${item.memberNumber} ${item.phoneE164 ?? ""} ${item.nationalId ?? ""}`).includes(normalize(query)))
+  }, [members, memberSearchResults, query])
 
   async function load() {
     if (!context.organizationId || !context.branchId) return
@@ -73,6 +80,27 @@ export function TrainerAssignmentManager() {
 
   useEffect(() => { const frame = requestAnimationFrame(() => void load()); return () => cancelAnimationFrame(frame) }, [context.organizationId, context.branchId]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const frame = requestAnimationFrame(() => void loadAssignments(selectedTrainerId)); return () => cancelAnimationFrame(frame) }, [selectedTrainerId, context.branchId]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const search = query.trim()
+    if (search.length < 2 || !context.organizationId || !context.branchId) {
+      setMemberSearchResults(null)
+      setMemberSearchLoading(false)
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      setMemberSearchLoading(true)
+      try {
+        const response = await apiRequest<unknown>(`/organizations/${context.organizationId}/members?branchId=${encodeURIComponent(context.branchId)}&search=${encodeURIComponent(search)}&limit=50`)
+        if (!cancelled) setMemberSearchResults(list(response.data).map(member).filter(item => item.status === "ACTIVE"))
+      } catch {
+        if (!cancelled) setMemberSearchResults([])
+      } finally {
+        if (!cancelled) setMemberSearchLoading(false)
+      }
+    }, 300)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [context.branchId, context.organizationId, query])
 
   async function assignTrainerToBranch() {
     if (!selectedTrainerId || !context.branchId) return
@@ -118,14 +146,14 @@ export function TrainerAssignmentManager() {
       </CardContent></Card>
     </div>}
 
-    {dialogOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="ربط عضو بالمدرب"><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[2rem] border bg-card shadow-2xl"><div className="flex items-start gap-4 border-b p-6"><div><Badge variant="outline">تعيين جديد</Badge><h2 className="mt-2 text-2xl font-black">ربط عضو بـ {selectedTrainer?.displayName}</h2><p className="mt-2 text-sm text-muted-foreground">سيتمكن المدرب من متابعة العضو وخطته وقياساته خلال مدة التعيين.</p></div><Button className="mr-auto" size="icon" variant="ghost" onClick={() => setDialogOpen(false)} aria-label="إغلاق"><X /></Button></div><div className="space-y-5 p-6"><label className="block"><span className="mb-2 block font-bold">ابحث عن العضو</span><span className="relative block"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="الاسم أو رقم العضوية" className="pr-10" /></span></label><div className="max-h-56 space-y-2 overflow-y-auto rounded-2xl border p-2">{filteredMembers.map(item => <button key={item.id} type="button" onClick={() => setMemberId(item.id)} className={`flex w-full items-center gap-3 rounded-xl p-3 text-right ${memberId === item.id ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}><span className="font-black">{item.name}</span><span className="mr-auto text-xs opacity-75">{item.memberNumber}</span>{memberId === item.id && <CheckCircle2 className="size-4" />}</button>)}{!filteredMembers.length && <p className="p-5 text-center text-sm text-muted-foreground">لا توجد نتائج مطابقة في الفرع الحالي.</p>}</div><div className="grid gap-4 sm:grid-cols-2"><label><span className="mb-2 block font-bold">بداية التعيين</span><Input type="datetime-local" value={validFrom} onChange={event => setValidFrom(event.target.value)} /></label><label><span className="mb-2 block font-bold">نهاية التعيين (اختياري)</span><Input type="datetime-local" value={validUntil} min={validFrom} onChange={event => setValidUntil(event.target.value)} /></label></div></div><div className="flex flex-wrap gap-2 border-t p-6"><Button onClick={() => void assignMember()} disabled={busy || !memberId}>{busy ? <Loader2 className="animate-spin" /> : <Plus />}اعتماد التعيين</Button><Button variant="outline" onClick={() => setDialogOpen(false)}>إلغاء</Button></div></div></div>}
+    {dialogOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="ربط عضو بالمدرب"><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[2rem] border bg-card shadow-2xl"><div className="flex items-start gap-4 border-b p-6"><div><Badge variant="outline">تعيين جديد</Badge><h2 className="mt-2 text-2xl font-black">ربط عضو بـ {selectedTrainer?.displayName}</h2><p className="mt-2 text-sm text-muted-foreground">سيتمكن المدرب من متابعة العضو وخطته وقياساته خلال مدة التعيين.</p></div><Button className="mr-auto" size="icon" variant="ghost" onClick={() => setDialogOpen(false)} aria-label="إغلاق"><X /></Button></div><div className="space-y-5 p-6"><label className="block"><span className="mb-2 block font-bold">ابحث عن العضو</span><span className="relative block"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="الاسم أو رقم العضوية أو الجوال أو رقم الهوية" className="pr-10" /></span></label><div className="max-h-56 space-y-2 overflow-y-auto rounded-2xl border p-2">{memberSearchLoading ? <div className="grid min-h-24 place-items-center"><Loader2 className="animate-spin text-primary" /></div> : filteredMembers.map(item => <button key={item.id} type="button" onClick={() => setMemberId(item.id)} className={`flex w-full items-center gap-3 rounded-xl p-3 text-right ${memberId === item.id ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}><span><span className="block font-black">{item.name}</span><span className="mt-1 block text-[11px] opacity-70" dir="ltr">{item.phoneE164 ?? item.nationalId ?? ""}</span></span><span className="mr-auto text-xs opacity-75">{item.memberNumber}</span>{memberId === item.id && <CheckCircle2 className="size-4" />}</button>)}{!memberSearchLoading && !filteredMembers.length && <p className="p-5 text-center text-sm text-muted-foreground">لا توجد نتائج مطابقة في الفرع الحالي.</p>}</div><div className="grid gap-4 sm:grid-cols-2"><label><span className="mb-2 block font-bold">بداية التعيين</span><DateTimeInput type="datetime-local" value={validFrom} onChange={event => setValidFrom(event.target.value)} /></label><label><span className="mb-2 block font-bold">نهاية التعيين (اختياري)</span><DateTimeInput type="datetime-local" value={validUntil} min={validFrom} onChange={event => setValidUntil(event.target.value)} /></label></div></div><div className="flex flex-wrap gap-2 border-t p-6"><Button onClick={() => void assignMember()} disabled={busy || !memberId}>{busy ? <Loader2 className="animate-spin" /> : <Plus />}اعتماد التعيين</Button><Button variant="outline" onClick={() => setDialogOpen(false)}>إلغاء</Button></div></div></div>}
   </div>
 }
 
 function Empty({ title, description }: { title: string; description: string }) { return <div className="rounded-2xl border border-dashed p-8 text-center"><Users className="mx-auto text-muted-foreground" /><p className="mt-3 font-black">{title}</p><p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p></div> }
 function list(value: unknown): Row[] { if (Array.isArray(value)) return value as Row[]; if (value && typeof value === "object" && "items" in value && Array.isArray((value as { items?: unknown }).items)) return (value as { items: Row[] }).items; return [] }
 function trainer(row: Row): Trainer { return { id: String(row.id ?? ""), displayName: String(row.displayName ?? "مدرب"), status: row.status === "INACTIVE" ? "INACTIVE" : "ACTIVE", assignments: Array.isArray(row.assignments) ? row.assignments.map(value => ({ id: String((value as Row).id ?? ""), branchId: String((value as Row).branchId ?? ""), validFrom: String((value as Row).validFrom ?? ""), ...((value as Row).validUntil ? { validUntil: String((value as Row).validUntil) } : {}), status: (value as Row).status === "ENDED" ? "ENDED" : "ACTIVE" })) : [] } }
-function member(row: Row): Member { return { id: String(row.id ?? row.memberId ?? ""), name: String(row.name ?? row.memberName ?? "عضو"), memberNumber: String(row.memberNumber ?? "—"), status: String(row.status ?? "") } }
+function member(row: Row): Member { return { id: String(row.id ?? row.memberId ?? ""), name: String(row.name ?? row.memberName ?? "عضو"), memberNumber: String(row.memberNumber ?? "—"), phoneE164: row.phoneE164 ? String(row.phoneE164) : undefined, nationalId: row.nationalId ? String(row.nationalId) : undefined, status: String(row.status ?? "") } }
 function memberAssignment(row: Row): MemberAssignment { return { id: String(row.id ?? ""), memberId: String(row.memberId ?? ""), memberName: row.memberName ? String(row.memberName) : undefined, memberNumber: row.memberNumber ? String(row.memberNumber) : undefined, memberStatus: row.memberStatus ? String(row.memberStatus) : undefined, branchId: String(row.branchId ?? ""), branchName: row.branchName ? String(row.branchName) : undefined, validFrom: String(row.validFrom ?? ""), validUntil: row.validUntil ? String(row.validUntil) : undefined, status: String(row.status ?? "") } }
 function isCurrent(value: { validFrom: string; validUntil?: string; status: string }) { const now = Date.now(); const from = new Date(value.validFrom).getTime(); const until = value.validUntil ? new Date(value.validUntil).getTime() : Number.POSITIVE_INFINITY; return value.status === "ACTIVE" && from <= now && until > now }
 function date(value: string) { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? "—" : new Intl.DateTimeFormat("ar-SA", { day: "numeric", month: "short", year: "numeric" }).format(parsed) }

@@ -11,7 +11,7 @@ export type ReferenceSource = {
 export type WorkflowField = {
   name: string
   label: string
-  type?: "text" | "tel" | "email" | "password" | "date" | "datetime-local" | "number" | "textarea" | "select" | "reference" | "checkbox" | "file"
+  type?: "text" | "tel" | "email" | "password" | "date" | "datetime-local" | "time" | "number" | "textarea" | "select" | "reference" | "checkbox" | "file"
   placeholder?: string
   hint?: string
   required?: boolean
@@ -40,7 +40,7 @@ const normalizedOptionalPhone = (value: FormValues[string]) => {
   const phone = String(value ?? "").replace(/[\s()-]/gu, "")
   return phone || undefined
 }
-const members: ReferenceSource = { path: c => `/organizations/${c.organizationId}/members?branchId=${encodeURIComponent(c.branchId)}&limit=25`, labelKeys: ["name", "fullNameAr", "memberName", "fullName", "displayName"], subtitleKeys: ["memberNumber", "legacyMemberNumber", "phoneE164"], searchParam: "search" }
+const members: ReferenceSource = { path: c => `/organizations/${c.organizationId}/members?branchId=${encodeURIComponent(c.branchId)}&limit=25`, labelKeys: ["name", "fullNameAr", "memberName", "fullName", "displayName"], subtitleKeys: ["memberNumber", "legacyMemberNumber", "phoneE164", "nationalId"], searchParam: "search" }
 const packages: ReferenceSource = { path: c => `/organizations/${c.organizationId}/packages?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "packageName", "name"], subtitleKeys: ["code"] }
 const resources: ReferenceSource = { path: c => `/organizations/${c.organizationId}/bookable-resources?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "resourceName", "name"], subtitleKeys: ["type"] }
 const services: ReferenceSource = { path: c => `/organizations/${c.organizationId}/services?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "serviceName", "name"], subtitleKeys: ["code"] }
@@ -80,6 +80,7 @@ export const workflows: Record<string, Workflow> = {
     fields: [
       { name: "fullNameAr", label: "الاسم الكامل", required: true, placeholder: "مثال: أحمد محمد العتيبي" },
       { name: "phoneE164", label: "رقم الجوال", type: "tel", required: true, placeholder: "+966 5X XXX XXXX" },
+      { name: "nationalId", label: "رقم الهوية", required: true, placeholder: "أدخل رقم الهوية أو الإقامة" },
       { name: "gender", label: "الجنس", type: "select", required: true, options: [{ value: "MALE", label: "ذكر" }, { value: "FEMALE", label: "أنثى" }] },
       { name: "birthDate", label: "تاريخ الميلاد", type: "date", required: true },
       { name: "nationality", label: "الجنسية", placeholder: "مثال: سعودي" },
@@ -87,8 +88,8 @@ export const workflows: Record<string, Workflow> = {
       { name: "profileImage", label: "صورة العضو (اختياري)", type: "file", hint: "JPG أو PNG، حتى 10 ميجابايت." },
       { name: "notes", label: "ملاحظات", type: "textarea", placeholder: "أي معلومات مهمة لفريق الاستقبال" },
     ],
-    initial: () => ({ fullNameAr: "", phoneE164: "", gender: "MALE", birthDate: "", nationality: "SA", identityImage: undefined, profileImage: undefined, notes: "" }),
-    body: (v, c) => ({ registrationBranchId: c.branchId, name: v.fullNameAr, gender: v.gender, birthDate: v.birthDate || undefined, nationalityCode: v.nationality || undefined, contacts: normalizedOptionalPhone(v.phoneE164) ? [{ type: "PHONE", value: normalizedOptionalPhone(v.phoneE164), isPrimary: true }] : [], notes: v.notes || undefined }),
+    initial: () => ({ fullNameAr: "", phoneE164: "", nationalId: "", gender: "MALE", birthDate: "", nationality: "سعودي", identityImage: undefined, profileImage: undefined, notes: "" }),
+    body: (v, c) => ({ registrationBranchId: c.branchId, name: v.fullNameAr, nationalId: v.nationalId, gender: v.gender, birthDate: v.birthDate || undefined, nationalityCode: v.nationality || undefined, contacts: normalizedOptionalPhone(v.phoneE164) ? [{ type: "PHONE", value: normalizedOptionalPhone(v.phoneE164), isPrimary: true }] : [], notes: v.notes || undefined }),
   },
   createSubscription: {
     title: "بيع باقة وإصدار فاتورة", description: "اختر العضو والباقة وتاريخ البداية. سيُنشئ النظام طلب بيع وفاتورة معلّقة، ويُفعّل الاشتراك تلقائيًا فور تحصيلها.", submitLabel: "إنشاء الاشتراك والفاتورة", successMessage: "تم إنشاء الاشتراك والفاتورة المعلّقة. يمكن تحصيلها من نقطة البيع.",
@@ -107,14 +108,18 @@ export const workflows: Record<string, Workflow> = {
   createManualReservation: {
     title: "حجز جديد", description: "اختر العضو والمرفق المناسب، وسيتم التحقق من التوفر قبل تأكيد الحجز.", submitLabel: "تأكيد الحجز", successMessage: "تم إنشاء الحجز بنجاح.",
     fields: [
+      { name: "customerType", label: "نوع العميل", type: "select", required: true, options: [{ value: "MEMBER", label: "عضو" }, { value: "VISITOR", label: "زائر" }] },
       { name: "memberId", label: "العضو", type: "reference", source: members, required: true },
+      { name: "guestName", label: "اسم الزائر", required: true, placeholder: "الاسم الكامل" },
+      { name: "guestPhoneE164", label: "جوال الزائر", type: "tel", required: true, placeholder: "+966 5X XXX XXXX" },
+      { name: "guestEmail", label: "البريد الإلكتروني للزائر (اختياري)", type: "email", placeholder: "name@example.com" },
       { name: "serviceId", label: "الخدمة", type: "reference", source: services, required: true },
       { name: "resourceId", label: "الحصة أو المرفق", type: "reference", source: resources, required: true },
       { name: "startsAt", label: "بداية الحجز", type: "datetime-local", required: true },
       { name: "endsAt", label: "نهاية الحجز", type: "datetime-local", required: true },
       { name: "seats", label: "عدد المقاعد", type: "number", min: "1", required: true },
-    ], initial: () => { const startsAt=nowLocal(); const ends=new Date(new Date(startsAt).getTime()+60*60_000); return { memberId: "", serviceId: "", resourceId: "", startsAt, endsAt: new Date(ends.getTime()-ends.getTimezoneOffset()*60_000).toISOString().slice(0,16), seats: "1" } },
-    body: (v, c) => ({ branchId: c.branchId, memberId: v.memberId, serviceId: v.serviceId, resourceId: v.resourceId, type: "COURT", startsAt: new Date(String(v.startsAt)).toISOString(), endsAt: new Date(String(v.endsAt)).toISOString(), seats: Number(v.seats) }),
+    ], initial: () => { const startsAt=nowLocal(); const ends=new Date(new Date(startsAt).getTime()+60*60_000); return { customerType: "MEMBER", memberId: "", guestName: "", guestPhoneE164: "", guestEmail: "", serviceId: "", resourceId: "", startsAt, endsAt: new Date(ends.getTime()-ends.getTimezoneOffset()*60_000).toISOString().slice(0,16), seats: "1" } },
+    body: (v, c) => ({ branchId: c.branchId, ...(v.customerType === "VISITOR" ? { guestName: v.guestName, guestPhoneE164: normalizedOptionalPhone(v.guestPhoneE164), guestEmail: v.guestEmail || undefined } : { memberId: v.memberId }), serviceId: v.serviceId, resourceId: v.resourceId, type: "COURT", startsAt: new Date(String(v.startsAt)).toISOString(), endsAt: new Date(String(v.endsAt)).toISOString(), seats: Number(v.seats) }),
   },
   recordPayment: {
     title: "تسجيل دفعة غير نقدية", description: "للتحويل أو البطاقة. أما النقد فيُسجل من نقطة البيع لربطه بالصندوق والوردية.", submitLabel: "تسجيل الدفعة", successMessage: "تم تسجيل الدفعة بنجاح.", confirm: "راجع المبلغ وطريقة الدفع قبل التأكيد؛ سيُضاف التحصيل إلى السجل المالي.",
@@ -158,7 +163,7 @@ export const workflows: Record<string, Workflow> = {
       { name: "identityImage", label: "صورة الهوية", type: "file", required: true, hint: "JPG أو PNG أو PDF، حتى 10 ميجابايت." },
       { name: "profileImage", label: "صورة الموظف (اختياري)", type: "file", hint: "JPG أو PNG، حتى 10 ميجابايت." },
     ], initial: () => ({ employeeNumber: "", password: "", confirmPassword: "", fullNameAr: "", phoneE164: "", email: "", positionId: "", startsOn: today() }),
-    body: (v, c) => ({ employeeNumber: v.employeeNumber, password: v.password, name: v.fullNameAr, phone: normalizedOptionalPhone(v.phoneE164), email: String(v.email ?? "").trim().toLowerCase() || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
+    body: (v, c) => ({ employeeNumber: String(v.employeeNumber ?? "").trim().toUpperCase(), password: v.password, name: String(v.fullNameAr ?? "").trim(), phone: normalizedOptionalPhone(v.phoneE164), email: String(v.email ?? "").trim().toLowerCase() || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
   },
   requestReportingRebuild: {
     title: "تحديث بيانات التقارير", description: "استخدم هذا الإجراء فقط إذا كانت أرقام التقارير لا تعكس آخر العمليات.", submitLabel: "بدء التحديث", successMessage: "بدأ تحديث بيانات التقارير. يمكنك متابعة العمل وسيكتمل في الخلفية.", confirm: "قد يستغرق تحديث التقارير عدة دقائق. هل تريد المتابعة؟",

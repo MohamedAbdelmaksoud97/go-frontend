@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Activity, CalendarDays, CreditCard, Dumbbell, Loader2, ReceiptText, RefreshCw, ShoppingBag, Utensils, X } from "lucide-react"
+import { Activity, CalendarDays, CreditCard, Dumbbell, Loader2, Printer, ReceiptText, RefreshCw, ShoppingBag, Utensils, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -30,6 +30,9 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
   const [busy, setBusy] = useState("")
   const [cancellation, setCancellation] = useState<{ row: Row; kind: "subscription" | "reservation" }>()
   const [reason, setReason] = useState("")
+  const [freezeRequest, setFreezeRequest] = useState<Row>()
+  const [freezeDays, setFreezeDays] = useState("7")
+  const [freezeReason, setFreezeReason] = useState("")
 
   async function load() {
     setLoading(true); setError("")
@@ -42,11 +45,11 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
 
   useEffect(() => { const frame = requestAnimationFrame(() => void load()); return () => cancelAnimationFrame(frame) }, [active, member.memberId, member.organizationId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function subscriptionAction(row: Row, action: "freezes" | "resumptions" | "cancellations", cancellationReason?: string) {
+  async function subscriptionAction(row: Row, action: "freezes" | "resumptions" | "cancellations", actionReason?: string, requestedDays?: number) {
     const id = String(row.id ?? row.subscriptionId ?? ""); if (!id) return false
     let body: Record<string, unknown> = { expectedVersion: Number(row.version ?? 1) }
-    if (action === "freezes") body = { ...body, requestedDays: 30, reason: "طلب العضو عبر الخدمة الذاتية" }
-    if (action === "cancellations") { if (!cancellationReason || cancellationReason.trim().length < 3) return false; body = { ...body, reason: cancellationReason.trim() } }
+    if (action === "freezes") { if (!requestedDays || requestedDays < 1 || !actionReason || actionReason.trim().length < 3) return false; body = { ...body, requestedDays, reason: actionReason.trim() } }
+    if (action === "cancellations") { if (!actionReason || actionReason.trim().length < 3) return false; body = { ...body, reason: actionReason.trim() } }
     setBusy(id)
     try { await apiRequest(`/self/organizations/${member.organizationId}/members/${member.memberId}/subscriptions/${id}/${action}`, { method: "POST", body: JSON.stringify(body) }); await load(); return true }
     catch (reason) { setError(humanError(reason, "تعذر تحديث الاشتراك.")); return false }
@@ -70,11 +73,31 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
     if (succeeded) { setCancellation(undefined); setReason("") }
   }
 
+  async function confirmFreeze() {
+    if (!freezeRequest) return
+    const days = Number(freezeDays)
+    if (!Number.isInteger(days) || days < 1 || freezeReason.trim().length < 3) return
+    const succeeded = await subscriptionAction(freezeRequest, "freezes", freezeReason, days)
+    if (succeeded) { setFreezeRequest(undefined); setFreezeDays("7"); setFreezeReason("") }
+  }
+
   return <>
-    <Card className="mt-5 overflow-hidden border-primary/15"><CardContent className="p-0">{showMemberHeader && <div className="bg-gradient-to-l from-primary/[.10] to-transparent p-5"><div className="flex flex-wrap items-center gap-3"><div><p className="text-xs font-bold text-primary">بوابة العضو</p><h2 className="mt-1 text-xl font-black">{member.memberName}</h2><p className="mt-1 text-xs text-muted-foreground">رقم العضوية: {member.memberNumber}</p></div><Button className="mr-auto" variant="outline" size="sm" onClick={() => void load()}><RefreshCw />تحديث البيانات</Button></div></div>}<div className="p-5"><div className="flex flex-wrap items-center gap-3"><nav className="flex gap-2 overflow-x-auto pb-2" aria-label="أقسام حساب العضو">{visibleTabs.map(tab => <Button key={tab.key} variant={active === tab.key ? "default" : "outline"} size="sm" className="shrink-0" onClick={() => setActive(tab.key)}><tab.icon />{tab.label}</Button>)}</nav>{!showMemberHeader && <Button className="mr-auto" variant="outline" size="sm" onClick={() => void load()}><RefreshCw />تحديث</Button>}</div>{error && <p role="alert" className="mt-3 rounded-xl bg-red-500/10 p-3 text-xs text-red-600">{error}</p>}{loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="animate-spin text-primary" /></div> : <div className="mt-4 space-y-3">{rows.map((row, index) => <article key={String(row.id ?? index)} className="rounded-2xl border bg-secondary/20 p-4"><div className="flex flex-wrap items-start gap-3"><div className="min-w-0"><p className="text-sm font-black">{title(row, active, index)}</p><p className="mt-2 text-xs leading-6 text-muted-foreground">{summary(row, active)}</p>{lineNames(row).length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{lineNames(row).map((name, lineIndex) => <span key={`${name}-${lineIndex}`} className="rounded-lg bg-background px-2 py-1 text-[11px]">{name}</span>)}</div>}</div><div className="mr-auto flex gap-2">{active === "subscriptions" && member.canManageMembership && <SubscriptionButtons row={row} busy={busy === String(row.id)} onAction={value => {
+    <Card className="mt-5 overflow-hidden border-primary/15"><CardContent className="p-0">{showMemberHeader && <div className="bg-gradient-to-l from-primary/[.10] to-transparent p-5"><div className="flex flex-wrap items-center gap-3"><div><p className="text-xs font-bold text-primary">بوابة العضو</p><h2 className="mt-1 text-xl font-black">{member.memberName}</h2><p className="mt-1 text-xs text-muted-foreground">رقم العضوية: {member.memberNumber}</p></div><Button className="mr-auto" variant="outline" size="sm" onClick={() => void load()}><RefreshCw />تحديث البيانات</Button></div></div>}<div className="p-5"><div className="flex flex-wrap items-center gap-3"><nav className="flex gap-2 overflow-x-auto pb-2" aria-label="أقسام حساب العضو">{visibleTabs.map(tab => <Button key={tab.key} variant={active === tab.key ? "default" : "outline"} size="sm" className="shrink-0" onClick={() => setActive(tab.key)}><tab.icon />{tab.label}</Button>)}</nav>{!showMemberHeader && <Button className="mr-auto" variant="outline" size="sm" onClick={() => void load()}><RefreshCw />تحديث</Button>}</div>{error && <p role="alert" className="mt-3 rounded-xl bg-red-500/10 p-3 text-xs text-red-600">{error}</p>}{loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="animate-spin text-primary" /></div> : <div className="mt-4 space-y-3">{rows.map((row, index) => <article key={String(row.id ?? index)} className="rounded-2xl border bg-secondary/20 p-4"><div className="flex flex-wrap items-start gap-3"><div className="min-w-0"><p className="text-sm font-black">{title(row, active, index)}</p><p className="mt-2 text-xs leading-6 text-muted-foreground">{summary(row, active)}</p>{lineNames(row).length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{lineNames(row).map((name, lineIndex) => <span key={`${name}-${lineIndex}`} className="rounded-lg bg-background px-2 py-1 text-[11px]">{name}</span>)}</div>}{active === "subscriptions" && <FreezeHistory row={row} />}</div><div className="mr-auto flex gap-2">{active === "subscriptions" && member.canManageMembership && <SubscriptionButtons row={row} busy={busy === String(row.id)} onAction={value => {
                 if (value === "cancellations") { setCancellation({ row, kind: "subscription" }); setReason(""); return }
+                if (value === "freezes") { setFreezeRequest(row); setFreezeDays("7"); setFreezeReason(""); return }
                 void subscriptionAction(row, value)
-              }} />}{active === "reservations" && member.canBook && !["CANCELLED", "COMPLETED", "NO_SHOW"].includes(String(row.status)) && <Button size="sm" variant="destructive" disabled={busy === String(row.id)} onClick={() => { setCancellation({ row, kind: "reservation" }); setReason("") }}>إلغاء الحجز</Button>}</div></div></article>)}{!rows.length && <div className="rounded-2xl border border-dashed py-10 text-center"><p className="text-sm font-bold">لا توجد بيانات في هذا القسم بعد</p><p className="mt-1 text-xs text-muted-foreground">ستظهر هنا تلقائيًا فور تنفيذ العملية المرتبطة.</p></div>}</div>}</div></CardContent></Card>
+              }} />}{active === "invoices" && <Button size="sm" variant="outline" onClick={() => printInvoice(row, member)}><Printer />طباعة</Button>}{active === "reservations" && member.canBook && !["CANCELLED", "COMPLETED", "NO_SHOW"].includes(String(row.status)) && <Button size="sm" variant="destructive" disabled={busy === String(row.id)} onClick={() => { setCancellation({ row, kind: "reservation" }); setReason("") }}>إلغاء الحجز</Button>}</div></div></article>)}{!rows.length && <div className="rounded-2xl border border-dashed py-10 text-center"><p className="text-sm font-bold">لا توجد بيانات في هذا القسم بعد</p><p className="mt-1 text-xs text-muted-foreground">ستظهر هنا تلقائيًا فور تنفيذ العملية المرتبطة.</p></div>}</div>}</div></CardContent></Card>
+    {freezeRequest && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="freeze-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setFreezeRequest(undefined) }}>
+      <div className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl">
+        <div className="flex items-start gap-4"><div><p className="text-xs font-bold text-primary">وفق سياسة الباقة</p><h3 id="freeze-title" className="mt-1 text-xl font-black">تجميد الاشتراك</h3></div><Button className="mr-auto" size="icon" variant="ghost" aria-label="إغلاق" disabled={Boolean(busy)} onClick={() => setFreezeRequest(undefined)}><X /></Button></div>
+        <p className="mt-3 text-sm leading-7 text-muted-foreground">حدّد المدة المناسبة. سيتحقق النظام تلقائيًا من الحد الأقصى للمدة وعدد مرات التجميد والمدة الدنيا التي يجب أن يكون فيها الاشتراك نشطًا.</p>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div><label className="block text-sm font-bold" htmlFor="freeze-days">عدد أيام التجميد</label><Input id="freeze-days" className="mt-2" type="number" min={1} max={365} inputMode="numeric" value={freezeDays} onChange={event => setFreezeDays(event.target.value)} autoFocus /></div>
+          <div><label className="block text-sm font-bold" htmlFor="freeze-reason">سبب التجميد</label><Input id="freeze-reason" className="mt-2" value={freezeReason} onChange={event => setFreezeReason(event.target.value)} placeholder="مثال: سفر أو ظرف صحي" /></div>
+        </div>
+        <div className="mt-6 flex flex-wrap gap-2"><Button disabled={Boolean(busy) || !Number.isInteger(Number(freezeDays)) || Number(freezeDays) < 1 || freezeReason.trim().length < 3} onClick={() => void confirmFreeze()}>{busy && <Loader2 className="animate-spin" />}تأكيد التجميد</Button><Button variant="outline" disabled={Boolean(busy)} onClick={() => setFreezeRequest(undefined)}>رجوع</Button></div>
+      </div>
+    </div>}
     {cancellation && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="cancellation-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setCancellation(undefined) }}>
       <div className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl">
         <div className="flex items-start gap-4">
@@ -94,7 +117,8 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
   </>
 }
 
-function SubscriptionButtons({ row, busy, onAction }: { row: Row; busy: boolean; onAction: (value: "freezes" | "resumptions" | "cancellations") => void }) { const value = String(row.status ?? ""); return <>{["ACTIVE", "ACTIVE_PROVISIONAL"].includes(value) && <><Button size="sm" variant="outline" disabled={busy} onClick={() => onAction("freezes")}>تجميد 30 يومًا</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => onAction("cancellations")}>طلب إلغاء</Button></>}{value === "FROZEN" && <Button size="sm" disabled={busy} onClick={() => onAction("resumptions")}>استئناف</Button>}</> }
+function SubscriptionButtons({ row, busy, onAction }: { row: Row; busy: boolean; onAction: (value: "freezes" | "resumptions" | "cancellations") => void }) { const value = String(row.status ?? ""); return <>{["ACTIVE", "ACTIVE_PROVISIONAL"].includes(value) && <><Button size="sm" variant="outline" disabled={busy} onClick={() => onAction("freezes")}>تجميد العضوية</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => onAction("cancellations")}>طلب إلغاء</Button></>}{value === "FROZEN" && <Button size="sm" disabled={busy} onClick={() => onAction("resumptions")}>استئناف</Button>}</> }
+function FreezeHistory({ row }: { row: Row }) { const periods = Array.isArray(row.freezePeriods) ? row.freezePeriods as Row[] : []; if (!periods.length) return null; return <div className="mt-3 rounded-xl border bg-background/60 p-3"><p className="text-xs font-black">سجل التجميدات</p><div className="mt-2 space-y-1.5">{periods.map((period, index) => <p key={String(period.id ?? index)} className="text-[11px] leading-5 text-muted-foreground">{dateOnly(period.startedAt)} — {period.resumedAt ? `استؤنف في ${dateOnly(period.resumedAt)}` : `مجمّد حتى ${dateOnly(period.plannedEndAt)}`} · {String(period.reason ?? "دون سبب مسجل")}</p>)}</div></div> }
 function list(value: unknown): Row[] { if (Array.isArray(value)) return value as Row[]; if (value && typeof value === "object" && Array.isArray((value as { items?: unknown[] }).items)) return (value as { items: Row[] }).items; return [] }
 function title(row: Row, active: string, index: number) {
   const names = lineNames(row)
@@ -118,6 +142,8 @@ function summary(row: Row, active: string) {
   return join([value && formatDate(value), status(row.status ?? row.decision ?? "")])
 }
 function lineNames(row: Row) { const values = Array.isArray(row.lines) ? row.lines as Row[] : []; return values.map(value => String(value.description ?? value.mealName ?? "")).filter(Boolean) }
+function printInvoice(row: Row, member: Member) { const popup = window.open("", "_blank", "noopener,noreferrer,width=900,height=900"); if (!popup) return; const lines = lineNames(row); popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>فاتورة ${escapeHtml(String(row.invoiceNumber ?? ""))}</title><style>body{font-family:Cairo,Arial,sans-serif;padding:36px;color:#111}h1{margin:0 0 8px}.muted{color:#666}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:24px 0}.box{border:1px solid #ddd;border-radius:12px;padding:14px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:12px;border-bottom:1px solid #ddd;text-align:right}@media print{button{display:none}}</style></head><body><button onclick="window.print()">طباعة</button><h1>فاتورة ${escapeHtml(String(row.invoiceNumber ?? ""))}</h1><p class="muted">${escapeHtml(member.memberName)} · ${escapeHtml(member.memberNumber)}</p><div class="grid"><div class="box">تاريخ الإصدار<br><strong>${escapeHtml(formatDate(row.issuedAt))}</strong></div><div class="box">الحالة<br><strong>${escapeHtml(status(row.status))}</strong></div><div class="box">الإجمالي<br><strong>${escapeHtml(money(row.grossMinor))}</strong></div><div class="box">المتبقي<br><strong>${escapeHtml(money(row.outstandingMinor))}</strong></div></div>${lines.length ? `<table><thead><tr><th>البيان</th></tr></thead><tbody>${lines.map(name => `<tr><td>${escapeHtml(name)}</td></tr>`).join("")}</tbody></table>` : ""}<script>window.onload=()=>window.print()</script></body></html>`); popup.document.close() }
+function escapeHtml(value: string) { return value.replace(/[&<>'"]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character) }
 function money(value: unknown) { return new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR" }).format((Number(value) || 0) / 100) }
 function formatDate(value: unknown) { const date = new Date(String(value)); return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(date) }
 function dateOnly(value: unknown) { const date = new Date(String(value)); return Number.isNaN(date.getTime()) ? "تاريخ غير متاح" : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeZone: "Asia/Riyadh" }).format(date) }

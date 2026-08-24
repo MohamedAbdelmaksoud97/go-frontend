@@ -5,7 +5,7 @@ import Link from "next/link"
 import {
   ArrowRight, CalendarDays, Camera, CreditCard, FileBadge, FileText,
   Loader2, Mail, MapPin, Package, Phone, RefreshCw, ShoppingBag, UserRound,
-  UtensilsCrossed,
+  UtensilsCrossed, Printer, Snowflake,
 } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { StatusBadge } from "@/components/status-badge"
@@ -27,12 +27,14 @@ type ProfileData = {
   payments: Row[]
   orders: Row[]
   restaurantOrders: Row[]
+  activities: Row[]
+  services: Row[]
   files: Row[]
   fileUrls: Record<string, string>
   errors: Partial<Record<SectionKey, string>>
 }
 
-const emptyData: ProfileData = { subscriptions: [], bookings: [], invoices: [], payments: [], orders: [], restaurantOrders: [], files: [], fileUrls: {}, errors: {} }
+const emptyData: ProfileData = { subscriptions: [], bookings: [], invoices: [], payments: [], orders: [], restaurantOrders: [], activities: [], services: [], files: [], fileUrls: {}, errors: {} }
 
 export function MemberProfilePage({ memberId }: { memberId: string }) {
   const context = useAppContext()
@@ -105,6 +107,18 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
           if (item.key === "restaurant") next.restaurantOrders = newest(item.rows, "createdAt")
           if (item.key === "files") next.files = newest(item.rows, "createdAt")
         }
+        if (permissions.subscriptions && context.canAccess(["catalog.read"])) {
+          try {
+            const [activitiesResponse, servicesResponse] = await Promise.all([
+              apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/activities?limit=500`),
+              apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/services?limit=500`),
+            ])
+            next.activities = rows(activitiesResponse.data)
+            next.services = rows(servicesResponse.data)
+          } catch {
+            next.errors.subscriptions ||= "تعذر تحميل العقود المرتبطة بالاشتراكات حاليًا."
+          }
+        }
         const visibleFiles = next.files.filter(file => text(file.uploadStatus) === "UPLOADED" && text(file.scanStatus) === "CLEAN")
         const urlResults = await Promise.allSettled(visibleFiles.slice(0, 12).map(async file => {
           const response = await apiRequest<{ downloadUrl?: string }>(`/organizations/${organizationId}/files/${text(file.id)}/download-url`)
@@ -164,7 +178,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     <nav className="flex gap-2 overflow-x-auto rounded-2xl border bg-card p-2" aria-label="أقسام ملف العضو">{tabs.map(tab => { const Icon = tab.icon; return <button key={tab.key} type="button" onClick={() => setActive(tab.key)} className={cn("inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-xs font-bold transition", active === tab.key ? "bg-primary text-primary-foreground" : "hover:bg-secondary")}><Icon className="size-4"/>{tab.label}</button> })}</nav>
 
     {active === "profile" && <ProfileSection member={member} contacts={contacts} branchName={branchName} identity={identity} identityUrl={identity ? data.fileUrls[text(identity.id)] : ""} showSensitiveNotes={context.canAccess(["members.sensitive.read"])} />} 
-    {active === "subscriptions" && <SubscriptionSection rows={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>} 
+    {active === "subscriptions" && <SubscriptionSection rows={data.subscriptions} branches={context.branches} activities={data.activities} services={data.services} error={data.errors.subscriptions}/>}
     {active === "bookings" && <BookingSection rows={data.bookings} branches={context.branches} error={data.errors.bookings}/>} 
     {active === "finance" && <InvoiceSection rows={data.invoices} payments={data.payments} branches={context.branches} error={data.errors.finance}/>} 
     {active === "purchases" && <PurchaseSection rows={data.orders} branches={context.branches} error={data.errors.purchases}/>} 
@@ -180,6 +194,7 @@ function ProfileSection({ member, contacts, branchName, identity, identityUrl, s
     <Card><CardHeader><CardTitle>البيانات الشخصية</CardTitle><Badge variant="secondary">بيانات العضو المعتمدة</Badge></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       <Info label="الاسم" value={text(member.name)} icon={UserRound}/><Info label="رقم الجوال" value={text(phone?.value)} icon={Phone} ltr/><Info label="البريد الإلكتروني" value={text(email?.value)} icon={Mail} ltr/>
       <Info label="تاريخ الميلاد" value={date(member.birthDate)} icon={CalendarDays}/><Info label="الجنس" value={genderLabel(text(member.gender))} icon={UserRound}/><Info label="الجنسية" value={text(member.nationalityCode, "غير مسجلة")} icon={FileBadge}/>
+      <Info label="رقم الهوية" value={text(member.nationalId, "غير مسجل")} icon={FileBadge} ltr/>
       <Info label="فرع التسجيل" value={branchName} icon={MapPin}/><Info label="تاريخ التسجيل" value={date(member.registeredOn)} icon={CalendarDays}/><Info label="حساب الدخول" value={accountLabel(text(member.accountStatus))} icon={UserRound}/>
       {showSensitiveNotes && Boolean(member.notes) && <div className="rounded-xl bg-secondary/55 p-4 sm:col-span-2 lg:col-span-3"><p className="text-[10px] font-bold text-muted-foreground">ملاحظات داخلية</p><p className="mt-2 whitespace-pre-wrap text-sm leading-7">{text(member.notes)}</p></div>}
     </CardContent></Card>
@@ -187,7 +202,19 @@ function ProfileSection({ member, contacts, branchName, identity, identityUrl, s
   </div>
 }
 
-function SubscriptionSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="الاشتراكات والباقات" count={items.length} error={error}>{items.length ? <div className="grid gap-3 lg:grid-cols-2">{items.map(row => { const snapshot = isRow(row.commercialSnapshot) ? row.commercialSnapshot : {}; return <article key={text(row.id)} className="rounded-2xl border bg-card p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-black">{text(snapshot.packageName, "باقة النادي")}</p><p className="mt-1 text-xs text-muted-foreground" dir="ltr">{text(row.subscriptionNumber)}</p></div><StatusBadge status={text(row.status)}/></div><div className="mt-5 grid grid-cols-2 gap-3 text-xs"><Small label="مدة الاشتراك" value={`${date(row.termStart)} — ${date(row.termEnd)}`}/><Small label="الفرع" value={branchLabel(text(row.sellingBranchId), branches)}/><Small label="القيمة" value={money(minor(snapshot.grossMinor))}/><Small label="الاستخدام" value={row.visitAllowance == null ? "حسب صلاحيات الباقة" : `${minor(row.visitsUsed)} من ${minor(row.visitAllowance)} زيارة`}/></div></article> })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}</SectionShell> }
+function SubscriptionSection({ rows: items, branches, activities, services, error }: ListProps & { activities: Row[]; services: Row[] }) {
+  return <SectionShell title="الاشتراكات والباقات" count={items.length} error={error}>{items.length ? <div className="grid gap-3 lg:grid-cols-2">{items.map(row => {
+    const snapshot = isRow(row.commercialSnapshot) ? row.commercialSnapshot : {}
+    const freezes = Array.isArray(row.freezePeriods) ? row.freezePeriods.filter(isRow) : []
+    const contracts = subscriptionContracts(row, services, activities)
+    return <article key={text(row.id)} className="rounded-2xl border bg-card p-5">
+      <div className="flex items-start justify-between gap-3"><div><p className="font-black">{text(snapshot.packageName, "باقة النادي")}</p><p className="mt-1 text-xs text-muted-foreground" dir="ltr">{text(row.subscriptionNumber)}</p></div><StatusBadge status={text(row.status)}/></div>
+      <div className="mt-5 grid grid-cols-2 gap-3 text-xs"><Small label="مدة الاشتراك" value={`${date(row.termStart)} — ${date(row.termEnd)}`}/><Small label="الفرع" value={branchLabel(text(row.sellingBranchId), branches)}/><Small label="القيمة" value={money(minor(snapshot.grossMinor))}/><Small label="الاستخدام" value={row.visitAllowance == null ? "حسب صلاحيات الباقة" : `${minor(row.visitsUsed)} من ${minor(row.visitAllowance)} زيارة`}/></div>
+      {freezes.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black"><Snowflake className="size-4 text-sky-500"/>سجل التجميدات</p><div className="space-y-2">{freezes.map((freeze, index) => <div key={text(freeze.id, String(index))} className="rounded-xl bg-sky-500/8 p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{date(freeze.startsOn)} — {date(freeze.endsOn)}</strong><StatusBadge status={text(freeze.status, freeze.endedAt ? "COMPLETED" : "ACTIVE")}/></div>{Boolean(freeze.reason) && <p className="mt-1 text-muted-foreground">{text(freeze.reason)}</p>}</div>)}</div></div>}
+      {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printContract(contract)}><Printer/>طباعة العقد</Button></div>)}</div></div>}
+    </article>
+  })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}</SectionShell>
+}
 
 function BookingSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="الحجوزات" count={items.length} error={error}>{items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-3 p-5 sm:grid-cols-[1fr_auto] sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(row.resourceName, "حجز خدمة أو مرفق")}</p><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.startsAt)} حتى {dateTime(row.endsAt)} · {branchLabel(text(row.branchId), branches)} · {minor(row.seats, 1)} مقعد</p></div><strong>{money(minor(row.grossMinor))}</strong></article>)}</div> : <Empty text="لا توجد حجوزات مسجلة لهذا العضو."/>}</SectionShell> }
 
@@ -196,7 +223,7 @@ function InvoiceSection({ rows: items, payments, branches, error }: ListProps & 
     <div className="space-y-5">
       <div>
         <h3 className="mb-3 text-sm font-black">الفواتير</h3>
-        {items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-4 p-5 md:grid-cols-[1fr_repeat(3,auto)] md:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">فاتورة <span dir="ltr">{text(row.invoiceNumber)}</span></p><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.issuedAt)} · {branchLabel(text(row.sellingBranchId), branches)}</p></div><Small label="الإجمالي" value={money(minor(row.grossMinor))}/><Small label="المدفوع" value={money(minor(row.paidMinor))}/><Small label="المتبقي" value={money(minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.paidMinor))))}/></article>)}</div> : <Empty compact text="لا توجد فواتير أو ذمم مالية لهذا العضو."/>}
+        {items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-4 p-5 md:grid-cols-[1fr_repeat(3,auto)] md:items-center"><div><div className="flex flex-wrap items-center gap-2"><Link href={`/finance/invoices/${text(row.id)}`} className="font-black text-primary hover:underline">فاتورة <span dir="ltr">{text(row.invoiceNumber)}</span></Link><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.issuedAt)} · {branchLabel(text(row.sellingBranchId), branches)}</p></div><Small label="الإجمالي" value={money(minor(row.grossMinor))}/><Small label="المدفوع" value={money(minor(row.paidMinor))}/><Small label="المتبقي" value={money(minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.paidMinor))))}/></article>)}</div> : <Empty compact text="لا توجد فواتير أو ذمم مالية لهذا العضو."/>}
       </div>
       <div>
         <h3 className="mb-3 text-sm font-black">سجل المدفوعات</h3>
@@ -237,3 +264,16 @@ function accountLabel(value: string) { return ({ LINKED: "حساب دخول مف
 function paymentMethod(value: string) { return ({ CASH: "نقدي", CARD: "بطاقة", BANK_TRANSFER: "تحويل بنكي", WALLET: "محفظة إلكترونية", OTHER: "طريقة أخرى" } as Record<string, string>)[value] ?? value }
 function fileLabel(value: string) { return ({ PROFILE_PHOTO: "الصورة الشخصية", IDENTITY_DOCUMENT: "إثبات الهوية", CONSENT: "نموذج الموافقة", EMPLOYMENT_DOCUMENT: "مستند" } as Record<string, string>)[value] ?? "مستند العضو" }
 function initials(value: string) { return value.trim().split(/\s+/u).slice(0, 2).map(part => part[0]).join("") || "ع" }
+function subscriptionContracts(subscription: Row, services: Row[], activities: Row[]) {
+  const entitlements = Array.isArray(subscription.entitlements) ? subscription.entitlements.filter(isRow) : []
+  const serviceIds = new Set(entitlements.map(item => text(item.serviceId, "")).filter(Boolean))
+  const activityIds = new Set(services.filter(service => serviceIds.has(text(service.id))).flatMap(service => Array.isArray(service.activityIds) ? service.activityIds.map(String) : []))
+  return activities.filter(activity => activityIds.has(text(activity.id)) && Boolean(activity.contractContent))
+}
+function printContract(contract: Row) {
+  const popup = window.open("", "_blank", "noopener,noreferrer")
+  if (!popup) return
+  popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${escapeHtml(text(contract.contractTitle, "عقد النشاط"))}</title><style>body{font-family:Cairo,Arial,sans-serif;max-width:850px;margin:40px auto;line-height:2;color:#111;padding:0 24px}h1{border-bottom:2px solid #111;padding-bottom:16px}p{white-space:pre-wrap}</style></head><body><h1>${escapeHtml(text(contract.contractTitle, `عقد ${text(contract.name)}`))}</h1><p>${escapeHtml(text(contract.contractContent, ""))}</p><script>window.onload=()=>window.print()</script></body></html>`)
+  popup.document.close()
+}
+function escapeHtml(value: string) { return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character] ?? character)) }

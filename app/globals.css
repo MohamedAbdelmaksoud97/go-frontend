@@ -48,6 +48,16 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+@media print {
+  body { background: white !important; color: black !important; }
+  body * { visibility: hidden !important; }
+  .reports-print-root, .reports-print-root * { visibility: visible !important; }
+  .reports-print-root { position: absolute !important; inset: 0 !important; width: 100% !important; padding: 20px !important; background: white !important; color: black !important; }
+  .reports-print-hidden { display: none !important; }
+  .reports-print-root [data-slot="card"] { break-inside: avoid; border-color: #d4d4d4 !important; background: white !important; color: black !important; box-shadow: none !important; }
+  .reports-print-root table { color: black !important; }
+}
+
 :root {
   --font-cairo: "Cairo";
   --card: #ffffff;
@@ -158,7 +168,7 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .fade-up { animation: fade-up .55s ease backwards; }
 @keyframes fade-up { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:none } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; } }
-@media print { aside, header, .print\:hidden { display:none!important } body { background:#fff!important;color:#000!important } main { padding:0!important } }
+@media print { [data-app-chrome], .print\:hidden { display:none!important } body { background:#fff!important;color:#000!important } main { max-width:none!important;padding:0!important } }
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(-10px) scale(.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }

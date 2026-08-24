@@ -53,7 +53,6 @@ const navGroups = [
     { href: "/self-service/orders", label: "طلباتي وفواتيري", icon: ReceiptText, permissions:[], memberOnly:true },
     { href: "/self-service/activity", label: "حجوزاتي ونشاطي", icon: Activity, permissions:[], memberOnly:true },
     { href: "/self-service/feedback", label: "الشكاوى والاقتراحات", icon: MessageSquareText, permissions:[], memberOnly:true },
-    { href: "/account", label: "إعدادات الحساب", icon: Settings, permissions:[] },
   ]},
 ]
 
@@ -105,7 +104,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return <div dir="rtl" className="min-h-screen max-w-[100vw] overflow-x-hidden bg-background">
     {open && <button className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm lg:hidden" onClick={() => setOpen(false)} aria-label="إغلاق القائمة" />}
-    <aside className={cn("fixed inset-y-0 right-0 z-50 w-[270px] flex-col border-l border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex", open ? "flex" : "hidden")}>
+    <aside data-app-chrome className={cn("fixed inset-y-0 right-0 z-50 w-[270px] flex-col border-l border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex", open ? "flex" : "hidden")}>
       <div className="flex h-[76px] items-center justify-between border-b border-sidebar-border px-5">
         <BrandLogo />
         <Button variant="ghost" size="icon" className="text-sidebar-foreground lg:hidden" onClick={() => setOpen(false)} aria-label="إغلاق القائمة"><X /></Button>
@@ -127,6 +126,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>:null})}
       </nav>
       <div className="border-t border-sidebar-border p-3">
+        <Link href="/account" onClick={()=>setOpen(false)} className={cn("mb-2 flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-semibold text-sidebar-foreground/68 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground", pathname === "/account" && "bg-sidebar-accent text-white")}>
+          <Settings className={cn("size-[18px]", pathname === "/account" ? "text-primary" : "text-sidebar-foreground/48")} />
+          <span>إعدادات الحساب</span>
+        </Link>
         <div className="flex items-center gap-3 rounded-xl bg-sidebar-accent/60 p-3">
           <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary font-extrabold text-black">{accountName.slice(0, 1)}</div>
           <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{accountName}</p><p className="mt-1 truncate text-[10px] text-sidebar-foreground/45">{accountSubtitle}</p></div>
@@ -136,7 +139,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </aside>
 
     <div className="min-h-screen min-w-0 w-full overflow-hidden lg:pr-[270px]">
-      <header className="glass sticky top-0 z-30 flex h-[76px] items-center gap-3 border-b px-4 lg:px-7">
+      <header data-app-chrome className="glass sticky top-0 z-30 flex h-[76px] items-center gap-3 border-b px-4 lg:px-7">
         <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="فتح القائمة"><Menu /></Button>
         <GlobalSearch memberOnlyAccount={memberOnlyAccount} />
         <div className="mr-auto flex items-center gap-2">

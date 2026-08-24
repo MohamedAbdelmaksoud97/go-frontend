@@ -1,8 +1,9 @@
 import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { ResourcePage } from "@/components/resource-page"
+import { ReportsWorkspace } from "@/components/reports-workspace"
 import { sections } from "@/lib/sections"
 
 export function generateStaticParams() { return Object.keys(sections).map(section=>({section})) }
 export async function generateMetadata({params}:{params:Promise<{section:string}>}):Promise<Metadata>{ const {section}=await params; return {title:sections[section]?.title??"غير موجود"} }
-export default async function SectionPage({params,searchParams}:{params:Promise<{section:string}>;searchParams:Promise<{create?:string;search?:string}>}) { const [{section},query]=await Promise.all([params,searchParams]); const config=sections[section]; if(!config) notFound(); return <ResourcePage config={config} openCreate={query.create==="1"} initialSearch={query.search??""}/> }
+export default async function SectionPage({params,searchParams}:{params:Promise<{section:string}>;searchParams:Promise<{create?:string;search?:string}>}) { const [{section},query]=await Promise.all([params,searchParams]); const config=sections[section]; if(!config) notFound(); if(section==="reports") return <ReportsWorkspace/>; return <ResourcePage config={config} openCreate={query.create==="1"} initialSearch={query.search??""}/> }

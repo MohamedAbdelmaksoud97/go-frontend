@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, BarChart3, ChevronLeft, ChevronRight, Download, Eye, EyeOff, LockKeyhole, MoreHorizontal, Plus, Search, ShieldAlert, SlidersHorizontal, Sparkles, X } from "lucide-react"
+import { AlertTriangle, BadgeDollarSign, BarChart3, CalendarPlus, ChevronLeft, ChevronRight, ClipboardCheck, Download, Eye, EyeOff, LockKeyhole, MoreHorizontal, Play, Plus, Search, ShieldAlert, SlidersHorizontal, Snowflake, Sparkles, UserRoundCheck, UserRoundX, X } from "lucide-react"
 import type { SectionConfig } from "@/lib/sections"
 import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { DateTimeInput } from "@/components/date-time-input"
 import { useAppContext } from "@/components/app-context"
 import { endpoints } from "@/lib/endpoint-catalog"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
@@ -16,13 +17,14 @@ import { humanError } from "@/lib/human-errors"
 import { ActionDialog } from "@/components/action-dialog"
 import { operationPermissions } from "@/lib/permissions"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy"
+import { useToast } from "@/components/toast-provider"
 
 type BranchLookup = { id: string; nameAr?: string; name?: string }
 type ApiRecord = Record<string, unknown>
 type RecordActionField = {
   name: string
   label: string
-  type: "text" | "tel" | "email" | "number" | "textarea" | "password" | "date" | "select"
+  type: "text" | "tel" | "email" | "number" | "textarea" | "password" | "date" | "datetime-local" | "time" | "select"
   options?: Array<{ value: string; label: string }>
   initial?: string
   placeholder?: string
@@ -52,6 +54,9 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
   const [filterBranchId, setFilterBranchId] = useState(context.branchId)
   const [showAction, setShowAction] = useState(openCreate)
   const [selectedRow, setSelectedRow] = useState<{ row: string[]; record: ApiRecord }>()
+  const [quickAction, setQuickAction] = useState<{ operationId: string; initialValues: Record<string, string> }>()
+  const [disciplinaryMember, setDisciplinaryMember] = useState<ApiRecord>()
+  const [subscriptionFreezeRecord, setSubscriptionFreezeRecord] = useState<ApiRecord>()
   const [serverRows, setServerRows] = useState<string[][]>(config.rows)
   const [serverRecords, setServerRecords] = useState<ApiRecord[]>([])
   const [loading, setLoading] = useState(hasRuntimeApi())
@@ -126,11 +131,167 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/8 text-amber-700 dark:text-primary">{config.eyebrow}</Badge><h1 className="text-2xl font-black tracking-tight sm:text-3xl">{config.title}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{config.description}</p></div><div className="flex gap-2"><Button size="lg" variant="outline" onClick={exportCsv} disabled={!rows.length}><Download />تصدير</Button>{canCreate && <Button size="lg" className="brand-shadow" onClick={() => setShowAction(true)}><Plus />{config.action}</Button>}</div></div>
     <section className="grid gap-4 md:grid-cols-3">{config.metrics.map((metric, index) => <Card key={metric.label}><CardContent className="flex items-center gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-xl ${index === 0 ? "bg-primary/15 text-amber-600" : index === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{index === 0 ? <BarChart3 /> : index === 1 ? <Sparkles /> : <SlidersHorizontal />}</span><div><p className="text-[11px] font-semibold text-muted-foreground">{metricLabel(config.listOperationId, index, metric.label)}</p><p className="mt-1 text-xl font-black">{metricValue(config.listOperationId, index, serverRecords)}</p><p className="mt-1 text-[9px] text-muted-foreground">{metricNote(serverRecords.length, metric.note)}</p></div></CardContent></Card>)}</section>
     <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}{serverFiltered && context.branches.length > 1 && <select aria-label="تصفية حسب الفرع" value={filterBranchId} onChange={event => setFilterBranchId(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الفروع المسموح بها</option>{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.nameAr ?? branch.name ?? "فرع"}</option>)}</select>}</div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="w-10 px-4"><span className="sr-only">عرض التفاصيل</span></th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : config.listOperationId === "listMembers" && columnIndex === 0 && memberId ? <Link href={`/members/${memberId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف العضو ${cell}`}>{cell}</Link> : cell}</td>)}<td className="px-4"><Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button></td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="sticky left-0 z-20 min-w-[160px] border-r bg-secondary px-3 py-3 text-[10px] font-bold text-muted-foreground shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)]">الإجراءات السريعة</th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : config.listOperationId === "listMembers" && columnIndex === 0 && memberId ? <Link href={`/members/${memberId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف العضو ${cell}`}>{cell}</Link> : cell}</td>)}<td className="sticky left-0 z-10 min-w-[160px] border-r bg-card px-3 py-4 shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)] transition-colors group-hover:bg-secondary">{config.listOperationId === "listMembers" && memberId ? <MemberQuickActions record={record} canAccess={context.canAccess} onWorkflow={(operationId, initialValues) => setQuickAction({ operationId, initialValues })} onDiscipline={() => setDisciplinaryMember(record)} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listSubscriptions" ? <SubscriptionQuickActions record={record} canAccess={context.canAccess} onFreeze={() => setSubscriptionFreezeRecord(record)} onDetails={() => setSelectedRow({ row, record })} /> : <Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button>}</td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
       <div className="flex items-center justify-between border-t p-4"><p className="text-[10px] text-muted-foreground">عرض {rows.length} سجلًا · الصفحة {page + 1}</p><div className="flex items-center gap-1"><Button variant="outline" size="icon-sm" disabled={page === 0 || loading} aria-label="الصفحة السابقة" onClick={() => void loadPage(page - 1)}><ChevronRight /></Button>{Array.from({ length: knownPages }, (_, index) => <Button key={index} variant={index === page ? "default" : "outline"} size="icon-sm" disabled={loading} aria-label={`الصفحة ${index + 1}`} onClick={() => void loadPage(index)}>{index + 1}</Button>)}<Button variant="outline" size="icon-sm" disabled={loading || !pageCache.current[page]?.nextCursor} aria-label="الصفحة التالية" onClick={() => void loadPage(page + 1)}><ChevronLeft /></Button></div></div>
     </Card>
     {showAction && config.createOperationId && canCreate && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} onSaved={() => { pageCache.current = []; void loadPage(0) }} />}
+    {quickAction && <ActionDialog operationId={quickAction.operationId} organizationId={context.organizationId} branchId={context.branchId} initialValues={quickAction.initialValues} onClose={() => setQuickAction(undefined)} onSaved={() => { setQuickAction(undefined); pageCache.current = []; void loadPage(0) }} />}
+    {disciplinaryMember && <MemberDisciplinaryDialog organizationId={context.organizationId} record={disciplinaryMember} onClose={() => setDisciplinaryMember(undefined)} onSaved={() => { setDisciplinaryMember(undefined); pageCache.current = []; void loadPage(0) }} />}
+    {subscriptionFreezeRecord && <SubscriptionFreezeDialog organizationId={context.organizationId} record={subscriptionFreezeRecord} onClose={() => setSubscriptionFreezeRecord(undefined)} onSaved={() => { setSubscriptionFreezeRecord(undefined); pageCache.current = []; void loadPage(0) }} />}
     {selectedRow && <RecordPreview columns={config.columns} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={config.statusIndex} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
+  </div>
+}
+
+function MemberQuickActions({ record, canAccess, onWorkflow, onDiscipline, onDetails }: { record: ApiRecord; canAccess: (permissions: string[]) => boolean; onWorkflow: (operationId: string, initialValues: Record<string, string>) => void; onDiscipline: () => void; onDetails: () => void }) {
+  const memberId = String(record.id ?? "")
+  const blocked = Boolean(record.isBlocked)
+  return <div className="flex items-center justify-center gap-1" aria-label="الإجراءات السريعة للعضو">
+    {canAccess(["sales.checkout"]) && <Button variant="ghost" size="icon-sm" title="شراء باقة وإصدار فاتورة" aria-label="شراء باقة وإصدار فاتورة" onClick={() => onWorkflow("createSubscription", { memberId })}><BadgeDollarSign /></Button>}
+    {canAccess(["bookings.create"]) && <Button variant="ghost" size="icon-sm" title="إنشاء حجز" aria-label="إنشاء حجز" onClick={() => onWorkflow("createManualReservation", { customerType: "MEMBER", memberId })}><CalendarPlus /></Button>}
+    {canAccess(["attendance.check-in"]) && <Button variant="ghost" size="icon-sm" title="تسجيل دخول العضو" aria-label="تسجيل دخول العضو" onClick={() => onWorkflow("recordManualAttendance", { memberId })}><ClipboardCheck /></Button>}
+    {canAccess(["members.block"]) && <Button variant="ghost" size="icon-sm" className={blocked ? "text-emerald-600" : "text-red-600"} title={blocked ? "رفع الحظر" : "حظر العضو"} aria-label={blocked ? "رفع الحظر عن العضو" : "حظر العضو"} onClick={onDiscipline}>{blocked ? <UserRoundCheck /> : <UserRoundX />}</Button>}
+    <Link href={`/members/${memberId}`} className={buttonVariants({ variant: "ghost", size: "icon-sm" })} title="فتح ملف العضو الكامل" aria-label="فتح ملف العضو الكامل"><Eye /></Link>
+    <Button variant="ghost" size="icon-sm" title="خيارات العضو" aria-label="خيارات العضو" onClick={onDetails}><MoreHorizontal /></Button>
+  </div>
+}
+
+function SubscriptionQuickActions({
+  record,
+  canAccess,
+  onFreeze,
+  onDetails,
+}: {
+  record: ApiRecord
+  canAccess: (permissions: string[]) => boolean
+  onFreeze: () => void
+  onDetails: () => void
+}) {
+  const status = String(record.status ?? "").toUpperCase()
+  const canFreeze = canAccess(["subscriptions.freeze"])
+
+  return <div className="flex items-center justify-center gap-1" aria-label="الإجراءات السريعة للاشتراك">
+    {canFreeze && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <Button variant="ghost" size="icon-sm" className="text-blue-600" title="تجميد هذا الاشتراك" aria-label="تجميد هذا الاشتراك" onClick={onFreeze}><Snowflake /></Button>}
+    {canFreeze && status === "FROZEN" && <Button variant="ghost" size="icon-sm" className="text-emerald-600" title="استئناف هذا الاشتراك" aria-label="استئناف هذا الاشتراك" onClick={onFreeze}><Play /></Button>}
+    <Button variant="ghost" size="icon-sm" title="عرض تفاصيل الاشتراك" aria-label="عرض تفاصيل الاشتراك" onClick={onDetails}><MoreHorizontal /></Button>
+  </div>
+}
+
+function SubscriptionFreezeDialog({
+  organizationId,
+  record,
+  onClose,
+  onSaved,
+}: {
+  organizationId: string
+  record: ApiRecord
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const toast = useToast()
+  const frozen = String(record.status ?? "").toUpperCase() === "FROZEN"
+  const subscriptionId = String(record.id ?? record.subscriptionId ?? "")
+  const subscriptionName = String(record.packageNameAr ?? record.packageName ?? record.subscriptionNumber ?? "الاشتراك")
+  const subscriptionNumber = String(record.subscriptionNumber ?? "")
+  const [requestedDays, setRequestedDays] = useState("7")
+  const [reason, setReason] = useState("طلب العضو")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    const days = Number(requestedDays)
+    if (!subscriptionId) {
+      setError("تعذر تحديد الاشتراك. حدّث الصفحة وحاول مجددًا.")
+      return
+    }
+    if (!frozen && (!Number.isInteger(days) || days < 1)) {
+      setError("أدخل عدد أيام صحيحًا يبدأ من يوم واحد.")
+      return
+    }
+    if (!frozen && reason.trim().length < 3) {
+      setError("اكتب سببًا واضحًا لطلب التجميد.")
+      return
+    }
+    setSaving(true)
+    setError("")
+    try {
+      const suffix = frozen ? "resumptions" : "freezes"
+      await apiRequest(`/organizations/${organizationId}/subscriptions/${subscriptionId}/${suffix}`, {
+        method: "POST",
+        body: JSON.stringify(frozen
+          ? { expectedVersion: Number(record.version ?? 1) }
+          : { expectedVersion: Number(record.version ?? 1), requestedDays: days, reason: reason.trim() }),
+      })
+      toast.success(frozen ? "تم استئناف هذا الاشتراك." : "تم تجميد هذا الاشتراك وفق سياسة الباقة.")
+      onSaved()
+    } catch (reason) {
+      setError(humanError(reason, frozen ? "تعذر استئناف هذا الاشتراك." : "تعذر تجميد هذا الاشتراك وفق سياسة الباقة."))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <div className="fixed inset-0 z-[90] grid place-items-center bg-black/65 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <form onSubmit={submit} className="w-full max-w-lg rounded-[28px] border bg-card p-6 shadow-2xl" dir="rtl">
+      <div className="flex items-start gap-4">
+        <span className={`grid size-12 place-items-center rounded-2xl ${frozen ? "bg-emerald-500/10 text-emerald-600" : "bg-blue-500/10 text-blue-600"}`}>{frozen ? <Play /> : <Snowflake />}</span>
+        <div>
+          <h2 className="text-xl font-black">{frozen ? "استئناف الاشتراك" : "تجميد اشتراك محدد"}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{subscriptionName}{subscriptionNumber ? ` · ${subscriptionNumber}` : ""}</p>
+        </div>
+        <Button type="button" variant="ghost" size="icon" className="mr-auto" onClick={onClose} aria-label="إغلاق"><X /></Button>
+      </div>
+
+      <p className="mt-5 rounded-2xl bg-secondary/60 p-4 text-xs leading-6">{frozen
+        ? "سيتم استئناف هذا الاشتراك فقط، دون التأثير على أي اشتراكات أخرى يملكها العضو."
+        : "هذا الإجراء يخص هذا الاشتراك فقط. سيطبق النظام سياسة تجميد الباقة تلقائيًا، بما فيها الحد الأقصى للأيام وعدد مرات التجميد وأي شروط أخرى مسجلة."}</p>
+
+      {!frozen && <>
+        <label className="mt-5 block text-xs font-bold">عدد أيام التجميد<span className="mr-1 text-red-500">*</span><Input type="number" min={1} value={requestedDays} onChange={event => setRequestedDays(event.target.value)} className="mt-2" inputMode="numeric" /></label>
+        <label className="mt-4 block text-xs font-bold">سبب التجميد<span className="mr-1 text-red-500">*</span><textarea value={reason} onChange={event => setReason(event.target.value)} rows={4} placeholder="مثال: طلب العضو بسبب السفر" className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>
+      </>}
+
+      {error && <p role="alert" className="mt-4 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
+
+      <div className="mt-6 flex gap-2 border-t pt-5">
+        <Button type="button" variant="outline" onClick={onClose}>إلغاء</Button>
+        <Button type="submit" className="mr-auto" disabled={saving}>{saving ? "جارٍ الحفظ..." : frozen ? "استئناف الاشتراك" : "تأكيد التجميد"}</Button>
+      </div>
+    </form>
+  </div>
+}
+
+function MemberDisciplinaryDialog({ organizationId, record, onClose, onSaved }: { organizationId: string; record: ApiRecord; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast()
+  const blocked = Boolean(record.isBlocked)
+  const memberId = String(record.id ?? "")
+  const memberName = String(record.fullNameAr ?? record.fullName ?? record.memberNumber ?? "العضو")
+  const [reason, setReason] = useState(String(record.blockedReason ?? ""))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!blocked && reason.trim().length < 3) { setError("اكتب سببًا واضحًا للحظر ليظهر في سجل العضو."); return }
+    setSaving(true); setError("")
+    try {
+      const suffix = blocked ? "block-lifts" : "blocks"
+      await apiRequest(`/organizations/${organizationId}/members/${memberId}/${suffix}`, { method: "POST", body: JSON.stringify(blocked ? { expectedVersion: Number(record.version ?? 1) } : { expectedVersion: Number(record.version ?? 1), reason: reason.trim() }) })
+      toast.success(blocked ? "تم رفع الحظر وإعادة إتاحة الخدمات للعضو." : "تم حظر العضو وإيقاف استخدام اشتراكاته وخدماته مؤقتًا.")
+      onSaved()
+    } catch (reason) { setError(humanError(reason, blocked ? "تعذر رفع الحظر." : "تعذر حظر العضو.")) }
+    finally { setSaving(false) }
+  }
+
+  return <div className="fixed inset-0 z-[90] grid place-items-center bg-black/65 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <form onSubmit={submit} className="w-full max-w-lg rounded-[28px] border bg-card p-6 shadow-2xl" dir="rtl">
+      <div className="flex items-start gap-4"><span className={`grid size-12 place-items-center rounded-2xl ${blocked ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-600"}`}>{blocked ? <UserRoundCheck /> : <UserRoundX />}</span><div><h2 className="text-xl font-black">{blocked ? "رفع حظر العضو" : "حظر العضو مؤقتًا"}</h2><p className="mt-1 text-sm text-muted-foreground">{memberName}</p></div><Button type="button" variant="ghost" size="icon" className="mr-auto" onClick={onClose} aria-label="إغلاق"><X /></Button></div>
+      <p className="mt-5 rounded-2xl bg-secondary/60 p-4 text-xs leading-6">{blocked ? "سيعود العضو إلى الحالة النشطة ويمكنه استخدام اشتراكاته السارية وحجز الخدمات من جديد." : "يمنع الحظر دخول العضو وحجز الخدمات واستخدام اشتراكاته دون إلغاء الاشتراك أو تغيير سجله المالي. يمكن رفعه لاحقًا من نفس المكان."}</p>
+      {!blocked && <label className="mt-5 block text-xs font-bold">سبب الحظر<span className="mr-1 text-red-500">*</span><textarea value={reason} onChange={event => setReason(event.target.value)} rows={4} placeholder="مثال: مخالفة موثقة لسياسات النادي" className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>}
+      {blocked && Boolean(record.blockedReason) && <p className="mt-4 text-xs text-muted-foreground">سبب الحظر المسجل: <strong className="text-foreground">{String(record.blockedReason)}</strong></p>}
+      {error && <p role="alert" className="mt-4 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
+      <div className="mt-6 flex gap-2 border-t pt-5"><Button type="button" variant="outline" onClick={onClose}>إلغاء</Button><Button type="submit" className={`mr-auto ${blocked ? "" : "bg-red-600 text-white hover:bg-red-700"}`} disabled={saving}>{saving ? "جارٍ الحفظ..." : blocked ? "رفع الحظر" : "تأكيد الحظر"}</Button></div>
+    </form>
   </div>
 }
 
@@ -364,7 +525,7 @@ function RecordOperationDialog({ action, busy, error, onClose, onSubmit }: { act
       <form onSubmit={submit} className="p-5 sm:p-6">
         {(action.fields ?? []).length > 0 ? <div className="grid gap-5">{action.fields?.map(field => <label key={field.name} className="grid gap-2 text-sm font-bold">
           <span>{field.label}{field.required && <span className="mr-1 text-destructive" aria-hidden="true">*</span>}</span>
-          {field.type === "textarea" ? <textarea value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} rows={4} className="min-h-28 w-full resize-y rounded-xl border bg-background px-4 py-3 text-sm font-medium outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15" /> : field.type === "select" ? <select required={field.required} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary"><option value="">اختر من القائمة</option>{field.options?.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <div className="relative"><Input type={field.type === "password" ? (showPassword ? "text" : "password") : field.type} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} min={field.min} autoComplete={field.type === "password" ? "new-password" : undefined} className={field.type === "password" ? "pl-12" : undefined} />{field.type === "password" && <button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>}</div>}
+          {field.type === "textarea" ? <textarea value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} rows={4} className="min-h-28 w-full resize-y rounded-xl border bg-background px-4 py-3 text-sm font-medium outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15" /> : field.type === "select" ? <select required={field.required} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary"><option value="">اختر من القائمة</option>{field.options?.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : field.type === "date" || field.type === "datetime-local" || field.type === "time" ? <DateTimeInput type={field.type} required={field.required} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} className="h-11" /> : <div className="relative"><Input type={field.type === "password" ? (showPassword ? "text" : "password") : field.type} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} min={field.min} autoComplete={field.type === "password" ? "new-password" : undefined} className={field.type === "password" ? "pl-12" : undefined} />{field.type === "password" && <button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>}</div>}
           {field.hint && <span className="text-[11px] font-normal leading-5 text-muted-foreground">{field.hint}</span>}
         </label>)}</div> : <div className={`rounded-2xl p-4 text-sm leading-7 ${action.danger ? "bg-destructive/10 text-destructive" : "bg-secondary/60"}`}>راجع أثر هذا الإجراء ثم أكّد التنفيذ. لا تغلق الصفحة أثناء الحفظ.</div>}
         {(validationError || error) && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{validationError || error}</p>}
@@ -398,7 +559,7 @@ function toList(data: unknown): ApiRecord[] {
   return []
 }
 
-const aliases: Record<string, string[]> = { fullNameAr: ["name", "fullName", "displayName"], memberName: ["name"], packageName: ["commercialSnapshot.packageName"], startsOn: ["termStart", "startsAt"], endsOn: ["termEnd", "endsAt"], occurredAt: ["attemptedAt"], method: ["accessMethod"], buyerName: ["memberName", "name"], itemSummary: ["lines"], orderNumber: ["orderNumber"], reservationNumber: ["reservationNumber"], positionName: ["assignments.0.positionName"], shiftSummary: ["assignments.0.status"], attendanceAt: ["hireDate"], sourceName: ["sourceNameAr", "sourceCode"], interest: ["interestType"], assigneeName: ["assignedToName", "assigneeName"], scope: ["scopeType"] }
+const aliases: Record<string, string[]> = { fullNameAr: ["name", "fullName", "displayName"], memberName: ["name"], customerName: ["memberName", "guestName", "name"], customerPhone: ["guestPhoneE164", "phoneE164"], packageName: ["commercialSnapshot.packageName"], startsOn: ["termStart", "startsAt"], endsOn: ["termEnd", "endsAt"], occurredAt: ["attemptedAt"], method: ["accessMethod"], buyerName: ["memberName", "name"], itemSummary: ["lines"], orderNumber: ["orderNumber"], reservationNumber: ["reservationNumber"], positionName: ["assignments.0.positionName"], shiftSummary: ["assignments.0.status"], attendanceAt: ["hireDate"], sourceName: ["sourceNameAr", "sourceCode"], interest: ["interestType"], assigneeName: ["assignedToName", "assigneeName"], scope: ["scopeType"] }
 
 function readPath(record: ApiRecord, path: string): unknown { return path.split(".").reduce<unknown>((current, key) => { if (Array.isArray(current)) { const index = Number(key); return Number.isInteger(index) ? current[index] : undefined } return current && typeof current === "object" ? (current as ApiRecord)[key] : undefined }, record) }
 function phoneFromContacts(record: ApiRecord): unknown { if (!Array.isArray(record.contacts)) return undefined; const contact = record.contacts.find(item => item && typeof item === "object" && (item as ApiRecord).type === "PHONE") as ApiRecord | undefined; return contact?.value }

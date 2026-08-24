@@ -16,11 +16,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/toast-provider";
 import {
+  ApiError,
   apiRequest,
   createIdempotencyKey,
   hasRuntimeApi,
 } from "@/lib/api-client";
 import { humanError } from "@/lib/human-errors";
+import { permissionArabicLabel } from "@/lib/permission-display";
 
 type Meal = { id: string; name: string };
 type RetailProduct = { id: string; name: string; code?: string; barcode?: string; grossMinor?: string; amountMinor?: string; quantityAvailable?: number };
@@ -86,6 +88,7 @@ export function CashierWorkstation() {
   const [loading, setLoading] = useState(hasRuntimeApi());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const authorized = cashierPermissions.filter((permission) =>
     context.canAccess([permission]),
   );
@@ -113,6 +116,7 @@ export function CashierWorkstation() {
     }
     setLoading(true);
     setError("");
+    setLoadWarnings([]);
     try {
       const base = `/organizations/${context.organizationId}`;
       const menuPath = `${base}/branches/${context.branchId}/daily-menus/${todayRiyadh()}`;
@@ -125,42 +129,119 @@ export function CashierWorkstation() {
         menuResponse,
         retailResponse,
       ] = await Promise.all([
-        apiRequest<Member[] | { items: Member[] }>(
-          `${base}/members?branchId=${context.branchId}&limit=100`,
+        loadSource(
+          "الأعضاء",
+          "members.read",
+          apiRequest<Member[] | { items: Member[] }>(
+            `${base}/members?branchId=${context.branchId}&limit=100`,
+          ).then((response) => list<Member>(response.data)),
+          [] as Member[],
         ),
-        apiRequest<Meal[] | { items: Meal[] }>(
-          `${base}/restaurant/meals?limit=100`,
+        loadSource(
+          "وجبات المطعم",
+          "restaurant.catalog.read",
+          apiRequest<Meal[] | { items: Meal[] }>(
+            `${base}/restaurant/meals?branchId=${context.branchId}&limit=100`,
+          ).then((response) => list<Meal>(response.data)),
+          [] as Meal[],
         ),
-        apiRequest<CashPoint[] | { items: CashPoint[] }>(
-          `${base}/cash-points?branchId=${context.branchId}&limit=100`,
+        loadSource(
+          "نقاط التحصيل",
+          "finance.cash-points.read",
+          apiRequest<CashPoint[] | { items: CashPoint[] }>(
+            `${base}/cash-points?branchId=${context.branchId}&limit=100`,
+          ).then((response) => list<CashPoint>(response.data)),
+          [] as CashPoint[],
         ),
-        apiRequest<Shift[] | { items: Shift[] }>(
-          `${base}/cashier-shifts?branchId=${context.branchId}&limit=100`,
+        loadSource(
+          "ورديات الصندوق",
+          "finance.cash-shifts.manage",
+          apiRequest<Shift[] | { items: Shift[] }>(
+            `${base}/cashier-shifts?branchId=${context.branchId}&limit=100`,
+          ).then((response) => list<Shift>(response.data)),
+          [] as Shift[],
         ),
-        apiRequest<Invoice[] | { items: Invoice[] }>(
-          `${base}/invoices?branchId=${context.branchId}&limit=100`,
+        loadSource(
+          "الفواتير المعلقة",
+          "finance.invoices.read",
+          apiRequest<Invoice[] | { items: Invoice[] }>(
+            `${base}/invoices?branchId=${context.branchId}&limit=100`,
+          ).then((response) => list<Invoice>(response.data)),
+          [] as Invoice[],
         ),
-        apiRequest<Menu>(menuPath).catch((reason) =>
-          isNotFound(reason) ? undefined : Promise.reject(reason),
+        loadSource<Menu | undefined>(
+          "قائمة وجبات اليوم",
+          "restaurant.menu.read",
+          apiRequest<Menu>(menuPath)
+            .then((response) => response.data)
+            .catch((reason) =>
+              isNotFound(reason) ? undefined : Promise.reject(reason),
+            ),
+          undefined,
         ),
-        apiRequest<RetailProduct[] | { items: RetailProduct[] }>(
-          `${base}/retail/sellable-products?branchId=${context.branchId}&limit=200`,
+        loadSource(
+          "منتجات المتجر",
+          "sales.checkout",
+          apiRequest<RetailProduct[] | { items: RetailProduct[] }>(
+            `${base}/retail/sellable-products?branchId=${context.branchId}&limit=200`,
+          ).then((response) => list<RetailProduct>(response.data)),
+          [] as RetailProduct[],
         ),
       ]);
-      setMembers(list<Member>(memberResponse.data));
-      setMeals(list<Meal>(mealResponse.data));
-      setCashPoints(list<CashPoint>(pointResponse.data));
-      setShifts(list<Shift>(shiftResponse.data));
-      setInvoices(list<Invoice>(invoiceResponse.data));
-      setMenu(menuResponse?.data);
-      setRetailProducts(list<RetailProduct>(retailResponse.data));
-      const nextShift = list<Shift>(shiftResponse.data).find(
+      const responses = [
+        memberResponse,
+        mealResponse,
+        pointResponse,
+        shiftResponse,
+        invoiceResponse,
+        menuResponse,
+        retailResponse,
+      ];
+      setLoadWarnings(
+        responses.flatMap((response) =>
+          response.warning ? [response.warning] : [],
+        ),
+      );
+      setMembers(memberResponse.data);
+      setMeals(mealResponse.data);
+      setCashPoints(pointResponse.data);
+      setShifts(shiftResponse.data);
+      setInvoices(invoiceResponse.data);
+      setMenu(menuResponse.data);
+      setRetailProducts(retailResponse.data);
+      const nextShift = shiftResponse.data.find(
         (shift) => shift.status === "OPEN",
       );
-      setShiftId((current) => current || nextShift?.id || "");
+      setShiftId((current) =>
+        shiftResponse.data.some(
+          (shift) => shift.id === current && shift.status === "OPEN",
+        )
+          ? current
+          : nextShift?.id || "",
+      );
       setCashPointId(
         (current) =>
-          current || list<CashPoint>(pointResponse.data)[0]?.id || "",
+          pointResponse.data.some((point) => point.id === current)
+            ? current
+            : pointResponse.data[0]?.id || "",
+      );
+      setMemberId((current) =>
+        memberResponse.data.some((member) => member.id === current)
+          ? current
+          : "",
+      );
+      setMealId((current) =>
+        mealResponse.data.some((meal) => meal.id === current) ? current : "",
+      );
+      setProductId((current) =>
+        retailResponse.data.some((product) => product.id === current)
+          ? current
+          : "",
+      );
+      setPaymentInvoiceId((current) =>
+        invoiceResponse.data.some((invoice) => invoice.id === current)
+          ? current
+          : "",
       );
     } catch (reason) {
       setError(humanError(reason, "تعذر تجهيز بيانات نقطة البيع."));
@@ -342,18 +423,29 @@ export function CashierWorkstation() {
         </Badge>
       </header>
       {error && <p role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {loadWarnings.length > 0 && (
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-bold">تم تحميل نقطة البيع، لكن تعذر تحديث بعض البيانات:</p>
+          <ul className="mt-2 list-inside list-disc space-y-1">
+            {loadWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {missing.length ? (
         <Card>
           <CardContent className="p-5">
             <h2 className="font-black">صلاحيات مطلوبة لإكمال محطة الكاشير</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               تُخفى الأفعال غير المسموح بها. أضف الصلاحيات التالية لهذا الموظف
-              وعلى الفرع الحالي ليعمل المسار كاملًا:
+              وعلى الفرع الحالي ليعمل المسار كاملًا. ستجدها بالأسماء نفسها في
+              شاشة المسميات الوظيفية والصلاحيات:
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {missing.map((permission) => (
-                <Badge key={permission} variant="outline" dir="ltr">
-                  {permission}
+                <Badge key={permission} variant="outline">
+                  {permissionArabicLabel(permission)}
                 </Badge>
               ))}
             </div>
@@ -626,6 +718,27 @@ function isNotFound(value: unknown) {
     "problem" in value &&
     Number((value as { problem?: { status?: number } }).problem?.status) === 404
   );
+}
+async function loadSource<T>(
+  label: string,
+  permission: string,
+  operation: Promise<T>,
+  fallback: T,
+): Promise<{ data: T; warning?: string }> {
+  try {
+    return { data: await operation };
+  } catch (reason) {
+    if (reason instanceof ApiError && reason.problem.status === 403) {
+      return {
+        data: fallback,
+        warning: `${label}: تأكد من منح صلاحية «${permissionArabicLabel(permission)}» على الفرع الحالي.`,
+      };
+    }
+    return {
+      data: fallback,
+      warning: `${label}: ${humanError(reason, `تعذر تحميل ${label}.`)}`,
+    };
+  }
 }
 function todayRiyadh() {
   const parts = new Intl.DateTimeFormat("en-CA", {
