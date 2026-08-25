@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react"
-import { ChefHat, ClipboardList, Clock3, Flame, MapPin, PackageOpen, Plus, Save, Send, ShoppingBag, Trash2, UserRound } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react"
+import { Check, ChefHat, ClipboardList, Clock3, Flame, Loader2, MapPin, PackageOpen, Plus, Save, Search, Send, ShoppingBag, Trash2, UserRound, X } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { DateTimeInput } from "@/components/date-time-input"
 import { Badge } from "@/components/ui/badge"
@@ -13,14 +13,15 @@ import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 
 type Row = Record<string, unknown>
-type Meal = Row & { id: string; name: string; code: string; categoryId: string; kind?: string; status?: string; nutrition?: Nutrition; allergens?: string[] }
+type MealPortionClass = "STANDARD_150G" | "LARGE_200G" | "UNRESTRICTED"
+type Meal = Row & { id: string; name: string; code: string; categoryId: string; kind?: string; status?: string; portionClass?: MealPortionClass; nutrition?: Nutrition; allergens?: string[] }
 type Nutrition = { caloriesKcal: number; proteinGrams: number; carbohydratesGrams: number; fatGrams: number; fiberGrams: number; sugarGrams: number; sodiumMilligrams: number }
 type MenuItem = { mealId: string; enabled: boolean; availableQuantity?: number; specialPriceMinor?: string }
 type Menu = { businessDate: string; status: "DRAFT" | "PUBLISHED" | "CLOSED"; version: number; items: MenuItem[] }
 type OrderLine = { id?: string; quote?: { targetName?: string; targetCode?: string; quantity?: number | string } }
 type RestaurantOrder = Row & { id: string; branchId: string; status: string; sourceType?: string; salesOrderId?: string; subscriptionId?: string; memberName?: string; memberNumber?: string; createdAt?: string; grossMinor?: string; currency?: string; version: number; lines?: OrderLine[] }
-type MemberOption = { id: string; name: string; memberNumber: string; status?: string }
-type SubscriptionOption = { id: string; memberId: string; subscriptionNumber: string; status: string; commercialSnapshot?: { packageName?: string; fulfillmentKind?: string } }
+type MemberOption = { id: string; name: string; memberNumber: string; legacyMemberNumber?: string; phoneE164?: string; nationalId?: string; contacts?: Array<{ type?: string; value?: string; isPrimary?: boolean }>; status?: string }
+type SubscriptionOption = { id: string; memberId: string; subscriptionNumber: string; status: string; commercialSnapshot?: { packageName?: string; fulfillmentKind?: string }; entitlements?: Array<{ serviceCodeSnapshot?: string; fulfillmentKind?: string; visitAllowance?: number; visitsUsed?: number }> }
 
 const emptyNutrition: Nutrition = { caloriesKcal: 0, proteinGrams: 0, carbohydratesGrams: 0, fatGrams: 0, fiberGrams: 0, sugarGrams: 0, sodiumMilligrams: 0 }
 
@@ -32,9 +33,10 @@ export function RestaurantManagementPage() {
   const [categories, setCategories] = useState<Row[]>([])
   const [meals, setMeals] = useState<Meal[]>([])
   const [menu, setMenu] = useState<Menu | undefined>()
+  const [redemptionMenu, setRedemptionMenu] = useState<Menu | undefined>()
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [orders, setOrders] = useState<RestaurantOrder[]>([])
-  const [members, setMembers] = useState<MemberOption[]>([])
+  const [redemptionMemberSelection, setRedemptionMemberSelection] = useState<{ organizationId: string; branchId: string; member?: MemberOption }>({ organizationId: "", branchId: "" })
   const [subscriptions, setSubscriptions] = useState<SubscriptionOption[]>([])
   const [kitchenScope, setKitchenScope] = useState<"CURRENT" | "ALL">("CURRENT")
   const [loading, setLoading] = useState(hasRuntimeApi())
@@ -64,6 +66,8 @@ export function RestaurantManagementPage() {
   const canPrepareOrders = context.canAccess(["restaurant.orders.prepare"])
   const effectiveKitchenScope = canReadAllRestaurantBranches ? kitchenScope : "CURRENT"
   const activeTab = availableTabs.some(item => item.key === tab) ? tab : availableTabs[0]?.key
+  const redemptionMember = redemptionMemberSelection.organizationId === context.organizationId && redemptionMemberSelection.branchId === context.branchId ? redemptionMemberSelection.member : undefined
+  const scopedRedemptionForm = redemptionMember ? redemptionForm : { ...redemptionForm, memberId: "", subscriptionId: "" }
 
   async function load() {
     if (!hasRuntimeApi() || !context.organizationId || !context.branchId) { setLoading(false); return }
@@ -75,17 +79,19 @@ export function RestaurantManagementPage() {
         apiRequest<Meal[] | { items: Meal[] }>(`${base}/restaurant/meals?branchId=${encodeURIComponent(context.branchId)}&limit=100`),
       ]) : [{ data: [] as Row[] }, { data: [] as Meal[] }]
       const orderBranch = effectiveKitchenScope === "ALL" ? "" : `&branchId=${encodeURIComponent(context.branchId)}`
-      const [orderResult, menuResult, memberResult] = await Promise.allSettled([
+      const redemptionDate = todayRiyadh()
+      const [orderResult, menuResult, redemptionMenuResult] = await Promise.allSettled([
         canReadOrders ? apiRequest<RestaurantOrder[] | { items: RestaurantOrder[] }>(`${base}/restaurant-orders?limit=100${orderBranch}`) : Promise.resolve({ data: [] as RestaurantOrder[] }),
         canReadMenu ? apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${date}`).catch(reason => isNotFound(reason) ? undefined : Promise.reject(reason)) : Promise.resolve(undefined),
-        canRedeemMealPlans ? apiRequest<MemberOption[] | { items: MemberOption[] }>(`${base}/members?branchId=${encodeURIComponent(context.branchId)}&status=ACTIVE&limit=100`) : Promise.resolve({ data: [] as MemberOption[] }),
+        canRedeemMealPlans && date !== redemptionDate ? apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${redemptionDate}`).catch(reason => isNotFound(reason) ? undefined : Promise.reject(reason)) : Promise.resolve(undefined),
       ])
       const nextCategories = list(categoryResponse.data)
       const nextMeals = list(mealResponse.data) as Meal[]
       const currentMenu = menuResult.status === "fulfilled" ? menuResult.value?.data : undefined
+      const currentRedemptionMenu = date === redemptionDate ? currentMenu : redemptionMenuResult.status === "fulfilled" ? redemptionMenuResult.value?.data : undefined
       if (orderResult.status === "rejected") throw orderResult.reason
-      if (memberResult.status === "rejected") throw memberResult.reason
-      setCategories(nextCategories); setMeals(nextMeals); setOrders(orderList(orderResult.value.data)); setMembers(list(memberResult.value.data) as MemberOption[]); setMenu(currentMenu)
+      if (redemptionMenuResult.status === "rejected") throw redemptionMenuResult.reason
+      setCategories(nextCategories); setMeals(nextMeals); setOrders(orderList(orderResult.value.data)); setMenu(currentMenu); setRedemptionMenu(currentRedemptionMenu)
       setMenuItems(currentMenu?.items ?? [])
       setMealForm(current => current.categoryId || !nextCategories[0]?.id ? current : { ...current, categoryId: String(nextCategories[0].id) })
     } catch (reason) { setError(humanError(reason, "تعذر تحميل بيانات المطعم.")) }
@@ -99,21 +105,21 @@ export function RestaurantManagementPage() {
     let active = true
     const frame = requestAnimationFrame(() => {
       setSubscriptions([])
-      setRedemptionForm(current => ({ ...current, subscriptionId: "" }))
-      if (!hasRuntimeApi() || !context.organizationId || !context.branchId || !canRedeemMealPlans || !redemptionForm.memberId) return
-      void apiRequest<SubscriptionOption[] | { items: SubscriptionOption[] }>(`/organizations/${context.organizationId}/subscriptions?memberId=${encodeURIComponent(redemptionForm.memberId)}&branchId=${encodeURIComponent(context.branchId)}&limit=100`)
+      setRedemptionForm(current => ({ ...current, subscriptionId: "", mealId: "" }))
+      if (!hasRuntimeApi() || !context.organizationId || !context.branchId || !canRedeemMealPlans || !redemptionMember?.id) return
+      void apiRequest<SubscriptionOption[] | { items: SubscriptionOption[] }>(`/organizations/${context.organizationId}/subscriptions?memberId=${encodeURIComponent(redemptionMember.id)}&branchId=${encodeURIComponent(context.branchId)}&limit=100`)
         .then(response => {
           if (!active) return
           const eligible = (list(response.data) as SubscriptionOption[]).filter(subscription =>
             ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(subscription.status) && subscription.commercialSnapshot?.fulfillmentKind === "MEAL_PLAN",
           )
           setSubscriptions(eligible)
-          setRedemptionForm(current => ({ ...current, subscriptionId: eligible[0]?.id ?? "" }))
+          setRedemptionForm(current => ({ ...current, subscriptionId: eligible[0]?.id ?? "", mealId: "" }))
         })
         .catch(reason => { if (active) setError(humanError(reason, "تعذر تحميل خطط الوجبات النشطة لهذا العضو.")) })
     })
     return () => { active = false; cancelAnimationFrame(frame) }
-  }, [canRedeemMealPlans, context.branchId, context.organizationId, redemptionForm.memberId])
+  }, [canRedeemMealPlans, context.branchId, context.organizationId, redemptionMember?.id])
 
   function setMealField(key: string, value: string | boolean) { setMealForm(current => ({ ...current, [key]: value } as typeof current)) }
   function addMenuMeal(mealId: string) { setMenuItems(current => current.some(item => item.mealId === mealId) ? current : [...current, { mealId, enabled: true }]) }
@@ -153,7 +159,7 @@ export function RestaurantManagementPage() {
         active = (await apiRequest<Menu>(path, { method: "PUT", body: JSON.stringify({ expectedVersion: active.version, items: normalized }) })).data
         if (active.status === "DRAFT") active = (await apiRequest<Menu>(`${path}/publications`, { method: "POST", body: JSON.stringify({ expectedVersion: active.version }) })).data
       }
-      setMenu(active); setMenuItems(active.items); toast.success("تم نشر قائمة اليوم وتحديث ما يظهر للمشتركين.")
+      setMenu(active); if (date === todayRiyadh()) setRedemptionMenu(active); setMenuItems(active.items); toast.success("تم نشر قائمة اليوم وتحديث ما يظهر للمشتركين.")
     } catch (reason) { setError(humanError(reason, "تعذر حفظ قائمة اليوم.")) } finally { setSaving(false) }
   }
 
@@ -163,7 +169,7 @@ export function RestaurantManagementPage() {
     try {
       const hiddenItems = menuItems.map(item => ({ mealId: item.mealId, enabled: false, ...(item.availableQuantity === undefined ? {} : { availableQuantity: item.availableQuantity }), ...(item.specialPriceMinor === undefined ? {} : { specialPriceMinor: item.specialPriceMinor }) }))
       const response = await apiRequest<Menu>(`/organizations/${context.organizationId}/branches/${context.branchId}/daily-menus/${date}`, { method: "PUT", body: JSON.stringify({ expectedVersion: menu.version, items: hiddenItems }) })
-      setMenu(response.data); setMenuItems(response.data.items); toast.success("تم إيقاف عرض قائمة اليوم للمشتركين. يمكنك إعادة تفعيل أي وجبة ونشر التحديث في أي وقت.")
+      setMenu(response.data); if (date === todayRiyadh()) setRedemptionMenu(response.data); setMenuItems(response.data.items); toast.success("تم إيقاف عرض قائمة اليوم للمشتركين. يمكنك إعادة تفعيل أي وجبة ونشر التحديث في أي وقت.")
     } catch (reason) { setError(humanError(reason, "تعذر إيقاف عرض القائمة.")) } finally { setSaving(false) }
   }
 
@@ -193,9 +199,9 @@ export function RestaurantManagementPage() {
   }
 
   return <div className="fade-up space-y-5">
-    <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><div className="flex gap-2">{availableTabs.map(item => <Button key={item.key} variant={activeTab === item.key ? "default" : "outline"} onClick={() => setTab(item.key)}><item.icon />{item.label}</Button>)}</div></header>
+    <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><nav aria-label="أقسام تشغيل المطعم" className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:flex-wrap">{availableTabs.map(item => <Button key={item.key} className="w-full justify-center lg:w-auto" variant={activeTab === item.key ? "default" : "outline"} onClick={() => setTab(item.key)}><item.icon />{item.label}</Button>)}</nav></header>
     {error && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel members={members} subscriptions={subscriptions} meals={meals} form={redemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
+    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel member={redemptionMember} setMember={member => setRedemptionMemberSelection({ organizationId: context.organizationId, branchId: context.branchId, ...(member ? { member } : {}) })} subscriptions={subscriptions} meals={meals} menu={redemptionMenu} form={scopedRedemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
   </div>
 }
 
@@ -242,19 +248,97 @@ function CatalogPanel({ categories, categoryName, meals, mealForm, setMealField,
   </div>
 }
 
-function MealPlanRedemptionPanel({ members, subscriptions, meals, form, setForm, redeem, saving }: { members: MemberOption[]; subscriptions: SubscriptionOption[]; meals: Meal[]; form: { memberId: string; subscriptionId: string; mealId: string; quantity: string }; setForm: Dispatch<SetStateAction<{ memberId: string; subscriptionId: string; mealId: string; quantity: string }>>; redeem: () => void; saving: boolean }) {
-  const redeemableMeals = meals.filter(meal => (meal.kind === undefined || meal.kind === "MEAL") && (meal.status === undefined || meal.status === "ACTIVE"))
-  const selectedMember = members.find(member => member.id === form.memberId)
+function MealPlanRedemptionPanel({ member, setMember, subscriptions, meals, menu, form, setForm, redeem, saving }: { member?: MemberOption; setMember: (member?: MemberOption) => void; subscriptions: SubscriptionOption[]; meals: Meal[]; menu?: Menu; form: { memberId: string; subscriptionId: string; mealId: string; quantity: string }; setForm: Dispatch<SetStateAction<{ memberId: string; subscriptionId: string; mealId: string; quantity: string }>>; redeem: () => void; saving: boolean }) {
+  const context = useAppContext()
+  const searchRoot = useRef<HTMLDivElement>(null)
+  const [query, setQuery] = useState("")
+  const [results, setResults] = useState<MemberOption[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchError, setSearchError] = useState("")
   const selectedSubscription = subscriptions.find(subscription => subscription.id === form.subscriptionId)
+  const requiredPortionClass = mealPlanPortionClass(selectedSubscription)
+  const publishedMealIds = new Set(menu?.status === "PUBLISHED" ? menu.items.filter(item => item.enabled).map(item => item.mealId) : [])
+  const redeemableMeals = meals.filter(meal =>
+    (meal.kind === undefined || meal.kind === "MEAL") &&
+    (meal.status === undefined || meal.status === "ACTIVE") &&
+    publishedMealIds.has(meal.id) &&
+    requiredPortionClass !== undefined && meal.portionClass === requiredPortionClass,
+  )
+  const selectedEntitlement = selectedSubscription?.entitlements?.find(entitlement => entitlement.fulfillmentKind === "MEAL_PLAN")
+  const remainingMeals = selectedEntitlement?.visitAllowance === undefined ? undefined : Math.max(0, selectedEntitlement.visitAllowance - (selectedEntitlement.visitsUsed ?? 0))
+
+  useEffect(() => {
+    const search = query.trim()
+    if (member || search.length < 2 || !context.organizationId || !context.branchId || !hasRuntimeApi()) {
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setSearching(true)
+      setSearchError("")
+      void apiRequest<MemberOption[] | { items: MemberOption[] }>(`/organizations/${context.organizationId}/members?branchId=${encodeURIComponent(context.branchId)}&status=ACTIVE&search=${encodeURIComponent(search)}&limit=20`)
+        .then(response => {
+          if (cancelled) return
+          setResults((list(response.data) as MemberOption[]).filter(item => item.id && item.name))
+          setSearchOpen(true)
+        })
+        .catch(reason => {
+          if (cancelled) return
+          setResults([])
+          setSearchError(humanError(reason, "تعذر البحث عن الأعضاء في الفرع الحالي."))
+          setSearchOpen(true)
+        })
+        .finally(() => { if (!cancelled) setSearching(false) })
+    }, 300)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [context.branchId, context.organizationId, member, query])
+
+  useEffect(() => {
+    function close(event: MouseEvent) { if (!searchRoot.current?.contains(event.target as Node)) setSearchOpen(false) }
+    function escape(event: KeyboardEvent) { if (event.key === "Escape") setSearchOpen(false) }
+    document.addEventListener("mousedown", close)
+    document.addEventListener("keydown", escape)
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape) }
+  }, [])
+
+  function selectMember(selected: MemberOption) {
+    setMember(selected)
+    setQuery("")
+    setResults([])
+    setSearching(false)
+    setSearchOpen(false)
+    setSearchError("")
+    setForm(current => ({ ...current, memberId: selected.id, subscriptionId: "", mealId: "" }))
+  }
+
+  function clearMember(nextQuery = "") {
+    setMember(undefined)
+    setQuery(nextQuery)
+    setResults([])
+    setSearching(nextQuery.trim().length >= 2)
+    setSearchError("")
+    setSearchOpen(nextQuery.trim().length >= 2)
+    setForm(current => ({ ...current, memberId: "", subscriptionId: "", mealId: "" }))
+  }
+
   return <Card><CardContent className="p-5 sm:p-6">
     <div className="flex flex-col justify-between gap-3 border-b pb-5 sm:flex-row sm:items-start"><div><h2 className="text-lg font-black">صرف وجبة من خطة عضو</h2><p className="mt-1 max-w-2xl text-sm leading-7 text-muted-foreground">اختر العضو أولًا، ثم خطته النشطة والوجبة والكمية. عند التأكيد يُخصم الرصيد مرة واحدة ويصل الطلب مباشرة إلى لوحة المطبخ.</p></div><Badge variant="outline" className="w-fit">الفرع الحالي فقط</Badge></div>
     <div className="mt-5 grid gap-4 lg:grid-cols-2">
-      <label className="grid gap-2 text-sm font-bold"><span>العضو</span><select value={form.memberId} onChange={event => setForm(current => ({ ...current, memberId: event.target.value, subscriptionId: "" }))} className="h-12 rounded-xl border bg-background px-3"><option value="">اختر بالاسم ورقم العضوية</option>{members.map(member => <option key={member.id} value={member.id}>{member.name} — {member.memberNumber}</option>)}</select></label>
-      <label className="grid gap-2 text-sm font-bold"><span>خطة الوجبات النشطة</span><select value={form.subscriptionId} disabled={!form.memberId || subscriptions.length === 0} onChange={event => setForm(current => ({ ...current, subscriptionId: event.target.value }))} className="h-12 rounded-xl border bg-background px-3"><option value="">{!form.memberId ? "اختر العضو أولًا" : subscriptions.length === 0 ? "لا توجد خطة وجبات نشطة لهذا العضو" : "اختر الخطة"}</option>{subscriptions.map(subscription => <option key={subscription.id} value={subscription.id}>{subscription.commercialSnapshot?.packageName ?? "خطة وجبات"} — {subscription.subscriptionNumber}</option>)}</select></label>
-      <label className="grid gap-2 text-sm font-bold"><span>الوجبة</span><select value={form.mealId} onChange={event => setForm(current => ({ ...current, mealId: event.target.value }))} className="h-12 rounded-xl border bg-background px-3"><option value="">اختر الوجبة</option>{redeemableMeals.map(meal => <option key={meal.id} value={meal.id}>{meal.name}</option>)}</select></label>
+      <label className="grid gap-2 text-sm font-bold"><span>ابحث واختر العضو</span><div ref={searchRoot} className="relative">
+        {searching ? <Loader2 className="pointer-events-none absolute right-3 top-1/2 z-10 size-4 -translate-y-1/2 animate-spin text-primary" /> : <Search className="pointer-events-none absolute right-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />}
+        <input role="combobox" aria-expanded={searchOpen && !member && query.trim().length >= 2} aria-controls="meal-plan-member-results" aria-autocomplete="list" autoComplete="off" className="h-12 w-full rounded-xl border bg-background pr-10 pl-10 text-sm font-normal outline-none transition focus:border-primary focus:ring-3 focus:ring-primary/15" value={member ? `${member.name} — ${member.memberNumber}` : query} placeholder="الاسم أو الجوال أو الهوية أو العضوية أو رقم النظام أو الباركود" onFocus={() => setSearchOpen(true)} onChange={event => clearMember(event.target.value)} />
+        {(member || query) && <button type="button" onClick={() => clearMember()} className="absolute left-2 top-1/2 z-10 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label="مسح العضو المختار"><X className="size-4" /></button>}
+        {searchOpen && !member && query.trim().length >= 2 && <div id="meal-plan-member-results" role="listbox" className="absolute inset-x-0 top-[calc(100%+.45rem)] z-40 max-h-72 overflow-y-auto rounded-2xl border bg-popover p-2 shadow-2xl">
+          {searching ? <div className="grid min-h-24 place-items-center"><Loader2 className="animate-spin text-primary" /></div> : results.length ? results.map(result => <button key={result.id} type="button" role="option" aria-selected={false} onClick={() => selectMember(result)} className="flex w-full items-center gap-3 rounded-xl p-3 text-right transition hover:bg-secondary"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 font-black text-primary">{result.name.charAt(0) || "ع"}</span><span className="min-w-0 flex-1"><span className="block truncate font-black">{result.name}</span><span className="mt-1 block truncate text-[11px] font-normal text-muted-foreground" dir="ltr">{memberSecondary(result)}</span></span><Check className="size-4 opacity-0" /></button>) : <p className="p-5 text-center text-xs font-normal leading-6 text-muted-foreground">{searchError || "لا توجد نتائج مطابقة في الفرع الحالي."}</p>}
+        </div>}
+      </div><span className="text-[10px] font-normal leading-5 text-muted-foreground">{member ? `تم اختيار ${member.name}.` : query.trim().length > 0 && query.trim().length < 2 ? "اكتب حرفين أو رقمين على الأقل لبدء البحث." : "يبحث النظام في أعضاء الفرع الحالي فقط."}</span></label>
+      <label className="grid gap-2 text-sm font-bold"><span>خطة الوجبات النشطة</span><select value={form.subscriptionId} disabled={!form.memberId || subscriptions.length === 0} onChange={event => setForm(current => ({ ...current, subscriptionId: event.target.value, mealId: "" }))} className="h-12 rounded-xl border bg-background px-3"><option value="">{!form.memberId ? "اختر العضو أولًا" : subscriptions.length === 0 ? "لا توجد خطة وجبات نشطة لهذا العضو" : "اختر الخطة"}</option>{subscriptions.map(subscription => <option key={subscription.id} value={subscription.id}>{subscription.commercialSnapshot?.packageName ?? "خطة وجبات"} — {subscription.subscriptionNumber}</option>)}</select></label>
+      <label className="grid gap-2 text-sm font-bold"><span>الوجبة</span><select value={form.mealId} disabled={!selectedSubscription || menu?.status !== "PUBLISHED" || redeemableMeals.length === 0} onChange={event => setForm(current => ({ ...current, mealId: event.target.value }))} className="h-12 rounded-xl border bg-background px-3"><option value="">{!selectedSubscription ? "اختر الخطة أولًا" : menu?.status !== "PUBLISHED" ? "يجب نشر قائمة اليوم أولًا" : redeemableMeals.length === 0 ? "لا توجد وجبة منشورة متوافقة مع الخطة" : "اختر الوجبة"}</option>{redeemableMeals.map(meal => <option key={meal.id} value={meal.id}>{meal.name}</option>)}</select></label>
       <label className="grid gap-2 text-sm font-bold"><span>الكمية</span><Input type="number" min="1" max="100" step="1" value={form.quantity} onChange={event => setForm(current => ({ ...current, quantity: event.target.value }))} /></label>
     </div>
-    {selectedMember && selectedSubscription ? <div className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm"><p className="font-black">ملخص العملية</p><p className="mt-2 text-muted-foreground">العضو: <span className="font-bold text-foreground">{selectedMember.name} — {selectedMember.memberNumber}</span></p><p className="mt-1 text-muted-foreground">الخطة: <span className="font-bold text-foreground">{selectedSubscription.commercialSnapshot?.packageName ?? selectedSubscription.subscriptionNumber}</span></p></div> : null}
+    {menu?.status !== "PUBLISHED" ? <div role="status" className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm leading-7 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"><p className="font-black">لا توجد قائمة يوم منشورة لهذا الفرع.</p><p>افتح تبويب «قائمة اليوم»، أضف الوجبات وحدد أسعارها ثم انشر القائمة قبل صرف أي وجبة.</p></div> : selectedSubscription && requiredPortionClass === undefined ? <div role="status" className="mt-5 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">الخطة المختارة لا تحدد حجم وجبة مدعومًا. راجع خدمة الباقة قبل الصرف.</div> : selectedSubscription && redeemableMeals.length === 0 ? <div role="status" className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">قائمة اليوم منشورة، لكن لا تحتوي على وجبة {portionLabel(requiredPortionClass)} متاحة لهذه الخطة.</div> : null}
+    {member && selectedSubscription ? <div className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm"><p className="font-black">ملخص العملية</p><p className="mt-2 text-muted-foreground">العضو: <span className="font-bold text-foreground">{member.name} — {member.memberNumber}</span></p><p className="mt-1 text-muted-foreground">الخطة: <span className="font-bold text-foreground">{selectedSubscription.commercialSnapshot?.packageName ?? selectedSubscription.subscriptionNumber}</span></p>{requiredPortionClass ? <p className="mt-1 text-muted-foreground">الحجم المسموح: <span className="font-bold text-foreground">{portionLabel(requiredPortionClass)}</span></p> : null}{remainingMeals !== undefined ? <p className="mt-1 text-muted-foreground">الرصيد المتبقي: <span className="font-bold text-foreground">{remainingMeals} وجبة</span></p> : null}</div> : null}
     <Button className="mt-5" disabled={saving || !form.memberId || !form.subscriptionId || !form.mealId || number(form.quantity) < 1} onClick={redeem}><PackageOpen />صرف الوجبة وإرسالها للمطبخ</Button>
   </CardContent></Card>
 }
@@ -276,6 +360,9 @@ function OrderCard({ order, branch, canPrepare, canManage, saving, action, actio
 }
 
 function list(value: unknown): Row[] { if (Array.isArray(value)) return value.filter((item): item is Row => Boolean(item) && typeof item === "object"); if (value && typeof value === "object" && Array.isArray((value as { items?: unknown }).items)) return (value as { items: Row[] }).items; return [] }
+function memberSecondary(member: MemberOption): string { const phone = member.phoneE164 ?? member.contacts?.find(contact => contact.type === "PHONE" && contact.isPrimary)?.value ?? member.contacts?.find(contact => contact.type === "PHONE")?.value; return [member.memberNumber, member.legacyMemberNumber ? `رقم النظام ${member.legacyMemberNumber}` : undefined, phone].filter(Boolean).join(" · ") || "لا توجد بيانات تعريف إضافية" }
+function mealPlanPortionClass(subscription?: SubscriptionOption): Exclude<MealPortionClass, "UNRESTRICTED"> | undefined { const code = subscription?.entitlements?.find(entitlement => entitlement.fulfillmentKind === "MEAL_PLAN")?.serviceCodeSnapshot; return code === "DIET_MEAL_150G" ? "STANDARD_150G" : code === "DIET_MEAL_200G" ? "LARGE_200G" : undefined }
+function portionLabel(portion?: MealPortionClass): string { return portion === "STANDARD_150G" ? "150 جم" : portion === "LARGE_200G" ? "200 جم" : "محدد" }
 function orderList(value: unknown): RestaurantOrder[] { return list(value).filter((item): item is RestaurantOrder => typeof item.id === "string" && typeof item.branchId === "string" && typeof item.status === "string" && typeof item.version === "number") }
 function number(value: unknown): number { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0 }
 function priceBreakdown(amount: string, taxRatePercent: string, taxInclusive: boolean): { net: number; tax: number; gross: number } | undefined { if (amount.trim() === "" || taxRatePercent.trim() === "") return undefined; const entered = Number(amount); const rate = Number(taxRatePercent); if (!Number.isFinite(entered) || entered < 0 || !Number.isFinite(rate) || rate < 0 || rate > 100) return undefined; const factor = 1 + rate / 100; const net = taxInclusive ? entered / factor : entered; const tax = net * rate / 100; return { net, tax, gross: net + tax } }

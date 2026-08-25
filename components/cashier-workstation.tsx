@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Banknote,
+  Check,
   CircleDollarSign,
   CreditCard,
   Loader2,
   ReceiptText,
+  Search,
   ShoppingCart,
+  UserRound,
+  X,
 } from "lucide-react";
 import { useAppContext } from "@/components/app-context";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +50,10 @@ type Member = {
   name?: string;
   fullNameAr?: string;
   memberNumber?: string;
+  legacyMemberNumber?: string;
+  phoneE164?: string;
+  nationalId?: string;
+  contacts?: Array<{ type?: string; value?: string; isPrimary?: boolean }>;
 };
 
 const cashierPermissions = [
@@ -64,14 +72,14 @@ const cashierPermissions = [
 export function CashierWorkstation() {
   const context = useAppContext();
   const toast = useToast();
-  const [members, setMembers] = useState<Member[]>([]);
   const [meals, setMeals] = useState<Meal[]>([]);
   const [retailProducts, setRetailProducts] = useState<RetailProduct[]>([]);
   const [menu, setMenu] = useState<Menu>();
   const [cashPoints, setCashPoints] = useState<CashPoint[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [memberId, setMemberId] = useState("");
+  const [customerMode, setCustomerMode] = useState<"GUEST" | "MEMBER">("GUEST");
+  const [memberSelection, setMemberSelection] = useState<{ organizationId: string; branchId: string; member?: Member }>({ organizationId: "", branchId: "" });
   const [mealId, setMealId] = useState("");
   const [productId, setProductId] = useState("");
   const [saleKind, setSaleKind] = useState<"MEAL" | "RETAIL">("MEAL");
@@ -100,6 +108,7 @@ export function CashierWorkstation() {
     [shifts],
   );
   const selectedShift = openShifts.find((shift) => shift.id === shiftId);
+  const selectedMember = memberSelection.organizationId === context.organizationId && memberSelection.branchId === context.branchId ? memberSelection.member : undefined;
   const publishedMeals = useMemo(() => {
     const allowed = new Set(
       (menu?.status === "PUBLISHED" ? menu.items : [])
@@ -121,7 +130,6 @@ export function CashierWorkstation() {
       const base = `/organizations/${context.organizationId}`;
       const menuPath = `${base}/branches/${context.branchId}/daily-menus/${todayRiyadh()}`;
       const [
-        memberResponse,
         mealResponse,
         pointResponse,
         shiftResponse,
@@ -129,14 +137,6 @@ export function CashierWorkstation() {
         menuResponse,
         retailResponse,
       ] = await Promise.all([
-        loadSource(
-          "الأعضاء",
-          "members.read",
-          apiRequest<Member[] | { items: Member[] }>(
-            `${base}/members?branchId=${context.branchId}&limit=100`,
-          ).then((response) => list<Member>(response.data)),
-          [] as Member[],
-        ),
         loadSource(
           "وجبات المطعم",
           "restaurant.catalog.read",
@@ -189,7 +189,6 @@ export function CashierWorkstation() {
         ),
       ]);
       const responses = [
-        memberResponse,
         mealResponse,
         pointResponse,
         shiftResponse,
@@ -202,7 +201,6 @@ export function CashierWorkstation() {
           response.warning ? [response.warning] : [],
         ),
       );
-      setMembers(memberResponse.data);
       setMeals(mealResponse.data);
       setCashPoints(pointResponse.data);
       setShifts(shiftResponse.data);
@@ -224,11 +222,6 @@ export function CashierWorkstation() {
           pointResponse.data.some((point) => point.id === current)
             ? current
             : pointResponse.data[0]?.id || "",
-      );
-      setMemberId((current) =>
-        memberResponse.data.some((member) => member.id === current)
-          ? current
-          : "",
       );
       setMealId((current) =>
         mealResponse.data.some((meal) => meal.id === current) ? current : "",
@@ -306,6 +299,10 @@ export function CashierWorkstation() {
     const targetId = saleKind === "MEAL" ? mealId : productId;
     if (!context.organizationId || !context.branchId || !targetId)
       return;
+    if (customerMode === "MEMBER" && !selectedMember) {
+      setError("ابحث عن العضو واختره، أو بدّل إلى «بيع لزائر».");
+      return;
+    }
     if (method === "CASH" && selectedShift === undefined) {
       setError("اختر وردية صندوق مفتوحة قبل تحصيل النقد.");
       return;
@@ -320,7 +317,7 @@ export function CashierWorkstation() {
           idempotencyKey: createIdempotencyKey(),
           body: JSON.stringify({
             sellingBranchId: context.branchId,
-            ...(memberId ? { memberId } : {}),
+            ...(customerMode === "MEMBER" && selectedMember ? { memberId: selectedMember.id } : {}),
             memberSegment: "OTHER",
             lines: [
               {
@@ -605,20 +602,22 @@ export function CashierWorkstation() {
                 </div>
               </div>
               <div className="mt-4 flex gap-2"><Button type="button" variant={saleKind === "MEAL" ? "default" : "outline"} onClick={() => setSaleKind("MEAL")}>وجبة من قائمة اليوم</Button><Button type="button" variant={saleKind === "RETAIL" ? "default" : "outline"} onClick={() => setSaleKind("RETAIL")}>منتج من المتجر</Button></div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <select
-                  value={memberId}
-                  onChange={(event) => setMemberId(event.target.value)}
-                  className="h-11 rounded-xl border bg-background px-3 text-sm"
-                >
-                  <option value="">زائر / بيع بدون ربط بعضو</option>
-                  {members.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name ?? member.fullNameAr ?? "عضو"} —{" "}
-                      {member.memberNumber ?? "بدون رقم عضوية"}
-                    </option>
-                  ))}
-                </select>
+              <CustomerSelector
+                organizationId={context.organizationId}
+                branchId={context.branchId}
+                mode={customerMode}
+                member={selectedMember}
+                onModeChange={(mode) => {
+                  setCustomerMode(mode);
+                  if (mode === "GUEST") setMemberSelection({ organizationId: context.organizationId, branchId: context.branchId });
+                  setError("");
+                }}
+                onMemberChange={(member) => {
+                  setMemberSelection({ organizationId: context.organizationId, branchId: context.branchId, ...(member ? { member } : {}) });
+                  setError("");
+                }}
+              />
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
                 {saleKind === "MEAL" ? <select
                   value={mealId}
                   onChange={(event) => setMealId(event.target.value)}
@@ -646,6 +645,7 @@ export function CashierWorkstation() {
                 disabled={
                   saving ||
                   !(saleKind === "MEAL" ? mealId : productId) ||
+                  (customerMode === "MEMBER" && !selectedMember) ||
                   (method === "CASH" && !selectedShift)
                 }
               >
@@ -663,6 +663,123 @@ export function CashierWorkstation() {
         </>
       )}
     </div>
+  );
+}
+
+function CustomerSelector({
+  organizationId,
+  branchId,
+  mode,
+  member,
+  onModeChange,
+  onMemberChange,
+}: {
+  organizationId: string;
+  branchId: string;
+  mode: "GUEST" | "MEMBER";
+  member?: Member;
+  onModeChange: (mode: "GUEST" | "MEMBER") => void;
+  onMemberChange: (member?: Member) => void;
+}) {
+  const searchRoot = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Member[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchError, setSearchError] = useState("");
+
+  useEffect(() => {
+    const search = query.trim();
+    if (mode !== "MEMBER" || member || search.length < 2 || !organizationId || !branchId || !hasRuntimeApi()) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      setSearchError("");
+      void apiRequest<Member[] | { items: Member[] }>(`/organizations/${organizationId}/members?branchId=${encodeURIComponent(branchId)}&status=ACTIVE&search=${encodeURIComponent(search)}&limit=20`)
+        .then((response) => {
+          if (cancelled) return;
+          setResults(list<Member>(response.data).filter((item) => item.id));
+          setSearchOpen(true);
+        })
+        .catch((reason) => {
+          if (cancelled) return;
+          setResults([]);
+          setSearchError(humanError(reason, "تعذر البحث عن الأعضاء في الفرع الحالي."));
+          setSearchOpen(true);
+        })
+        .finally(() => { if (!cancelled) setSearching(false); });
+    }, 300);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [branchId, member, mode, organizationId, query]);
+
+  useEffect(() => {
+    function close(event: MouseEvent) {
+      if (!searchRoot.current?.contains(event.target as Node)) setSearchOpen(false);
+    }
+    function escape(event: KeyboardEvent) {
+      if (event.key === "Escape") setSearchOpen(false);
+    }
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, []);
+
+  function selectMember(selected: Member) {
+    onMemberChange(selected);
+    setQuery("");
+    setResults([]);
+    setSearchOpen(false);
+    setSearchError("");
+  }
+
+  function changeMode(nextMode: "GUEST" | "MEMBER") {
+    if (nextMode === "GUEST") {
+      setQuery("");
+      setResults([]);
+      setSearching(false);
+      setSearchOpen(false);
+      setSearchError("");
+    }
+    onModeChange(nextMode);
+  }
+
+  function clearMember(nextQuery = "") {
+    onMemberChange(undefined);
+    setQuery(nextQuery);
+    setResults([]);
+    setSearchError("");
+    setSearchOpen(nextQuery.trim().length >= 2);
+  }
+
+  const memberName = member?.name ?? member?.fullNameAr ?? "عضو";
+  return (
+    <section className="mt-4 rounded-2xl border bg-secondary/20 p-3 sm:p-4">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <p className="text-sm font-black">العميل</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">اربط البيع بعضو، أو أكمل العملية كبيع مباشر لزائر.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:flex">
+          <Button type="button" size="sm" variant={mode === "GUEST" ? "default" : "outline"} aria-pressed={mode === "GUEST"} onClick={() => changeMode("GUEST")}><UserRound />بيع لزائر</Button>
+          <Button type="button" size="sm" variant={mode === "MEMBER" ? "default" : "outline"} aria-pressed={mode === "MEMBER"} onClick={() => changeMode("MEMBER")}><Search />بحث عن عضو</Button>
+        </div>
+      </div>
+      {mode === "GUEST" ? (
+        <p className="mt-3 rounded-xl border border-dashed bg-background/60 px-3 py-2.5 text-xs text-muted-foreground">زائر / بيع بدون ربط بعضو. ستُصدر الفاتورة دون إضافتها إلى ملف عضو.</p>
+      ) : (
+        <label className="mt-3 grid gap-2 text-xs font-bold"><span>ابحث واختر العضو</span><div ref={searchRoot} className="relative">
+          {searching ? <Loader2 className="pointer-events-none absolute right-3 top-1/2 z-10 size-4 -translate-y-1/2 animate-spin text-primary" /> : <Search className="pointer-events-none absolute right-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />}
+          <input role="combobox" aria-expanded={searchOpen && !member && query.trim().length >= 2} aria-controls="cashier-member-results" aria-autocomplete="list" autoComplete="off" className="h-11 w-full rounded-xl border bg-background pr-10 pl-10 text-sm font-normal outline-none transition focus:border-primary focus:ring-3 focus:ring-primary/15" value={member ? `${memberName} — ${member.memberNumber ?? "بدون رقم عضوية"}` : query} placeholder="الاسم أو الجوال أو الهوية أو العضوية أو رقم النظام أو الباركود" onFocus={() => setSearchOpen(true)} onChange={(event) => clearMember(event.target.value)} />
+          {(member || query) && <button type="button" onClick={() => clearMember()} className="absolute left-2 top-1/2 z-10 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label="مسح العضو المختار"><X className="size-4" /></button>}
+          {searchOpen && !member && query.trim().length >= 2 && <div id="cashier-member-results" role="listbox" className="absolute inset-x-0 top-[calc(100%+.45rem)] z-40 max-h-72 overflow-y-auto rounded-2xl border bg-popover p-2 shadow-2xl">
+            {searching ? <div className="grid min-h-24 place-items-center"><Loader2 className="animate-spin text-primary" /></div> : results.length ? results.map((result) => { const name = result.name ?? result.fullNameAr ?? "عضو"; return <button key={result.id} type="button" role="option" aria-selected={false} onClick={() => selectMember(result)} className="flex w-full items-center gap-3 rounded-xl p-3 text-right transition hover:bg-secondary"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 font-black text-primary">{name.charAt(0) || "ع"}</span><span className="min-w-0 flex-1"><span className="block truncate font-black">{name}</span><span className="mt-1 block truncate text-[11px] font-normal text-muted-foreground" dir="ltr">{memberSecondary(result)}</span></span><Check className="size-4 opacity-0" /></button>; }) : <p className="p-5 text-center text-xs font-normal leading-6 text-muted-foreground">{searchError || "لا توجد نتائج مطابقة في الفرع الحالي."}</p>}
+          </div>}
+        </div><span className="text-[10px] font-normal leading-5 text-muted-foreground">{member ? `تم اختيار ${memberName}.` : query.trim().length > 0 && query.trim().length < 2 ? "اكتب حرفين أو رقمين على الأقل لبدء البحث." : "يبحث النظام في أعضاء الفرع الحالي فقط."}</span></label>
+      )}
+    </section>
   );
 }
 
@@ -695,6 +812,10 @@ function list<T>(value: unknown): T[] {
         Array.isArray((value as { items?: unknown }).items)
       ? (value as { items: T[] }).items
       : [];
+}
+function memberSecondary(member: Member) {
+  const phone = member.phoneE164 ?? member.contacts?.find((contact) => contact.type === "PHONE" && contact.isPrimary)?.value ?? member.contacts?.find((contact) => contact.type === "PHONE")?.value;
+  return [member.memberNumber, member.legacyMemberNumber ? `رقم النظام ${member.legacyMemberNumber}` : undefined, phone].filter(Boolean).join(" · ") || "لا توجد بيانات تعريف إضافية";
 }
 function outstanding(invoice: Invoice) {
   return Math.max(
