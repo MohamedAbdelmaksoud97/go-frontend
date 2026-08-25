@@ -34,13 +34,13 @@ export function DateTimeInput({ type, className, ...props }: DateTimeInputProps)
         ref={inputRef}
         type={type}
         dir={props.dir ?? "ltr"}
-        className={`pl-12 [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:opacity-0 ${className ?? ""}`}
+        className={`date-time-input w-full min-w-0 appearance-none pr-12 pl-3 text-left [color-scheme:light] dark:[color-scheme:dark] ${className ?? ""}`}
       />
       <button
         type="button"
         onClick={openPicker}
         disabled={props.disabled || props.readOnly}
-        className="absolute left-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+        className="absolute right-2 top-1/2 z-10 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:pointer-events-none"
         aria-label={pickerLabel}
         title={pickerLabel}
       >
