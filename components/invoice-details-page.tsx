@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import Image from "next/image"
 import {
   ArrowRight, BadgePercent, Banknote, Building2, FileText,
   Hash, Loader2, Package, ReceiptText, RefreshCw, RotateCcw, ShoppingBag,
@@ -66,7 +67,8 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
   if (!context.canAccess(["finance.invoices.read"])) return <EmptyState title="لا تملك صلاحية عرض الفواتير" detail="اطلب من مسؤول النظام منحك صلاحية عرض الفواتير في فرعك." />
   if (error || !invoice) return <EmptyState title="تعذر فتح الفاتورة" detail={error || "لم يعد سجل الفاتورة متاحًا."} onRetry={() => setReloadKey(value => value + 1)} />
 
-  return <div className="fade-up space-y-6">
+  return <>
+  <div data-invoice-screen className="fade-up space-y-6">
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div>
         <Link href="/finance" className={buttonVariants({variant:"ghost",className:"mb-3 -mr-3"})}><ArrowRight/>العودة إلى السجلات المالية</Link>
@@ -115,7 +117,79 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
 
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Hash className="text-primary"/>البيانات المرجعية</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Info label="معرّف الفاتورة" value={invoice.id} mono/><Info label="معرّف طلب البيع" value={invoice.orderId} mono/><Info label="إصدار السجل" value={String(invoice.version)}/><Info label="صافي البنود" value={money(invoice.netMinor, invoice.currency)}/><Info label="وقت الإنشاء" value={dateTime(invoice.createdAt)}/><Info label="عملة الفاتورة" value={invoice.currency}/></div>{Object.keys(invoice.taxSnapshot??{}).length>0&&<details className="mt-5 rounded-xl border bg-secondary/20 p-4"><summary className="cursor-pointer font-bold">مرجع الضريبة المحفوظ وقت الإصدار</summary><SnapshotGrid value={invoice.taxSnapshot}/></details>}</CardContent></Card>
   </div>
+  <InvoicePrintSheet invoice={invoice} invoiceType={invoiceType}/>
+  </>
 }
+
+function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; invoiceType: string }) {
+  const dense = invoice.lines.length + invoice.payments.length + invoice.refunds.length > 10
+  return <section data-invoice-print className={`invoice-print-sheet${dense ? " invoice-print-sheet--dense" : ""}`} dir="rtl" aria-label={`نسخة طباعة الفاتورة ${invoice.invoiceNumber}`}>
+    <header className="invoice-print-header">
+      <div className="invoice-print-brand">
+        <Image src="/go-fitness-logo.png" alt="GO Fitness" width={104} height={58} priority/>
+        <div><strong>GO Fitness</strong><span>{invoice.branch.name}</span></div>
+      </div>
+      <div className="invoice-print-title"><p>فاتورة ضريبية</p><h1>{invoice.invoiceNumber}</h1><span>{invoiceType}</span></div>
+    </header>
+
+    <div className="invoice-print-meta">
+      <PrintDatum label="تاريخ الإصدار" value={dateTime(invoice.issuedAt)}/>
+      <PrintDatum label="حالة الفاتورة" value={statusLabel(invoice.status)}/>
+      <PrintDatum label="رقم طلب البيع" value={invoice.order?.orderNumber ?? "—"}/>
+      <PrintDatum label="الفرع" value={`${invoice.branch.name} · ${invoice.branch.code}`}/>
+    </div>
+
+    <div className="invoice-print-parties">
+      <PrintParty title="مقدم الخدمة" rows={[["المنشأة", "GO Fitness"], ["الفرع", invoice.branch.name], ["رمز الفرع", invoice.branch.code]]}/>
+      <PrintParty title="العميل" rows={invoice.member ? [["الاسم", invoice.member.name], ["رقم العضوية", invoice.member.memberNumber], ["الجوال", invoice.member.phone ?? "—"], ["البريد", invoice.member.email ?? "—"]] : [["نوع العميل", invoice.order ? buyerLabel(invoice.order.buyerType) : "عميل نقدي"], ["العضوية", "غير مرتبطة"]]}/>
+    </div>
+
+    <div className="invoice-print-lines">
+      <h2>تفاصيل البنود</h2>
+      <table>
+        <thead><tr><th>#</th><th>البيان</th><th>الكمية</th><th>سعر الوحدة</th><th>الخصم</th><th>الضريبة</th><th>الإجمالي</th></tr></thead>
+        <tbody>{invoice.lines.length ? invoice.lines.map((line, index) => <tr key={line.id}>
+          <td>{index + 1}</td>
+          <td><strong>{line.targetName || line.description}</strong><small>{[line.targetCode, lineTypeLabel(line.lineType)].filter(Boolean).join(" · ")}</small></td>
+          <td>{line.quantity}</td>
+          <td>{money(line.unitNetMinor, invoice.currency)}</td>
+          <td>{money(line.discountMinor, invoice.currency)}</td>
+          <td>{money(line.taxMinor, invoice.currency)}<small>{taxRate(line.taxRateBps)}</small></td>
+          <td><strong>{money(line.grossMinor, invoice.currency)}</strong></td>
+        </tr>) : <tr><td colSpan={7}>لا توجد بنود مسجلة.</td></tr>}</tbody>
+      </table>
+    </div>
+
+    <div className="invoice-print-settlement">
+      <div className="invoice-print-payments">
+        <h2>التحصيل</h2>
+        {invoice.payments.length ? invoice.payments.map(payment => <div key={payment.allocationId} className="invoice-print-payment">
+          <span><strong>{paymentMethodLabel(payment.method)}</strong><small>{payment.externalReference || shortId(payment.id)} · {dateTime(payment.receivedAt)}</small></span>
+          <b>{money(payment.allocationAmountMinor, payment.currency)}</b>
+        </div>) : <p>لم تُسجل دفعات على الفاتورة.</p>}
+        {invoice.refunds.length > 0 && <p className="invoice-print-refund">إجمالي المسترجعات: <strong>{money(invoice.refunds.reduce((sum, refund) => sum + Number(refund.amountMinor || 0), 0), invoice.currency)}</strong></p>}
+      </div>
+      <div className="invoice-print-totals">
+        <PrintTotal label="صافي البنود" value={money(invoice.netMinor, invoice.currency)}/>
+        <PrintTotal label="الخصم" value={money(invoice.discountMinor, invoice.currency)}/>
+        <PrintTotal label="الضريبة" value={money(invoice.taxMinor, invoice.currency)}/>
+        <PrintTotal label="إجمالي الفاتورة" value={money(invoice.grossMinor, invoice.currency)} strong/>
+        <PrintTotal label="المبلغ المحصل" value={money(invoice.paidMinor, invoice.currency)}/>
+        <PrintTotal label="المتبقي" value={money(invoice.balanceMinor, invoice.currency)} strong/>
+      </div>
+    </div>
+
+    {invoice.status === "VOIDED" && <div className="invoice-print-void"><strong>فاتورة ملغاة</strong><span>{invoice.voidReason || "لم يُسجل سبب الإلغاء."}{invoice.voidedAt ? ` · ${dateTime(invoice.voidedAt)}` : ""}</span></div>}
+    <footer className="invoice-print-footer">
+      <span>معرّف الفاتورة: <b dir="ltr">{invoice.id}</b></span>
+      <span>أُنشئت هذه النسخة إلكترونيًا من نظام GO Fitness.</span>
+    </footer>
+  </section>
+}
+
+function PrintDatum({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div> }
+function PrintParty({ title, rows }: { title: string; rows: Array<[string, string]> }) { return <section><h2>{title}</h2>{rows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</section> }
+function PrintTotal({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) { return <div className={strong ? "is-strong" : ""}><span>{label}</span><b>{value}</b></div> }
 
 function Metric({ title, value, hint, icon: Icon }: { title: string; value: string; hint: string; icon: typeof FileText }) { return <Card><CardContent className="flex items-start justify-between gap-4"><div><p className="text-sm text-muted-foreground">{title}</p><p className="mt-3 text-2xl font-black">{value}</p><p className="mt-1 text-xs text-muted-foreground">{hint}</p></div><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Icon className="size-5"/></span></CardContent></Card> }
 function LineSpecificDetails({line}:{line:InvoiceLine}){const snapshot=line.commercialSnapshot??{};const packageSnapshot=asRecord(snapshot.packageSnapshot);const nutrition=asRecord(snapshot.nutrition);const promotion=asRecord(snapshot.promotion);return <details className="rounded-xl border bg-secondary/20 p-4"><summary className="cursor-pointer"><span className="font-bold">تفاصيل {line.targetName||line.description}</span><span className="mr-2 text-xs text-muted-foreground">{lineTypeLabel(line.lineType)}</span></summary><div className="mt-4 space-y-3"><div className="grid gap-2 sm:grid-cols-2"><Info label="وقت احتساب السعر" value={dateTime(asText(snapshot.quotedAt))}/><Info label="حالة التنفيذ" value={line.fulfillmentStatus?statusLabel(line.fulfillmentStatus):undefined}/>{line.fulfillmentReferenceId&&<Info label="مرجع التنفيذ" value={line.fulfillmentReferenceId} mono/>}{asText(snapshot.businessDate)&&<Info label="يوم قائمة المطعم" value={asText(snapshot.businessDate)}/>} {snapshot.specialPriceApplied!==undefined&&<Info label="تم تطبيق سعر خاص" value={snapshot.specialPriceApplied?"نعم":"لا"}/>} {asText(snapshot.portionClass)&&<Info label="حجم الحصة" value={portionLabel(asText(snapshot.portionClass))}/>}</div>{Object.keys(promotion).length>0&&<div className="rounded-lg border p-3"><p className="mb-2 text-sm font-bold">العرض المطبق</p><Info label="العرض" value={asText(promotion.name)}/><Info label="الرمز" value={asText(promotion.code)}/></div>}{Object.keys(packageSnapshot).length>0&&<div className="rounded-lg border p-3"><p className="mb-2 text-sm font-bold">تفاصيل الباقة وقت البيع</p><div className="grid gap-2 sm:grid-cols-2"><Info label="المدة" value={asNumber(packageSnapshot.durationDays)!==undefined?`${asNumber(packageSnapshot.durationDays)} يومًا`:undefined}/><Info label="عدد الزيارات" value={nullableText(packageSnapshot.visitAllowance)}/><Info label="سياسة دخول الفروع" value={branchPolicyLabel(asText(packageSnapshot.branchAccessPolicy))}/><Info label="نوع الاستفادة" value={fulfillmentLabel(asText(packageSnapshot.fulfillmentKind))}/></div><TextList title="الخدمات المشمولة" values={asArray(packageSnapshot.entitlements).map(item=>asText(asRecord(item).service&&asRecord(asRecord(item).service).name)).filter(Boolean) as string[]}/><TextList title="السياسات المطبقة" values={asArray(packageSnapshot.policies).map(item=>asText(asRecord(item).name)).filter(Boolean) as string[]}/></div>}{Object.keys(nutrition).length>0&&<div className="rounded-lg border p-3"><p className="mb-2 text-sm font-bold">القيم الغذائية المسجلة للوجبة</p><div className="grid gap-2 sm:grid-cols-2"><Info label="السعرات" value={nutritionValue(nutrition.caloriesKcal,"سعرة")}/><Info label="البروتين" value={nutritionValue(nutrition.proteinGrams,"غ")}/><Info label="الكربوهيدرات" value={nutritionValue(nutrition.carbohydratesGrams,"غ")}/><Info label="الدهون" value={nutritionValue(nutrition.fatGrams,"غ")}/><Info label="الألياف" value={nutritionValue(nutrition.fiberGrams,"غ")}/><Info label="السكريات" value={nutritionValue(nutrition.sugarGrams,"غ")}/><Info label="الصوديوم" value={nutritionValue(nutrition.sodiumMilligrams,"ملغ")}/></div><TextList title="مسببات الحساسية" values={asArray(snapshot.allergens).map(value=>String(value))}/></div>}</div></details>}

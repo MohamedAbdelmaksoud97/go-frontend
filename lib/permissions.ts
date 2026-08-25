@@ -28,12 +28,10 @@ export const operationPermissions:Record<string,string>={
 }
 
 export const systemSettingsPermissions=[
- "organization.read","branch.read","branch.manage","iam.accounts.read","iam.roles.read","iam.roles.manage","iam.assignments.manage",
- "workforce.read","workforce.manage","catalog.read","catalog.manage","commercial.read","commercial.manage","pricing.manage","promotions.manage","policies.manage",
- "bookings.read","bookings.facilities.manage","finance.cash-points.read","finance.cash-points.manage","lockers.read","lockers.manage",
- "measurements.read","measurement-types.manage","restaurant.catalog.read","restaurant.catalog.manage",
- "retail.catalog.read","retail.catalog.manage","retail.pricing.manage","retail.inventory.read","retail.inventory.manage",
- "finance.expenses.read","finance.expenses.manage","notification-templates.read","notification-templates.manage",
+ "branch.manage","iam.accounts.read","iam.roles.manage","iam.assignments.manage",
+ "workforce.manage","catalog.manage","commercial.manage","pricing.manage","promotions.manage","policies.manage",
+ "bookings.facilities.manage","finance.cash-points.manage","lockers.manage","measurement-types.manage","restaurant.catalog.manage",
+ "retail.catalog.manage","retail.pricing.manage","retail.inventory.manage","finance.expenses.manage","notification-templates.manage",
 ] as const
 
 export const routePermissions:Record<string,string[]>={
@@ -53,6 +51,7 @@ export const routePermissions:Record<string,string[]>={
  "/feedback":["feedback.read","feedback.reply"],
  "/restaurant":["restaurant.orders.read","restaurant.menu.read","restaurant.catalog.read","restaurant.meal-plans.redeem"],
  "/staff":["workforce.read"],
+ "/employees":["workforce.read"],
  "/trainer":["coaching.read","coaching.training-plans.read","measurements.read","coaching.assignments.manage"],
  "/reports":["reporting.read"],
  "/audit":["iam.audit.read"],

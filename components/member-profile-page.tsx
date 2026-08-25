@@ -3,22 +3,24 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
-  ArrowRight, CalendarDays, Camera, CreditCard, FileBadge, FileText,
+  ArrowRight, CalendarDays, Camera, CircleX, CreditCard, FileBadge, FileText,
   Loader2, Mail, MapPin, Package, Phone, RefreshCw, ShoppingBag, UserRound,
-  UtensilsCrossed, Printer, Snowflake,
+  UtensilsCrossed, Printer, ShieldAlert, Snowflake, UploadCloud,
 } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { cn } from "@/lib/utils"
+import { ownerFileValidationError, uploadOwnerFile, type OwnerFileKind } from "@/lib/owner-file-upload"
+import { useToast } from "@/components/toast-provider"
 
 type Row = Record<string, unknown>
 type Branch = { id: string; nameAr?: string; name?: string }
-type SectionKey = "profile" | "subscriptions" | "bookings" | "finance" | "purchases" | "restaurant" | "files"
+type SectionKey = "profile" | "subscriptions" | "freezes" | "renewals" | "cancellations" | "blocks" | "bookings" | "finance" | "purchases" | "restaurant" | "files"
 type ProfileData = {
   member?: Row
   subscriptions: Row[]
@@ -30,19 +32,22 @@ type ProfileData = {
   activities: Row[]
   services: Row[]
   files: Row[]
+  blockHistory: Row[]
   fileUrls: Record<string, string>
   errors: Partial<Record<SectionKey, string>>
 }
 
-const emptyData: ProfileData = { subscriptions: [], bookings: [], invoices: [], payments: [], orders: [], restaurantOrders: [], activities: [], services: [], files: [], fileUrls: {}, errors: {} }
+const emptyData: ProfileData = { subscriptions: [], bookings: [], invoices: [], payments: [], orders: [], restaurantOrders: [], activities: [], services: [], files: [], blockHistory: [], fileUrls: {}, errors: {} }
 
 export function MemberProfilePage({ memberId }: { memberId: string }) {
   const context = useAppContext()
+  const toast = useToast()
   const [data, setData] = useState<ProfileData>(emptyData)
   const [loading, setLoading] = useState(hasRuntimeApi())
   const [fatalError, setFatalError] = useState("")
   const [active, setActive] = useState<SectionKey>("profile")
   const [reloadKey, setReloadKey] = useState(0)
+  const [uploadingFile, setUploadingFile] = useState<OwnerFileKind>()
   const [loadedAt] = useState(() => Date.now())
 
   const permissions = useMemo(() => ({
@@ -52,14 +57,36 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     purchases: context.canAccess(["sales.read"]),
     restaurant: context.canAccess(["restaurant.orders.read"]),
     files: context.canAccess(["files.read"]),
+    catalog: context.canAccess(["catalog.read"]),
+    blocks: context.canAccess(["members.read"]),
   }), [context])
-  const branchesKey = context.branches.map(branch => branch.id).join(",")
+  const canUploadFiles = context.canAccess(["files.manage"]) && context.canAccess(["members.manage"])
+  const activeOrganizationId = context.organizationId
+  const activeBranchId = context.branchId
+  const contextLoading = context.loading
+
+  async function uploadMemberFile(kind: OwnerFileKind, file: File) {
+    const label = kind === "IDENTITY" ? "صورة الهوية" : "صورة العضو"
+    const validationError = await ownerFileValidationError(file, kind, label)
+    if (validationError) { toast.error(validationError); return }
+    setUploadingFile(kind)
+    try {
+      await uploadOwnerFile(context.organizationId, memberId, { module: "members", type: "MEMBER" }, kind, file)
+      toast.success(`تم رفع ${label} وربطها بملف العضو. ستظهر المعاينة بعد اكتمال فحص الملف.`)
+      setReloadKey(value => value + 1)
+    } catch (reason) {
+      toast.error(humanError(reason, `تعذر رفع ${label} وربطها بملف العضو.`))
+    } finally {
+      setUploadingFile(undefined)
+    }
+  }
 
   useEffect(() => {
-    if (context.loading || !context.organizationId || !memberId || !hasRuntimeApi()) return
+    if (contextLoading || !activeOrganizationId || !activeBranchId || !memberId || !hasRuntimeApi()) return
     let cancelled = false
-    const organizationId = context.organizationId
-    const branchList = context.branches.length ? context.branches : context.branchId ? [{ id: context.branchId }] : []
+    const organizationId = activeOrganizationId
+    const branchId = activeBranchId
+    const branchList = [{ id: branchId }]
 
     async function acrossBranches(path: (branchId: string) => string) {
       const settled = await Promise.allSettled(branchList.map(branch => apiRequest<Row[] | { items: Row[] }>(path(branch.id))))
@@ -78,8 +105,9 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
       try {
         const memberResponse = await apiRequest<Row>(`/organizations/${organizationId}/members/${memberId}`)
         const jobs: Promise<{ key: SectionKey; rows: Row[]; error?: string }>[] = []
-        if (permissions.subscriptions) jobs.push(optional("subscriptions", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/subscriptions?memberId=${memberId}&limit=100`)).data)))
-        if (permissions.bookings) jobs.push(optional("bookings", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/reservations?memberId=${memberId}&limit=100`)).data)))
+        if (permissions.subscriptions) jobs.push(optional("subscriptions", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/subscriptions?branchId=${branchId}&memberId=${memberId}&limit=100`)).data)))
+        if (permissions.blocks) jobs.push(optional("blocks", async () => rows((await apiRequest<Row[]>(`/organizations/${organizationId}/members/${memberId}/block-history`)).data)))
+        if (permissions.bookings) jobs.push(optional("bookings", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/reservations?branchId=${branchId}&memberId=${memberId}&limit=100`)).data)))
         if (permissions.finance) jobs.push(optional("finance", async () => {
           const [invoices, payments] = await Promise.all([
             acrossBranches(branchId => `/organizations/${organizationId}/invoices?branchId=${branchId}&memberId=${memberId}&limit=100`),
@@ -91,13 +119,14 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
           ]
         }))
         if (permissions.purchases) jobs.push(optional("purchases", () => acrossBranches(branchId => `/organizations/${organizationId}/orders?branchId=${branchId}&memberId=${memberId}&limit=100`)))
-        if (permissions.restaurant) jobs.push(optional("restaurant", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/restaurant-orders?memberId=${memberId}&limit=100`)).data)))
+        if (permissions.restaurant) jobs.push(optional("restaurant", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/restaurant-orders?branchId=${branchId}&memberId=${memberId}&limit=100`)).data)))
         if (permissions.files) jobs.push(optional("files", () => acrossBranches(branchId => `/organizations/${organizationId}/files?branchId=${branchId}&ownerType=MEMBER&ownerId=${memberId}&limit=100`)))
         const result = await Promise.all(jobs)
         const next: ProfileData = { ...emptyData, member: memberResponse.data, errors: {} }
         for (const item of result) {
           if (item.error) next.errors[item.key] = item.error
           if (item.key === "subscriptions") next.subscriptions = newest(item.rows, "termStart")
+          if (item.key === "blocks") next.blockHistory = newest(item.rows, "occurredAt")
           if (item.key === "bookings") next.bookings = newest(item.rows, "startsAt")
           if (item.key === "finance") {
             next.invoices = newest(item.rows.filter(row => text(row.profileRecordType) === "INVOICE"), "issuedAt")
@@ -107,11 +136,11 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
           if (item.key === "restaurant") next.restaurantOrders = newest(item.rows, "createdAt")
           if (item.key === "files") next.files = newest(item.rows, "createdAt")
         }
-        if (permissions.subscriptions && context.canAccess(["catalog.read"])) {
+        if (permissions.subscriptions && permissions.catalog) {
           try {
             const [activitiesResponse, servicesResponse] = await Promise.all([
               apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/activities?limit=500`),
-              apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/services?limit=500`),
+              apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/services?branchId=${branchId}&limit=500`),
             ])
             next.activities = rows(activitiesResponse.data)
             next.services = rows(servicesResponse.data)
@@ -132,7 +161,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     }
     void load()
     return () => { cancelled = true }
-  }, [branchesKey, context.branchId, context.branches, context.loading, context.organizationId, memberId, permissions.bookings, permissions.files, permissions.finance, permissions.purchases, permissions.restaurant, permissions.subscriptions, reloadKey])
+  }, [activeBranchId, activeOrganizationId, contextLoading, memberId, permissions.blocks, permissions.bookings, permissions.catalog, permissions.files, permissions.finance, permissions.purchases, permissions.restaurant, permissions.subscriptions, reloadKey])
 
   if (context.loading || loading) return <div className="grid min-h-[55vh] place-items-center"><div className="text-center"><Loader2 className="mx-auto size-9 animate-spin text-primary"/><p className="mt-3 text-sm text-muted-foreground">جارٍ تجهيز ملف العضو…</p></div></div>
   if (!context.canAccess(["members.read"])) return <Message title="لا تملك صلاحية عرض ملفات الأعضاء" detail="اطلب من مدير النظام منحك صلاحية عرض الأعضاء في هذا الفرع." />
@@ -150,6 +179,10 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
   const tabs = [
     { key: "profile" as const, label: "الملف الشخصي", icon: UserRound, show: true },
     { key: "subscriptions" as const, label: "الاشتراكات والباقات", icon: CreditCard, show: permissions.subscriptions },
+    { key: "freezes" as const, label: "سجل التجميدات", icon: Snowflake, show: permissions.subscriptions },
+    { key: "renewals" as const, label: "سجل التجديدات", icon: RefreshCw, show: permissions.subscriptions },
+    { key: "cancellations" as const, label: "سجل الإلغاء", icon: CircleX, show: permissions.subscriptions },
+    { key: "blocks" as const, label: "سجل الحظر", icon: ShieldAlert, show: permissions.blocks },
     { key: "bookings" as const, label: "الحجوزات", icon: CalendarDays, show: permissions.bookings },
     { key: "finance" as const, label: "المالية والفواتير", icon: FileText, show: permissions.finance },
     { key: "purchases" as const, label: "المشتريات", icon: ShoppingBag, show: permissions.purchases },
@@ -179,11 +212,21 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
 
     {active === "profile" && <ProfileSection member={member} contacts={contacts} branchName={branchName} identity={identity} identityUrl={identity ? data.fileUrls[text(identity.id)] : ""} showSensitiveNotes={context.canAccess(["members.sensitive.read"])} />} 
     {active === "subscriptions" && <SubscriptionSection rows={data.subscriptions} branches={context.branches} activities={data.activities} services={data.services} error={data.errors.subscriptions}/>}
+    {active === "freezes" && <FreezeHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
+    {active === "renewals" && <RenewalHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
+    {active === "cancellations" && <CancellationHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
+    {active === "blocks" && <BlockHistorySection rows={data.blockHistory} error={data.errors.blocks}/>}
     {active === "bookings" && <BookingSection rows={data.bookings} branches={context.branches} error={data.errors.bookings}/>} 
     {active === "finance" && <InvoiceSection rows={data.invoices} payments={data.payments} branches={context.branches} error={data.errors.finance}/>} 
     {active === "purchases" && <PurchaseSection rows={data.orders} branches={context.branches} error={data.errors.purchases}/>} 
     {active === "restaurant" && <RestaurantSection rows={data.restaurantOrders} branches={context.branches} error={data.errors.restaurant}/>} 
-    {active === "files" && <FilesSection rows={data.files} urls={data.fileUrls} error={data.errors.files}/>} 
+    {active === "files" && <div className="space-y-5">
+      {canUploadFiles && <Card><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center"><div><p className="text-sm font-black">إضافة ملفات إلى ملف العضو</p><p className="mt-1 text-xs leading-6 text-muted-foreground">تُربط الملفات بهذا العضو مباشرة، وتظهر هنا بعد الرفع والفحص الأمني.</p></div><div className="flex flex-wrap gap-2 sm:mr-auto">
+        <label className={buttonVariants({ variant: "outline" })}><UploadCloud/>{uploadingFile === "IDENTITY" ? "جارٍ رفع الهوية..." : "رفع صورة الهوية"}<input className="sr-only" type="file" accept="image/jpeg,image/png,application/pdf" disabled={Boolean(uploadingFile)} onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadMemberFile("IDENTITY", file) }}/></label>
+        <label className={buttonVariants({ variant: "outline" })}><Camera/>{uploadingFile === "PROFILE" ? "جارٍ رفع الصورة..." : "رفع صورة العضو"}<input className="sr-only" type="file" accept="image/jpeg,image/png" disabled={Boolean(uploadingFile)} onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadMemberFile("PROFILE", file) }}/></label>
+      </div></CardContent></Card>}
+      <FilesSection rows={data.files} urls={data.fileUrls} error={data.errors.files}/>
+    </div>}
   </div>
 }
 
@@ -210,10 +253,70 @@ function SubscriptionSection({ rows: items, branches, activities, services, erro
     return <article key={text(row.id)} className="rounded-2xl border bg-card p-5">
       <div className="flex items-start justify-between gap-3"><div><p className="font-black">{text(snapshot.packageName, "باقة النادي")}</p><p className="mt-1 text-xs text-muted-foreground" dir="ltr">{text(row.subscriptionNumber)}</p></div><StatusBadge status={text(row.status)}/></div>
       <div className="mt-5 grid grid-cols-2 gap-3 text-xs"><Small label="مدة الاشتراك" value={`${date(row.termStart)} — ${date(row.termEnd)}`}/><Small label="الفرع" value={branchLabel(text(row.sellingBranchId), branches)}/><Small label="القيمة" value={money(minor(snapshot.grossMinor))}/><Small label="الاستخدام" value={row.visitAllowance == null ? "حسب صلاحيات الباقة" : `${minor(row.visitsUsed)} من ${minor(row.visitAllowance)} زيارة`}/></div>
-      {freezes.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black"><Snowflake className="size-4 text-sky-500"/>سجل التجميدات</p><div className="space-y-2">{freezes.map((freeze, index) => <div key={text(freeze.id, String(index))} className="rounded-xl bg-sky-500/8 p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{date(freeze.startsOn)} — {date(freeze.endsOn)}</strong><StatusBadge status={text(freeze.status, freeze.endedAt ? "COMPLETED" : "ACTIVE")}/></div>{Boolean(freeze.reason) && <p className="mt-1 text-muted-foreground">{text(freeze.reason)}</p>}</div>)}</div></div>}
+      {freezes.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black"><Snowflake className="size-4 text-sky-500"/>سجل التجميدات</p><div className="space-y-2">{freezes.map((freeze, index) => <div key={text(freeze.id, String(index))} className="rounded-xl bg-sky-500/8 p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{date(freeze.startedAt)} — {date(freeze.plannedEndAt)}</strong><StatusBadge status={freeze.resumedAt ? "COMPLETED" : "FROZEN"}/></div>{Boolean(freeze.reason) && <p className="mt-1 text-muted-foreground">{text(freeze.reason)}</p>}</div>)}</div></div>}
       {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printContract(contract)}><Printer/>طباعة العقد</Button></div>)}</div></div>}
     </article>
   })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}</SectionShell>
+}
+
+function FreezeHistorySection({ subscriptions, branches, error }: { subscriptions: Row[]; branches: Branch[]; error?: string }) {
+  const events = subscriptions.flatMap<Row>(subscription => {
+    const snapshot = isRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
+    const periods = Array.isArray(subscription.freezePeriods) ? subscription.freezePeriods.filter(isRow) : []
+    return periods.map(period => ({
+      ...period,
+      subscriptionNumber: subscription.subscriptionNumber,
+      packageName: snapshot.packageName,
+      sellingBranchId: subscription.sellingBranchId,
+    }))
+  })
+  events.sort((a, b) => new Date(text(b.startedAt, "1970-01-01")).getTime() - new Date(text(a.startedAt, "1970-01-01")).getTime())
+
+  return <SectionShell title="سجل التجميدات" count={events.length} error={error}>{events.length ? <div className="divide-y rounded-2xl border bg-card">{events.map((event, index) => <article key={text(event.id, String(index))} className="grid gap-4 p-5 md:grid-cols-[1fr_auto_auto] md:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(event.packageName, "باقة العضو")}</p><StatusBadge status={event.resumedAt ? "COMPLETED" : "FROZEN"}/></div><p className="mt-2 text-xs text-muted-foreground">اشتراك <span dir="ltr">{text(event.subscriptionNumber)}</span> · {branchLabel(text(event.sellingBranchId), branches)}</p>{Boolean(event.reason) && <p className="mt-2 rounded-xl bg-secondary/55 p-3 text-xs">السبب: {text(event.reason)}</p>}</div><Small label="بداية التجميد" value={dateTime(event.startedAt)}/><div className="space-y-2"><Small label="النهاية المخططة" value={dateTime(event.plannedEndAt)}/><Small label="الاستئناف الفعلي" value={event.resumedAt ? dateTime(event.resumedAt) : "لم يُستأنف بعد"}/></div></article>)}</div> : <Empty text="لا توجد عمليات تجميد مسجلة لهذا العضو."/>}</SectionShell>
+}
+
+function RenewalHistorySection({ subscriptions, branches, error }: { subscriptions: Row[]; branches: Branch[]; error?: string }) {
+  const byId = new Map(subscriptions.map(subscription => [text(subscription.id, ""), subscription]))
+  const renewals = subscriptions
+    .filter(subscription => Boolean(subscription.previousSubscriptionId))
+    .sort((a, b) => new Date(text(b.termStart, "1970-01-01")).getTime() - new Date(text(a.termStart, "1970-01-01")).getTime())
+
+  return <SectionShell title="سجل التجديدات" count={renewals.length} error={error}>{renewals.length ? <div className="divide-y rounded-2xl border bg-card">{renewals.map(subscription => {
+    const previous = byId.get(text(subscription.previousSubscriptionId, ""))
+    const snapshot = isRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
+    return <article key={text(subscription.id)} className="grid gap-4 p-5 md:grid-cols-[1fr_auto_auto] md:items-center">
+      <div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(snapshot.packageName, "تجديد باقة العضو")}</p><StatusBadge status={text(subscription.status)}/></div><p className="mt-2 text-xs text-muted-foreground">من اشتراك <span dir="ltr">{previous ? text(previous.subscriptionNumber) : text(subscription.previousSubscriptionId).slice(0, 8)}</span> إلى <span dir="ltr">{text(subscription.subscriptionNumber)}</span></p><p className="mt-1 text-[11px] text-muted-foreground">{branchLabel(text(subscription.sellingBranchId), branches)}</p></div>
+      <Small label="بداية التجديد" value={dateTime(subscription.termStart)}/><Small label="نهاية المدة الجديدة" value={dateTime(subscription.termEnd)}/>
+    </article>
+  })}</div> : <Empty text="لا توجد عمليات تجديد مسجلة لهذا العضو."/>}</SectionShell>
+}
+
+function CancellationHistorySection({ subscriptions, branches, error }: { subscriptions: Row[]; branches: Branch[]; error?: string }) {
+  const cancellations = subscriptions
+    .filter(subscription => isRow(subscription.cancellationRequest) || Boolean(subscription.cancelledAt))
+    .sort((a, b) => {
+      const aRequest = isRow(a.cancellationRequest) ? a.cancellationRequest : {}
+      const bRequest = isRow(b.cancellationRequest) ? b.cancellationRequest : {}
+      return new Date(text(bRequest.requestedAt ?? b.cancelledAt, "1970-01-01")).getTime() - new Date(text(aRequest.requestedAt ?? a.cancelledAt, "1970-01-01")).getTime()
+    })
+
+  return <SectionShell title="سجل الإلغاء" count={cancellations.length} error={error}>{cancellations.length ? <div className="divide-y rounded-2xl border bg-card">{cancellations.map(subscription => {
+    const request = isRow(subscription.cancellationRequest) ? subscription.cancellationRequest : {}
+    const snapshot = isRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
+    const mode = text(request.mode, "END_OF_TERM")
+    return <article key={text(subscription.id)} className="grid gap-4 p-5 lg:grid-cols-[1fr_auto_auto] lg:items-center">
+      <div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(snapshot.packageName, "إلغاء اشتراك")}</p><StatusBadge status={text(subscription.status)}/></div><p className="mt-2 text-xs text-muted-foreground">اشتراك <span dir="ltr">{text(subscription.subscriptionNumber)}</span> · {branchLabel(text(subscription.sellingBranchId), branches)}</p>{Boolean(request.reason ?? subscription.cancellationReason) && <p className="mt-2 rounded-xl bg-secondary/55 p-3 text-xs">السبب: {text(request.reason ?? subscription.cancellationReason)}</p>}</div>
+      <div className="space-y-2"><Small label="وقت الطلب" value={dateTime(request.requestedAt ?? subscription.cancelledAt)}/><Small label="الإلغاء الفعلي" value={subscription.cancelledAt ? dateTime(subscription.cancelledAt) : `مجدول في ${dateTime(request.effectiveAt)}`}/></div>
+      <div className="space-y-2"><Small label="طريقة الإلغاء" value={mode === "IMMEDIATE_PRORATED" ? "فوري مع احتساب الاسترداد" : "في نهاية المدة"}/><Small label="الرسم / الاسترداد المؤهل" value={`${money(minor(request.feeMinor))} / ${money(minor(request.eligibleRefundMinor))}`}/></div>
+    </article>
+  })}</div> : <Empty text="لا توجد طلبات إلغاء مسجلة لهذا العضو."/>}</SectionShell>
+}
+
+function BlockHistorySection({ rows: items, error }: { rows: Row[]; error?: string }) {
+  return <SectionShell title="سجل الحظر" count={items.length} error={error}>{items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map((event, index) => {
+    const blocked = text(event.eventType) === "BLOCKED"
+    return <article key={text(event.id, String(index))} className="grid gap-4 p-5 sm:grid-cols-[1fr_auto] sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{blocked ? "تم حظر العضو" : "تم رفع الحظر"}</p><Badge variant={blocked ? "danger" : "secondary"}>{blocked ? "حظر" : "رفع الحظر"}</Badge></div>{Boolean(event.reason) && <p className="mt-2 text-xs text-muted-foreground">السبب: {text(event.reason)}</p>}<p className="mt-2 text-[11px] text-muted-foreground">نفّذ الإجراء: {text(event.actorName, `حساب ${text(event.actorUserAccountId).slice(0, 8)}`)}</p></div><Small label="وقت الإجراء" value={dateTime(event.occurredAt)}/></article>
+  })}</div> : <Empty text="لا توجد عمليات حظر أو رفع حظر مسجلة لهذا العضو."/>}</SectionShell>
 }
 
 function BookingSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="الحجوزات" count={items.length} error={error}>{items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-3 p-5 sm:grid-cols-[1fr_auto] sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(row.resourceName, "حجز خدمة أو مرفق")}</p><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.startsAt)} حتى {dateTime(row.endsAt)} · {branchLabel(text(row.branchId), branches)} · {minor(row.seats, 1)} مقعد</p></div><strong>{money(minor(row.grossMinor))}</strong></article>)}</div> : <Empty text="لا توجد حجوزات مسجلة لهذا العضو."/>}</SectionShell> }

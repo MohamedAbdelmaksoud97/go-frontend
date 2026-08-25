@@ -152,9 +152,8 @@ export const workflows: Record<string, Workflow> = {
     body: (v, c) => ({ sellingBranchId: c.branchId, memberId: v.memberId, memberSegment: "OTHER", lines: [{ type: "RESTAURANT", targetId: v.mealId, quantity: Number(v.quantity) }] }),
   },
   createEmployee: {
-    title: "إضافة موظف وحساب دخول", description: "أنشئ الموظف وحسابه في خطوة واحدة. سيدخل بالرقم الوظيفي وكلمة المرور، وتُطبق صلاحيات المسمى داخل فرع عمله تلقائيًا.", submitLabel: "إنشاء الموظف وحسابه", successMessage: "تم إنشاء الموظف وربط الحساب والمسمى والصلاحيات بنجاح.",
+    title: "إضافة موظف وحساب دخول", description: "أنشئ الموظف وحسابه في خطوة واحدة. سيصدر النظام رقمًا وظيفيًا فريدًا تلقائيًا ويعرضه بعد الحفظ، وتُطبق صلاحيات المسمى داخل فرع عمله.", submitLabel: "إنشاء الموظف وحسابه", successMessage: "تم إنشاء الموظف وربط الحساب والمسمى والصلاحيات بنجاح.",
     fields: [
-      { name: "employeeNumber", label: "الرقم الوظيفي", required: true, placeholder: "EMP001", hint: "يبدأ بـ EMP ثم من 3 إلى 10 أرقام، ويُستخدم في تسجيل الدخول." },
       { name: "password", label: "كلمة المرور", type: "password", required: true, placeholder: `${MIN_PASSWORD_LENGTH} محارف على الأقل`, hint: "يمكن استخدام أرقام فقط أو حروف فقط أو خليط منهما. لا تُحفظ كلمة المرور داخل قاعدة بيانات النظام ولا تظهر بعد الإرسال." },
       { name: "confirmPassword", label: "تأكيد كلمة المرور", type: "password", required: true, placeholder: "أعد كتابة كلمة المرور" },
       { name: "fullNameAr", label: "اسم الموظف", required: true }, { name: "phoneE164", label: "رقم الجوال", type: "tel", placeholder: "+966 5X XXX XXXX" },
@@ -162,8 +161,8 @@ export const workflows: Record<string, Workflow> = {
       { name: "positionId", label: "المسمى الوظيفي والصلاحيات", type: "reference", source: positions, required: true }, { name: "startsOn", label: "تاريخ بدء العمل", type: "date", required: true },
       { name: "identityImage", label: "صورة الهوية", type: "file", required: true, hint: "JPG أو PNG أو PDF، حتى 10 ميجابايت." },
       { name: "profileImage", label: "صورة الموظف (اختياري)", type: "file", hint: "JPG أو PNG، حتى 10 ميجابايت." },
-    ], initial: () => ({ employeeNumber: "", password: "", confirmPassword: "", fullNameAr: "", phoneE164: "", email: "", positionId: "", startsOn: today() }),
-    body: (v, c) => ({ employeeNumber: String(v.employeeNumber ?? "").trim().toUpperCase(), password: v.password, name: String(v.fullNameAr ?? "").trim(), phone: normalizedOptionalPhone(v.phoneE164), email: String(v.email ?? "").trim().toLowerCase() || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
+    ], initial: () => ({ password: "", confirmPassword: "", fullNameAr: "", phoneE164: "", email: "", positionId: "", startsOn: today() }),
+    body: (v, c) => ({ password: v.password, name: String(v.fullNameAr ?? "").trim(), phone: normalizedOptionalPhone(v.phoneE164), email: String(v.email ?? "").trim().toLowerCase() || undefined, hireDate: v.startsOn, initialBranchId: c.branchId, initialPositionId: v.positionId }),
   },
   requestReportingRebuild: {
     title: "تحديث بيانات التقارير", description: "استخدم هذا الإجراء فقط إذا كانت أرقام التقارير لا تعكس آخر العمليات.", submitLabel: "بدء التحديث", successMessage: "بدأ تحديث بيانات التقارير. يمكنك متابعة العمل وسيكتمل في الخلفية.", confirm: "قد يستغرق تحديث التقارير عدة دقائق. هل تريد المتابعة؟",

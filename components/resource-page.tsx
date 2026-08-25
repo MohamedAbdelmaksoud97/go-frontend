@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, BadgeDollarSign, BarChart3, CalendarPlus, ChevronLeft, ChevronRight, ClipboardCheck, Download, Eye, EyeOff, LockKeyhole, MoreHorizontal, Play, Plus, Search, ShieldAlert, SlidersHorizontal, Snowflake, Sparkles, UserRoundCheck, UserRoundX, X } from "lucide-react"
+import { AlertTriangle, BadgeDollarSign, BarChart3, CalendarPlus, ChevronLeft, ChevronRight, CircleX, ClipboardCheck, Download, Eye, EyeOff, LockKeyhole, MoreHorizontal, Play, Plus, RefreshCw, Search, ShieldAlert, SlidersHorizontal, Snowflake, Sparkles, UserRoundCheck, UserRoundX, X } from "lucide-react"
 import type { SectionConfig } from "@/lib/sections"
 import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
@@ -51,12 +51,13 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
   const [query, setQuery] = useState(initialSearch)
   const [databaseQuery, setDatabaseQuery] = useState(initialSearch.trim())
   const [status, setStatus] = useState("")
-  const [filterBranchId, setFilterBranchId] = useState(context.branchId)
+  const filterBranchId = context.branchId
   const [showAction, setShowAction] = useState(openCreate)
   const [selectedRow, setSelectedRow] = useState<{ row: string[]; record: ApiRecord }>()
-  const [quickAction, setQuickAction] = useState<{ operationId: string; initialValues: Record<string, string> }>()
+  const [quickAction, setQuickAction] = useState<{ operationId: string; branchId: string; initialValues: Record<string, string>; lockedReferenceLabels?: Record<string, string> }>()
   const [disciplinaryMember, setDisciplinaryMember] = useState<ApiRecord>()
   const [subscriptionFreezeRecord, setSubscriptionFreezeRecord] = useState<ApiRecord>()
+  const [subscriptionPolicyAction, setSubscriptionPolicyAction] = useState<{ record: ApiRecord; action: "RENEW" | "CANCEL" }>()
   const [serverRows, setServerRows] = useState<string[][]>(config.rows)
   const [serverRecords, setServerRecords] = useState<ApiRecord[]>([])
   const [loading, setLoading] = useState(hasRuntimeApi())
@@ -81,7 +82,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
 
   useEffect(() => {
     let cancelled = false
-    const frame = requestAnimationFrame(() => { pageCache.current = []; setPage(0); setKnownPages(0); void loadPage(0, cancelled) })
+    const frame = requestAnimationFrame(() => { pageCache.current = []; setServerRows([]); setServerRecords([]); setSelectedRow(undefined); setQuickAction(undefined); setPage(0); setKnownPages(0); void loadPage(0, cancelled) })
     return () => { cancelled = true; cancelAnimationFrame(frame) }
   // The page cache must reset whenever the selected resource/context changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -89,6 +90,9 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
 
   async function loadPage(targetPage: number, cancelled = false) {
     if (!hasRuntimeApi() || !listOperation || !context.organizationId) { setLoading(false); return }
+    if (serverFiltered && !filterBranchId) {
+      setServerRows([]); setServerRecords([]); setError("اختر فرع العمل أولًا لعرض بياناته."); setLoading(false); return
+    }
     const cached = pageCache.current[targetPage]
     if (cached) { setServerRows(cached.rows); setServerRecords(cached.records); setPage(targetPage); return }
     const previous = targetPage > 0 ? pageCache.current[targetPage - 1] : undefined
@@ -130,23 +134,27 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
   return <div className="fade-up">
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/8 text-amber-700 dark:text-primary">{config.eyebrow}</Badge><h1 className="text-2xl font-black tracking-tight sm:text-3xl">{config.title}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{config.description}</p></div><div className="flex gap-2"><Button size="lg" variant="outline" onClick={exportCsv} disabled={!rows.length}><Download />تصدير</Button>{canCreate && <Button size="lg" className="brand-shadow" onClick={() => setShowAction(true)}><Plus />{config.action}</Button>}</div></div>
     <section className="grid gap-4 md:grid-cols-3">{config.metrics.map((metric, index) => <Card key={metric.label}><CardContent className="flex items-center gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-xl ${index === 0 ? "bg-primary/15 text-amber-600" : index === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{index === 0 ? <BarChart3 /> : index === 1 ? <Sparkles /> : <SlidersHorizontal />}</span><div><p className="text-[11px] font-semibold text-muted-foreground">{metricLabel(config.listOperationId, index, metric.label)}</p><p className="mt-1 text-xl font-black">{metricValue(config.listOperationId, index, serverRecords)}</p><p className="mt-1 text-[9px] text-muted-foreground">{metricNote(serverRecords.length, metric.note)}</p></div></CardContent></Card>)}</section>
-    <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}{serverFiltered && context.branches.length > 1 && <select aria-label="تصفية حسب الفرع" value={filterBranchId} onChange={event => setFilterBranchId(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الفروع المسموح بها</option>{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.nameAr ?? branch.name ?? "فرع"}</option>)}</select>}</div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="sticky left-0 z-20 min-w-[160px] border-r bg-secondary px-3 py-3 text-[10px] font-bold text-muted-foreground shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)]">الإجراءات السريعة</th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : config.listOperationId === "listMembers" && columnIndex === 0 && memberId ? <Link href={`/members/${memberId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف العضو ${cell}`}>{cell}</Link> : cell}</td>)}<td className="sticky left-0 z-10 min-w-[160px] border-r bg-card px-3 py-4 shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)] transition-colors group-hover:bg-secondary">{config.listOperationId === "listMembers" && memberId ? <MemberQuickActions record={record} canAccess={context.canAccess} onWorkflow={(operationId, initialValues) => setQuickAction({ operationId, initialValues })} onDiscipline={() => setDisciplinaryMember(record)} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listSubscriptions" ? <SubscriptionQuickActions record={record} canAccess={context.canAccess} onFreeze={() => setSubscriptionFreezeRecord(record)} onDetails={() => setSelectedRow({ row, record })} /> : <Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button>}</td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
+    <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}</div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="sticky left-0 z-20 min-w-[160px] border-r bg-secondary px-3 py-3 text-[10px] font-bold text-muted-foreground shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)]">الإجراءات السريعة</th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); const recordBranchId = String(record.registrationBranchId ?? record.branchId ?? ""); const filteredBranchId = context.branches.some(branch => branch.id === filterBranchId) ? filterBranchId : ""; const actionBranchId = context.branchId || filteredBranchId || (context.branches.length === 1 ? context.branches[0]?.id ?? "" : "") || recordBranchId; return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : config.listOperationId === "listMembers" && columnIndex === 0 && memberId ? <Link href={`/members/${memberId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف العضو ${cell}`}>{cell}</Link> : config.listOperationId === "listEmployees" && columnIndex === 0 && memberId ? <Link href={`/employees/${memberId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف الموظف ${cell}`}>{cell}</Link> : cell}</td>)}<td className="sticky left-0 z-10 min-w-[160px] border-r bg-card px-3 py-4 shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)] transition-colors group-hover:bg-secondary">{config.listOperationId === "listMembers" && memberId ? <MemberQuickActions record={record} canAccess={context.canAccess} onWorkflow={(operationId, initialValues, lockedReferenceLabels) => { if (!context.branchId && actionBranchId) context.setBranchId(actionBranchId); setQuickAction({ operationId, branchId: actionBranchId, initialValues, lockedReferenceLabels }) }} onDiscipline={() => setDisciplinaryMember(record)} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listSubscriptions" ? <SubscriptionQuickActions record={record} canAccess={context.canAccess} onFreeze={() => setSubscriptionFreezeRecord(record)} onRenew={() => setSubscriptionPolicyAction({ record, action: "RENEW" })} onCancel={() => setSubscriptionPolicyAction({ record, action: "CANCEL" })} onDetails={() => setSelectedRow({ row, record })} /> : <Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button>}</td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
       <div className="flex items-center justify-between border-t p-4"><p className="text-[10px] text-muted-foreground">عرض {rows.length} سجلًا · الصفحة {page + 1}</p><div className="flex items-center gap-1"><Button variant="outline" size="icon-sm" disabled={page === 0 || loading} aria-label="الصفحة السابقة" onClick={() => void loadPage(page - 1)}><ChevronRight /></Button>{Array.from({ length: knownPages }, (_, index) => <Button key={index} variant={index === page ? "default" : "outline"} size="icon-sm" disabled={loading} aria-label={`الصفحة ${index + 1}`} onClick={() => void loadPage(index)}>{index + 1}</Button>)}<Button variant="outline" size="icon-sm" disabled={loading || !pageCache.current[page]?.nextCursor} aria-label="الصفحة التالية" onClick={() => void loadPage(page + 1)}><ChevronLeft /></Button></div></div>
     </Card>
     {showAction && config.createOperationId && canCreate && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} onSaved={() => { pageCache.current = []; void loadPage(0) }} />}
-    {quickAction && <ActionDialog operationId={quickAction.operationId} organizationId={context.organizationId} branchId={context.branchId} initialValues={quickAction.initialValues} onClose={() => setQuickAction(undefined)} onSaved={() => { setQuickAction(undefined); pageCache.current = []; void loadPage(0) }} />}
+    {quickAction && <ActionDialog operationId={quickAction.operationId} organizationId={context.organizationId} branchId={quickAction.branchId} initialValues={quickAction.initialValues} lockedReferenceLabels={quickAction.lockedReferenceLabels} onClose={() => setQuickAction(undefined)} onSaved={() => { setQuickAction(undefined); pageCache.current = []; void loadPage(0) }} />}
     {disciplinaryMember && <MemberDisciplinaryDialog organizationId={context.organizationId} record={disciplinaryMember} onClose={() => setDisciplinaryMember(undefined)} onSaved={() => { setDisciplinaryMember(undefined); pageCache.current = []; void loadPage(0) }} />}
     {subscriptionFreezeRecord && <SubscriptionFreezeDialog organizationId={context.organizationId} record={subscriptionFreezeRecord} onClose={() => setSubscriptionFreezeRecord(undefined)} onSaved={() => { setSubscriptionFreezeRecord(undefined); pageCache.current = []; void loadPage(0) }} />}
+    {subscriptionPolicyAction && <SubscriptionPolicyActionDialog organizationId={context.organizationId} record={subscriptionPolicyAction.record} action={subscriptionPolicyAction.action} onClose={() => setSubscriptionPolicyAction(undefined)} onSaved={() => { setSubscriptionPolicyAction(undefined); pageCache.current = []; void loadPage(0) }} />}
     {selectedRow && <RecordPreview columns={config.columns} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={config.statusIndex} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
   </div>
 }
 
-function MemberQuickActions({ record, canAccess, onWorkflow, onDiscipline, onDetails }: { record: ApiRecord; canAccess: (permissions: string[]) => boolean; onWorkflow: (operationId: string, initialValues: Record<string, string>) => void; onDiscipline: () => void; onDetails: () => void }) {
+function MemberQuickActions({ record, canAccess, onWorkflow, onDiscipline, onDetails }: { record: ApiRecord; canAccess: (permissions: string[]) => boolean; onWorkflow: (operationId: string, initialValues: Record<string, string>, lockedReferenceLabels?: Record<string, string>) => void; onDiscipline: () => void; onDetails: () => void }) {
   const memberId = String(record.id ?? "")
+  const memberName = String(record.name ?? record.fullNameAr ?? record.memberName ?? "العضو")
+  const memberNumber = String(record.memberNumber ?? record.legacyMemberNumber ?? "")
+  const memberLabel = [memberName, memberNumber].filter(Boolean).join(" — ")
   const blocked = Boolean(record.isBlocked)
   return <div className="flex items-center justify-center gap-1" aria-label="الإجراءات السريعة للعضو">
-    {canAccess(["sales.checkout"]) && <Button variant="ghost" size="icon-sm" title="شراء باقة وإصدار فاتورة" aria-label="شراء باقة وإصدار فاتورة" onClick={() => onWorkflow("createSubscription", { memberId })}><BadgeDollarSign /></Button>}
+    {canAccess(["sales.checkout"]) && <Button variant="ghost" size="icon-sm" title="شراء باقة وإصدار فاتورة" aria-label={`شراء باقة وإصدار فاتورة للعضو ${memberName}`} onClick={() => onWorkflow("createSubscription", { memberId }, { memberId: memberLabel })}><BadgeDollarSign /></Button>}
     {canAccess(["bookings.create"]) && <Button variant="ghost" size="icon-sm" title="إنشاء حجز" aria-label="إنشاء حجز" onClick={() => onWorkflow("createManualReservation", { customerType: "MEMBER", memberId })}><CalendarPlus /></Button>}
     {canAccess(["attendance.check-in"]) && <Button variant="ghost" size="icon-sm" title="تسجيل دخول العضو" aria-label="تسجيل دخول العضو" onClick={() => onWorkflow("recordManualAttendance", { memberId })}><ClipboardCheck /></Button>}
     {canAccess(["members.block"]) && <Button variant="ghost" size="icon-sm" className={blocked ? "text-emerald-600" : "text-red-600"} title={blocked ? "رفع الحظر" : "حظر العضو"} aria-label={blocked ? "رفع الحظر عن العضو" : "حظر العضو"} onClick={onDiscipline}>{blocked ? <UserRoundCheck /> : <UserRoundX />}</Button>}
@@ -159,21 +167,58 @@ function SubscriptionQuickActions({
   record,
   canAccess,
   onFreeze,
+  onRenew,
+  onCancel,
   onDetails,
 }: {
   record: ApiRecord
   canAccess: (permissions: string[]) => boolean
   onFreeze: () => void
+  onRenew: () => void
+  onCancel: () => void
   onDetails: () => void
 }) {
   const status = String(record.status ?? "").toUpperCase()
   const canFreeze = canAccess(["subscriptions.freeze"])
+  const renewal = capturedPolicyConfiguration(record, "RENEWAL")
+  const cancellation = capturedPolicyConfiguration(record, "CANCELLATION")
+  const renewalWindow = renewalEligibility(record, renewal)
+  const canRenew = canAccess(["subscriptions.renew"]) && ["ACTIVE", "EXPIRED"].includes(status)
+  const canCancel = canAccess(["subscriptions.cancel"]) && !["EXPIRED", "CANCELLED"].includes(status) && !record.cancellationRequest
 
   return <div className="flex items-center justify-center gap-1" aria-label="الإجراءات السريعة للاشتراك">
     {canFreeze && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <Button variant="ghost" size="icon-sm" className="text-blue-600" title="تجميد هذا الاشتراك" aria-label="تجميد هذا الاشتراك" onClick={onFreeze}><Snowflake /></Button>}
     {canFreeze && status === "FROZEN" && <Button variant="ghost" size="icon-sm" className="text-emerald-600" title="استئناف هذا الاشتراك" aria-label="استئناف هذا الاشتراك" onClick={onFreeze}><Play /></Button>}
+    {canRenew && <Button variant="ghost" size="icon-sm" className="text-emerald-600" disabled={!renewalWindow.allowed} title={renewalWindow.message} aria-label="تجديد هذا الاشتراك وفق سياسة الباقة" onClick={onRenew}><RefreshCw /></Button>}
+    {canCancel && <Button variant="ghost" size="icon-sm" className="text-red-600" disabled={!cancellation} title={cancellation ? "إلغاء هذا الاشتراك وفق سياسة الباقة" : "لا توجد سياسة إلغاء محفوظة مع الاشتراك"} aria-label="إلغاء هذا الاشتراك وفق سياسة الباقة" onClick={onCancel}><CircleX /></Button>}
     <Button variant="ghost" size="icon-sm" title="عرض تفاصيل الاشتراك" aria-label="عرض تفاصيل الاشتراك" onClick={onDetails}><MoreHorizontal /></Button>
   </div>
+}
+
+function capturedPolicyConfiguration(record: ApiRecord, policyType: "FREEZE" | "CANCELLATION" | "RENEWAL") {
+  const snapshot = record.policySnapshot
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return undefined
+  const policies = (snapshot as ApiRecord).policies
+  if (!Array.isArray(policies)) return undefined
+  const policy = policies.find(item => item && typeof item === "object" && !Array.isArray(item) && String((item as ApiRecord).policyType ?? "").toUpperCase() === policyType)
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return undefined
+  const configuration = (policy as ApiRecord).configuration
+  return configuration && typeof configuration === "object" && !Array.isArray(configuration) ? configuration as ApiRecord : undefined
+}
+
+function renewalEligibility(record: ApiRecord, policy?: ApiRecord) {
+  if (!policy) return { allowed: false, message: "لا توجد سياسة تجديد محفوظة مع هذا الاشتراك." }
+  const termEnd = new Date(String(record.termEnd ?? ""))
+  if (Number.isNaN(termEnd.getTime())) return { allowed: false, message: "تعذر قراءة تاريخ نهاية الاشتراك." }
+  const earlyDays = Number(policy.allowEarlyRenewalDays)
+  const graceDays = Number(policy.graceDays)
+  if (!Number.isInteger(earlyDays) || earlyDays < 0 || !Number.isInteger(graceDays) || graceDays < 0) return { allowed: false, message: "إعدادات سياسة التجديد المحفوظة غير صالحة." }
+  const earliest = new Date(termEnd.getTime() - earlyDays * 86_400_000)
+  const latest = new Date(termEnd.getTime() + graceDays * 86_400_000)
+  const now = new Date()
+  if (now < earliest) return { allowed: false, message: `يتاح التجديد من ${earliest.toLocaleDateString("ar-SA")} وفق سياسة الباقة.` }
+  if (now > latest) return { allowed: false, message: `انتهت مهلة التجديد في ${latest.toLocaleDateString("ar-SA")} وفق سياسة الباقة.` }
+  return { allowed: true, message: `تجديد الاشتراك وفق سياسة الباقة (مهلة ما بعد الانتهاء: ${graceDays} يوم).` }
 }
 
 function SubscriptionFreezeDialog({
@@ -259,6 +304,96 @@ function SubscriptionFreezeDialog({
       </div>
     </form>
   </div>
+}
+
+function SubscriptionPolicyActionDialog({
+  organizationId,
+  record,
+  action,
+  onClose,
+  onSaved,
+}: {
+  organizationId: string
+  record: ApiRecord
+  action: "RENEW" | "CANCEL"
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const toast = useToast()
+  const subscriptionId = String(record.id ?? record.subscriptionId ?? "")
+  const subscriptionName = String(record.packageNameAr ?? record.packageName ?? record.subscriptionNumber ?? "الاشتراك")
+  const subscriptionNumber = String(record.subscriptionNumber ?? "")
+  const renewal = capturedPolicyConfiguration(record, "RENEWAL")
+  const cancellation = capturedPolicyConfiguration(record, "CANCELLATION")
+  const defaultStart = (() => {
+    const now = new Date()
+    const termEnd = new Date(String(record.termEnd ?? ""))
+    const value = !Number.isNaN(termEnd.getTime()) && termEnd > now ? termEnd : now
+    return localDateTimeValue(value)
+  })()
+  const [startAt, setStartAt] = useState(defaultStart)
+  const [promoCode, setPromoCode] = useState("")
+  const [reason, setReason] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const renewing = action === "RENEW"
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!subscriptionId) { setError("تعذر تحديد الاشتراك. حدّث الصفحة وحاول مجددًا."); return }
+    if (renewing && !renewal) { setError("لا توجد سياسة تجديد محفوظة مع هذا الاشتراك."); return }
+    if (!renewing && !cancellation) { setError("لا توجد سياسة إلغاء محفوظة مع هذا الاشتراك."); return }
+    if (renewing && (!startAt || Number.isNaN(new Date(startAt).getTime()))) { setError("حدد تاريخ بداية صحيحًا للاشتراك المجدد."); return }
+    if (!renewing && reason.trim().length < 3) { setError("اكتب سببًا واضحًا للإلغاء من 3 أحرف على الأقل."); return }
+    setSaving(true)
+    setError("")
+    try {
+      await apiRequest(`/organizations/${organizationId}/subscriptions/${subscriptionId}/${renewing ? "renewals" : "cancellations"}`, {
+        method: "POST",
+        body: JSON.stringify(renewing
+          ? { expectedVersion: Number(record.version ?? 1), startAt: new Date(startAt).toISOString(), ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {}) }
+          : { expectedVersion: Number(record.version ?? 1), reason: reason.trim() }),
+      })
+      toast.success(renewing ? "تم إنشاء الاشتراك المجدد وربطه بالاشتراك السابق." : "تم تسجيل طلب الإلغاء وتطبيق سياسة الباقة المحفوظة مع الاشتراك.")
+      onSaved()
+    } catch (cause) {
+      setError(humanError(cause, renewing ? "تعذر تجديد هذا الاشتراك وفق سياسة الباقة." : "تعذر إلغاء هذا الاشتراك وفق سياسة الباقة."))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const cancellationMode = String(cancellation?.cancellationMode ?? "END_OF_TERM")
+  return <div className="fixed inset-0 z-[90] grid place-items-center bg-black/65 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose() }}>
+    <form onSubmit={submit} className="w-full max-w-lg rounded-[28px] border bg-card p-6 shadow-2xl" dir="rtl">
+      <div className="flex items-start gap-4">
+        <span className={`grid size-12 place-items-center rounded-2xl ${renewing ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-600"}`}>{renewing ? <RefreshCw /> : <CircleX />}</span>
+        <div><h2 className="text-xl font-black">{renewing ? "تجديد الاشتراك" : "إلغاء الاشتراك"}</h2><p className="mt-1 text-sm text-muted-foreground">{subscriptionName}{subscriptionNumber ? ` · ${subscriptionNumber}` : ""}</p></div>
+        <Button type="button" variant="ghost" size="icon" className="mr-auto" disabled={saving} onClick={onClose} aria-label="إغلاق"><X /></Button>
+      </div>
+
+      {renewing ? <>
+        <div className="mt-5 rounded-2xl bg-emerald-500/8 p-4 text-xs leading-6">تسمح السياسة بالتجديد المبكر قبل النهاية بـ <strong>{Number(renewal?.allowEarlyRenewalDays ?? 0)} يوم</strong>، وحتى <strong>{Number(renewal?.graceDays ?? 0)} يوم</strong> بعد الانتهاء. سيُنشأ اشتراك جديد مرتبط بهذا الاشتراك مع التقاط سياسات الباقة الحالية.</div>
+        <label className="mt-5 block text-xs font-bold">بداية الاشتراك المجدد<span className="mr-1 text-red-500">*</span><DateTimeInput type="datetime-local" required value={startAt} onChange={event => setStartAt(event.target.value)} className="mt-2 h-11" /></label>
+        <label className="mt-4 block text-xs font-bold">رمز الخصم (اختياري)<Input value={promoCode} onChange={event => setPromoCode(event.target.value)} className="mt-2" /></label>
+      </> : <>
+        <div className="mt-5 rounded-2xl bg-red-500/8 p-4 text-xs leading-6"><p className="font-black">السياسة المطبقة: {cancellationMode === "IMMEDIATE_PRORATED" ? "إلغاء فوري مع احتساب الاسترداد" : "إلغاء في نهاية مدة الاشتراك"}</p><p className="mt-1 text-muted-foreground">مهلة الإشعار: {Number(cancellation?.noticeDays ?? 0)} يوم · رسم الإلغاء: {moneyMinor(cancellation?.feeMinor)} · الاسترداد {cancellation?.refundable ? "مسموح" : "غير مسموح"}.</p></div>
+        <label className="mt-5 block text-xs font-bold">سبب الإلغاء<span className="mr-1 text-red-500">*</span><textarea value={reason} onChange={event => setReason(event.target.value)} rows={4} placeholder="اكتب سبب طلب الإلغاء" className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>
+      </>}
+
+      {error && <p role="alert" className="mt-4 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
+      <div className="mt-6 flex gap-2 border-t pt-5"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>رجوع</Button><Button type="submit" className="mr-auto" variant={renewing ? "default" : "destructive"} disabled={saving}>{saving ? "جارٍ التنفيذ..." : renewing ? "تأكيد التجديد" : "تأكيد الإلغاء"}</Button></div>
+    </form>
+  </div>
+}
+
+function localDateTimeValue(value: Date) {
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
+
+function moneyMinor(value: unknown) {
+  const parsed = Number(value ?? 0)
+  return new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", minimumFractionDigits: 2 }).format((Number.isFinite(parsed) ? parsed : 0) / 100)
 }
 
 function MemberDisciplinaryDialog({ organizationId, record, onClose, onSaved }: { organizationId: string; record: ApiRecord; onClose: () => void; onSaved: () => void }) {

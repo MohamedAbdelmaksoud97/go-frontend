@@ -24,7 +24,7 @@ export const permissionSubjects: Record<string, string> = {
 };
 
 export const permissionActions: Record<string, string> = {
-  read: "الاطلاع على", reply: "الرد على", manage: "إدارة", create: "إنشاء", activate: "تفعيل", freeze: "تجميد", cancel: "إلغاء", renew: "تجديد", checkout: "إتمام البيع", record: "تسجيل", issue: "إصدار", approve: "اعتماد", pay: "دفع", "check-in": "تسجيل دخول", prepare: "تحضير", redeem: "استبدال", send: "إرسال", rebuild: "إعادة بناء", execute: "تنفيذ", operations: "اعتماد تشغيلي", commercial: "اعتماد تجاري", finance: "اعتماد مالي",
+  read: "الاطلاع على", reply: "الرد على", manage: "إدارة", create: "إنشاء", activate: "تفعيل", freeze: "تجميد", cancel: "إلغاء", renew: "تجديد", block: "حظر", checkout: "إتمام البيع", record: "تسجيل", issue: "إصدار", approve: "اعتماد", pay: "دفع", "check-in": "تسجيل دخول", prepare: "تحضير", redeem: "استبدال", send: "إرسال", rebuild: "إعادة بناء", execute: "تنفيذ", operations: "اعتماد تشغيلي", commercial: "اعتماد تجاري", finance: "اعتماد مالي",
 };
 
 const permissionLabelOverrides: Record<string, string> = {

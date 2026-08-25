@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, Eye, EyeOff, FileCheck2, Loader2, Search, UploadCloud, X } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { AlertTriangle, CheckCircle2, Copy, Eye, EyeOff, FileCheck2, Loader2, LockKeyhole, Search, UploadCloud, X } from "lucide-react"
 import { endpoints } from "@/lib/endpoint-catalog"
 import { apiRequest, createIdempotencyKey, executeOperation, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
@@ -12,8 +13,17 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/toast-provider"
 import { useAppContext } from "@/components/app-context"
 import { DateTimeInput } from "@/components/date-time-input"
+import { ownerFileValidationError, uploadOwnerFile } from "@/lib/owner-file-upload"
 
-type Props = { operationId: string; organizationId: string; branchId: string; onClose: () => void; onSaved?: () => void; initialValues?: FormValues }
+type Props = {
+  operationId: string
+  organizationId: string
+  branchId: string
+  onClose: () => void
+  onSaved?: () => void
+  initialValues?: FormValues
+  lockedReferenceLabels?: Record<string, string>
+}
 
 type SubscriptionQuote = {
   targetId: string
@@ -28,7 +38,8 @@ type SubscriptionQuote = {
   taxInclusive: boolean
 }
 
-export function ActionDialog({ operationId, organizationId, branchId, onClose, onSaved, initialValues }: Props) {
+export function ActionDialog({ operationId, organizationId, branchId, onClose, onSaved, initialValues, lockedReferenceLabels }: Props) {
+  const router = useRouter()
   const toast = useToast()
   const appContext = useAppContext()
   const workflow = workflows[operationId]
@@ -38,9 +49,10 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const [values, setValues] = useState<FormValues>(() => ({ ...(workflow?.initial(context) ?? {}), ...initialValues }))
   const [options, setOptions] = useState<Record<string, Choice[]>>({})
   const [referenceQueries, setReferenceQueries] = useState<Record<string, string>>({})
-  const [loadingOptions, setLoadingOptions] = useState(() => Boolean(hasRuntimeApi() && workflow?.fields.some(field => field.type === "reference")))
+  const [loadingOptions, setLoadingOptions] = useState(() => Boolean(hasRuntimeApi() && effectiveBranchId && workflow?.fields.some(field => field.type === "reference" && !lockedReferenceLabels?.[field.name])))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [createdEmployee, setCreatedEmployee] = useState<{ id: string; number: string; name: string }>()
   const [quoteState, setQuoteState] = useState<{ key: string; loading: boolean; quote?: SubscriptionQuote; error?: string }>({ key: "", loading: false })
   const isSubscriptionSale = operationId === "createSubscription"
   const selectedPackageId = String(values.packageId ?? "")
@@ -48,10 +60,15 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const subscriptionQuote = quoteState.key === quoteKey ? quoteState.quote : undefined
   const quoteError = quoteState.key === quoteKey ? quoteState.error ?? "" : ""
   const quoteLoading = Boolean(selectedPackageId && (quoteState.key !== quoteKey || quoteState.loading))
+  const effectiveBranchName = appContext.branches.find(branch => branch.id === effectiveBranchId)?.nameAr
+    ?? appContext.branches.find(branch => branch.id === effectiveBranchId)?.name
+    ?? "الفرع المحدد"
+  const visibleFields = workflow?.fields.filter(field => isVisibleField(operationId, field.name, values) && (field.type !== "file" || appContext.canAccess(["files.manage"]))) ?? []
 
   useEffect(() => {
     if (!workflow || !hasRuntimeApi()) return
-    const referenceFields = workflow.fields.filter(field => field.type === "reference" && field.source)
+    if (!effectiveOrganizationId || !effectiveBranchId) return
+    const referenceFields = workflow.fields.filter(field => field.type === "reference" && field.source && !lockedReferenceLabels?.[field.name])
     if (!referenceFields.length) return
     let cancelled = false
     const timer = window.setTimeout(() => { if (!cancelled) setLoadingOptions(true); void Promise.all(referenceFields.map(async field => {
@@ -67,7 +84,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       } catch { return [field.name, []] as const }
     })).then(entries => { if (!cancelled) setOptions(Object.fromEntries(entries)) }).finally(() => { if (!cancelled) setLoadingOptions(false) }) }, 250)
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [context, effectiveBranchId, effectiveOrganizationId, referenceQueries, workflow])
+  }, [context, effectiveBranchId, effectiveOrganizationId, lockedReferenceLabels, referenceQueries, workflow])
 
   useEffect(() => {
     if (!isSubscriptionSale || !selectedPackageId || !effectiveOrganizationId || !effectiveBranchId || !hasRuntimeApi()) return
@@ -91,8 +108,9 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (!operation || !effectiveOrganizationId || !effectiveBranchId) { setError("تعذر تحديد فرع العمل. ارجع إلى اختيار سياق العمل وحدد الفرع ثم حاول مجددًا."); return }
-    const validationError = validateValues(operationId, values)
+    if (!effectiveOrganizationId || !effectiveBranchId) { setError("تعذر تحديد فرع العمل. ارجع إلى اختيار سياق العمل وحدد الفرع ثم حاول مجددًا."); return }
+    if (!operation && !isSubscriptionSale) { setError("تعذر تجهيز العملية المطلوبة. حدّث الصفحة ثم حاول مجددًا."); return }
+    const validationError = await validateValues(operationId, values)
     if (validationError) { setError(validationError); return }
     if (isSubscriptionSale && !subscriptionQuote) { setError(quoteError || "انتظر حتى يتم التحقق من سعر الباقة في الفرع الحالي."); return }
     setSaving(true); setError("")
@@ -100,25 +118,41 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       // executeOperation receives endpoint-catalog paths as complete API paths.
       // The subscription sale is routed through Sales checkout, so it must carry
       // the same /api/v1 prefix instead of being mistaken for a Next.js-local path.
-      const path = isSubscriptionSale ? `/api/v1/organizations/${effectiveOrganizationId}/orders` : operation.path.replace("{organizationId}", effectiveOrganizationId).replace("{branchId}", effectiveBranchId)
+      const path = isSubscriptionSale ? `/api/v1/organizations/${effectiveOrganizationId}/orders` : operation!.path.replace("{organizationId}", effectiveOrganizationId).replace("{branchId}", effectiveBranchId)
       const body = isSubscriptionSale ? {
         sellingBranchId: effectiveBranchId,
         memberId: values.memberId,
         memberSegment: "OTHER",
         lines: [{ type: "MEMBERSHIP", targetId: values.packageId, quantity: 1, accessBranchId: effectiveBranchId, startAt: new Date(String(values.startAt)).toISOString() }],
       } : workflow.body(values, context)
-      const response = hasRuntimeApi() ? await executeOperation<Record<string, unknown>>(path, isSubscriptionSale ? "post" : operation.method, {}, body, isSubscriptionSale || operation.idempotent ? createIdempotencyKey() : undefined) : undefined
+      const response = hasRuntimeApi() ? await executeOperation<Record<string, unknown>>(path, isSubscriptionSale ? "post" : operation!.method, {}, body, isSubscriptionSale || operation!.idempotent ? createIdempotencyKey() : undefined) : undefined
       if (["createEmployee", "registerMember"].includes(operationId) && response?.data.id) {
         const ownerId = String(response.data.id)
-        try {
-          const owner = operationId === "createEmployee" ? { module: "workforce" as const, type: "EMPLOYEE" as const } : { module: "members" as const, type: "MEMBER" as const }
-          if (values.identityImage instanceof File) await uploadOwnerFile(effectiveOrganizationId, ownerId, owner, "IDENTITY", values.identityImage)
-          if (values.profileImage instanceof File) await uploadOwnerFile(effectiveOrganizationId, ownerId, owner, "PROFILE", values.profileImage)
-        } catch {
-          toast.warning(`تم إنشاء ${operationId === "createEmployee" ? "الموظف وحسابه" : "العضو"}، لكن تعذّر رفع إحدى الصور. يمكنك رفعها لاحقًا من قسم الملفات.`)
+        const owner = operationId === "createEmployee" ? { module: "workforce" as const, type: "EMPLOYEE" as const } : { module: "members" as const, type: "MEMBER" as const }
+        const uploads = [
+          values.identityImage instanceof File ? { label: "صورة الهوية", kind: "IDENTITY" as const, file: values.identityImage } : undefined,
+          values.profileImage instanceof File ? { label: operationId === "createEmployee" ? "صورة الموظف" : "صورة العضو", kind: "PROFILE" as const, file: values.profileImage } : undefined,
+        ].filter((item): item is { label: string; kind: "IDENTITY" | "PROFILE"; file: File } => item !== undefined)
+        const failures: string[] = []
+        for (const upload of uploads) {
+          try {
+            await uploadOwnerFile(effectiveOrganizationId, ownerId, owner, upload.kind, upload.file)
+          } catch (reason) {
+            failures.push(`${upload.label}: ${humanError(reason, "تعذر رفع الملف إلى مساحة التخزين.")}`)
+          }
+        }
+        if (failures.length > 0) {
+          toast.warning(`تم إنشاء ${operationId === "createEmployee" ? "الموظف وحسابه" : "العضو"}، لكن لم يكتمل رفع الملفات: ${failures.join(" — ")}`)
         }
       }
       const invoiceNumber = response?.data.invoiceNumber
+      const employeeNumber = operationId === "createEmployee" ? String(response?.data.employeeNumber ?? "") : ""
+      if (employeeNumber && response?.data.id) {
+        setCreatedEmployee({ id: String(response.data.id), number: employeeNumber, name: String(response.data.name ?? values.fullNameAr ?? "الموظف") })
+        toast.success("تم إنشاء الموظف وحساب الدخول بنجاح.")
+        onSaved?.()
+        return
+      }
       toast.success(isSubscriptionSale && invoiceNumber ? `تم إنشاء الاشتراك والفاتورة رقم ${String(invoiceNumber)}. سيُفعّل الاشتراك تلقائيًا بعد تحصيل الفاتورة.` : workflow.successMessage); onSaved?.(); onClose()
     } catch (reason) { setError(humanError(reason, operationId === "createSubscription" ? "تعذر إنشاء الاشتراك والفاتورة." : `تعذر تنفيذ «${workflow.title}».`)) }
     finally { setSaving(false) }
@@ -127,16 +161,28 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   return <div className="fixed inset-0 z-[80] grid place-items-end bg-black/65 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
     <section dir="rtl" role="dialog" aria-modal="true" aria-labelledby="action-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:max-w-2xl sm:rounded-[28px]">
       <header className="sticky top-0 z-10 flex items-start gap-4 border-b bg-card/95 p-5 backdrop-blur sm:p-6">
-        <div className="min-w-0"><p className="text-[11px] font-bold text-amber-600 dark:text-primary">إجراء جديد</p><h2 id="action-title" className="mt-1 text-xl font-black">{workflow.title}</h2><p className="mt-2 text-xs leading-6 text-muted-foreground">{workflow.description}</p></div>
+        <div className="min-w-0"><p className="text-[11px] font-bold text-amber-600 dark:text-primary">إجراء جديد</p><h2 id="action-title" className="mt-1 text-xl font-black">{workflow.title}</h2><p className="mt-2 text-xs leading-6 text-muted-foreground">{workflow.description}</p>{isSubscriptionSale && effectiveBranchId && <p className="mt-2 text-xs font-bold text-primary">فرع البيع والباقات: {effectiveBranchName}</p>}</div>
         <Button variant="ghost" size="icon" className="mr-auto" onClick={onClose} aria-label="إغلاق"><X /></Button>
       </header>
-      <form onSubmit={submit} className="p-5 sm:p-6">
+      {createdEmployee ? <section className="p-5 sm:p-6" aria-live="polite">
+        <div className="rounded-3xl border border-emerald-500/30 bg-emerald-500/[.07] p-6 text-center">
+          <CheckCircle2 className="mx-auto size-12 text-emerald-600"/>
+          <h3 className="mt-4 text-xl font-black">تم إنشاء الموظف وحساب الدخول</h3>
+          <p className="mt-2 text-sm text-muted-foreground">سلّم الرقم الوظيفي التالي إلى {createdEmployee.name} لاستخدامه مع كلمة المرور عند تسجيل الدخول.</p>
+          <div className="mx-auto mt-6 max-w-sm rounded-2xl border border-primary/30 bg-background p-5">
+            <p className="text-xs font-bold text-muted-foreground">الرقم الوظيفي للدخول</p>
+            <strong className="mt-2 block text-3xl font-black tracking-wider text-primary" dir="ltr">{createdEmployee.number}</strong>
+            <Button type="button" variant="outline" className="mt-4 w-full" onClick={() => void navigator.clipboard.writeText(createdEmployee.number).then(() => toast.success("تم نسخ الرقم الوظيفي.")).catch(() => toast.error("تعذر النسخ تلقائيًا؛ حدّد الرقم وانسخه يدويًا."))}><Copy/>نسخ الرقم الوظيفي</Button>
+          </div>
+          <div className="mt-6 flex flex-col-reverse justify-center gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>إغلاق</Button><Button type="button" onClick={() => { onClose(); router.push(`/employees/${createdEmployee.id}`) }}>فتح ملف الموظف</Button></div>
+        </div>
+      </section> : <form onSubmit={submit} className="p-5 sm:p-6">
         {workflow.confirm && <div className="mb-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6"><AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" /><p>{workflow.confirm}</p></div>}
-        <div className="grid gap-5 sm:grid-cols-2">{workflow.fields.filter(field => isVisibleField(operationId, field.name, values)).map(field => <Field key={field.name} field={field} value={values[field.name]} choices={options[field.name]} loading={loadingOptions} referenceQuery={referenceQueries[field.name] ?? ""} onReferenceSearch={query => setReferenceQueries(current => ({ ...current, [field.name]: query }))} onChange={value => { setError(""); setValues(current => ({ ...current, [field.name]: value })) }} />)}</div>
+        <div className="grid gap-5 sm:grid-cols-2">{visibleFields.map(field => <Field key={field.name} field={field} value={values[field.name]} choices={options[field.name]} loading={loadingOptions} lockedLabel={lockedReferenceLabels?.[field.name]} referenceQuery={referenceQueries[field.name] ?? ""} onReferenceSearch={query => setReferenceQueries(current => ({ ...current, [field.name]: query }))} onChange={value => { setError(""); setValues(current => ({ ...current, [field.name]: value })) }} />)}</div>
         {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={quoteError} />}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
         <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions || (isSubscriptionSale && Boolean(selectedPackageId) && (quoteLoading || !subscriptionQuote))}>{saving && <Loader2 className="animate-spin" />}{workflow.submitLabel}</Button></footer>
-      </form>
+      </form>}
     </section>
   </div>
 }
@@ -157,12 +203,12 @@ function SubscriptionPricePreview({ quote, loading, error }: { quote?: Subscript
   </section>
 }
 
-function Field({ field, value, choices = [], loading, referenceQuery, onReferenceSearch, onChange }: { field: (typeof workflows)[string]["fields"][number]; value: string | boolean | File | undefined; choices?: Choice[]; loading: boolean; referenceQuery: string; onReferenceSearch: (value: string) => void; onChange: (value: string | boolean | File | undefined) => void }) {
+function Field({ field, value, choices = [], loading, lockedLabel, referenceQuery, onReferenceSearch, onChange }: { field: (typeof workflows)[string]["fields"][number]; value: string | boolean | File | undefined; choices?: Choice[]; loading: boolean; lockedLabel?: string; referenceQuery: string; onReferenceSearch: (value: string) => void; onChange: (value: string | boolean | File | undefined) => void }) {
   const [showPassword, setShowPassword] = useState(false)
   if (field.type === "checkbox") return <label className="flex cursor-pointer items-center gap-3 rounded-xl border p-4 text-xs font-bold sm:col-span-2"><input type="checkbox" className="size-4 accent-amber-500" checked={Boolean(value)} onChange={event => onChange(event.target.checked)} /><span>{field.label}</span></label>
   const className = field.type === "textarea" ? "sm:col-span-2" : ""
   return <label className={`text-xs font-bold ${className}`}><span>{field.label}{field.required && <span className="mr-1 text-red-500">*</span>}</span>
-    {field.type === "file" ? <span className="mt-2 flex min-h-24 cursor-pointer items-center gap-3 rounded-xl border border-dashed bg-background px-4 py-3 transition hover:border-primary hover:bg-primary/5"><input className="sr-only" type="file" required={field.required} accept={field.name === "profileImage" ? "image/jpeg,image/png,image/webp" : "image/jpeg,image/png,application/pdf"} onChange={event => onChange(event.target.files?.[0])} /><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${value instanceof File ? "bg-emerald-500/10 text-emerald-600" : "bg-secondary text-muted-foreground"}`}>{value instanceof File ? <FileCheck2 className="size-5" /> : <UploadCloud className="size-5" />}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{value instanceof File ? value.name : "اختر ملفًا من الجهاز"}</span><span className="mt-1 block text-[10px] font-normal text-muted-foreground">{value instanceof File ? `${(value.size / 1024 / 1024).toFixed(2)} ميجابايت · اضغط للاستبدال` : "اضغط هنا للاستعراض والاختيار"}</span></span></span> : field.type === "select" || field.type === "reference" ? <div className="mt-2 space-y-2">{field.type === "reference" && field.source?.searchParam && <div className="relative"><Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/><Input value={referenceQuery} onChange={event => onReferenceSearch(event.target.value)} className="h-10 pr-10" placeholder="ابحث بالاسم أو رقم العضوية أو الجوال أو الهوية..."/></div>}<select required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"><option value="">{loading ? "جارٍ تجهيز الخيارات..." : field.placeholder ?? "اختر من القائمة"}</option>{(field.options ?? choices).map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>{field.name === "packageId" && !loading && choices.length === 0 && <span className="block text-[10px] font-normal leading-5 text-amber-600">لا توجد باقات منشورة ومُسعّرة للفرع الحالي. راجع أسعار الباقات في إعداد النظام.</span>}{field.name === "positionId" && !loading && choices.some(choice => choice.disabled) && <span className="block text-[10px] font-normal leading-5 text-amber-600">المسميات التي لم تُحدد لها صلاحيات تظهر للتوضيح فقط ولا يمكن إنشاء حساب دخول عليها. اضبطها أولًا من إعداد النظام ← المسميات الوظيفية والصلاحيات.</span>}</div> : field.type === "textarea" ? <textarea required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} rows={4} className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15" /> : field.type === "password" ? <span className="relative mt-2 block"><Input className="h-11 pl-11" type={showPassword ? "text" : "password"} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} autoComplete="new-password" dir="ltr" /><button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></span> : field.type === "date" || field.type === "datetime-local" || field.type === "time" ? <DateTimeInput className="mt-2 h-11" type={field.type} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} /> : <Input className="mt-2 h-11" type={field.type ?? "text"} min={field.min} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} dir={field.type === "tel" || field.type === "email" || field.type === "number" ? "ltr" : undefined} />}
+    {field.type === "reference" && lockedLabel ? <span className="mt-2 flex min-h-11 items-center gap-2 rounded-xl border border-primary/20 bg-primary/[.06] px-3 text-sm"><LockKeyhole className="size-4 shrink-0 text-primary"/><span className="font-bold">{lockedLabel}</span></span> : field.type === "file" ? <span className="mt-2 flex min-h-24 cursor-pointer items-center gap-3 rounded-xl border border-dashed bg-background px-4 py-3 transition hover:border-primary hover:bg-primary/5"><input className="sr-only" type="file" required={field.required} accept={field.name === "profileImage" ? "image/jpeg,image/png,image/webp" : "image/jpeg,image/png,application/pdf"} onChange={event => onChange(event.target.files?.[0])} /><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${value instanceof File ? "bg-emerald-500/10 text-emerald-600" : "bg-secondary text-muted-foreground"}`}>{value instanceof File ? <FileCheck2 className="size-5" /> : <UploadCloud className="size-5" />}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{value instanceof File ? value.name : "اختر ملفًا من الجهاز"}</span><span className="mt-1 block text-[10px] font-normal text-muted-foreground">{value instanceof File ? `${(value.size / 1024 / 1024).toFixed(2)} ميجابايت · اضغط للاستبدال` : "اضغط هنا للاستعراض والاختيار"}</span></span></span> : field.type === "select" || field.type === "reference" ? <div className="mt-2 space-y-2">{field.type === "reference" && field.source?.searchParam && <div className="relative"><Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/><Input value={referenceQuery} onChange={event => onReferenceSearch(event.target.value)} className="h-10 pr-10" placeholder="ابحث بالاسم أو رقم العضوية أو الجوال أو الهوية..."/></div>}<select required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"><option value="">{loading ? "جارٍ تجهيز الخيارات..." : field.placeholder ?? "اختر من القائمة"}</option>{(field.options ?? choices).map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>{field.name === "packageId" && !loading && choices.length === 0 && <span className="block text-[10px] font-normal leading-5 text-amber-600">لا توجد باقات منشورة ومُسعّرة للفرع الحالي. راجع أسعار الباقات في إعداد النظام.</span>}{field.name === "positionId" && !loading && choices.some(choice => choice.disabled) && <span className="block text-[10px] font-normal leading-5 text-amber-600">المسميات التي لم تُحدد لها صلاحيات تظهر للتوضيح فقط ولا يمكن إنشاء حساب دخول عليها. اضبطها أولًا من إعداد النظام ← المسميات الوظيفية والصلاحيات.</span>}</div> : field.type === "textarea" ? <textarea required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} rows={4} className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15" /> : field.type === "password" ? <span className="relative mt-2 block"><Input className="h-11 pl-11" type={showPassword ? "text" : "password"} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} autoComplete="new-password" dir="ltr" /><button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></span> : field.type === "date" || field.type === "datetime-local" || field.type === "time" ? <DateTimeInput className="mt-2 h-11" type={field.type} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} /> : <Input className="mt-2 h-11" type={field.type ?? "text"} min={field.min} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} dir={field.type === "tel" || field.type === "email" || field.type === "number" ? "ltr" : undefined} />}
     {field.hint && <span className="mt-2 block text-[10px] font-normal leading-5 text-muted-foreground">{field.hint}</span>}
   </label>
 }
@@ -175,7 +221,7 @@ function isVisibleField(operationId: string, fieldName: string, values: FormValu
   return true
 }
 
-function validateValues(operationId: string, values: FormValues): string {
+async function validateValues(operationId: string, values: FormValues): Promise<string> {
   const workflow = workflows[operationId]
   for (const field of workflow?.fields ?? []) {
     if (!isVisibleField(operationId, field.name, values)) continue
@@ -190,9 +236,7 @@ function validateValues(operationId: string, values: FormValues): string {
   }
   if (operationId === "createCrmLead" && !String(values.phoneE164 ?? "").trim() && !String(values.email ?? "").trim()) return "أدخل رقم جوال أو بريدًا إلكترونيًا واحدًا على الأقل حتى يمكن متابعة العميل."
   if (operationId === "createEmployee") {
-    const employeeNumber = String(values.employeeNumber ?? "").trim().toUpperCase()
     const password = String(values.password ?? "")
-    if (!/^EMP\d{3,10}$/u.test(employeeNumber)) return "الرقم الوظيفي يجب أن يبدأ بـ EMP ثم من 3 إلى 10 أرقام، مثل EMP001."
     const passwordError = passwordLengthError(password)
     if (passwordError) return passwordError
     if (password !== String(values.confirmPassword ?? "")) return "كلمتا المرور غير متطابقتين."
@@ -201,9 +245,9 @@ function validateValues(operationId: string, values: FormValues): string {
   for (const key of ["identityImage", "profileImage"] as const) {
     const file = values[key]
     if (!(file instanceof File)) continue
-    if (file.size > 10 * 1024 * 1024) return `${key === "identityImage" ? "صورة الهوية" : operationId === "createEmployee" ? "صورة الموظف" : "صورة العضو"} تتجاوز الحد الأقصى وهو 10 ميجابايت.`
-    const allowed = key === "identityImage" ? ["image/jpeg", "image/png", "application/pdf"] : ["image/jpeg", "image/png"]
-    if (!allowed.includes(file.type)) return `صيغة ${key === "identityImage" ? "صورة الهوية" : operationId === "createEmployee" ? "صورة الموظف" : "صورة العضو"} غير مدعومة.`
+    const label = key === "identityImage" ? "صورة الهوية" : operationId === "createEmployee" ? "صورة الموظف" : "صورة العضو"
+    const error = await ownerFileValidationError(file, key === "identityImage" ? "IDENTITY" : "PROFILE", label)
+    if (error) return error
   }
   return ""
 }
@@ -237,7 +281,7 @@ async function sellablePackages(items: unknown[], organizationId: string, branch
   })
   if (!organizationId || !branchId || !published.length) return published
 
-  const response = await apiRequest<unknown>(`/organizations/${organizationId}/prices`)
+  const response = await apiRequest<unknown>(`/organizations/${organizationId}/prices?branchId=${encodeURIComponent(branchId)}`)
   const payload = response.data
   const prices = Array.isArray(payload) ? payload : payload && typeof payload === "object" && "items" in payload ? (payload as { items: unknown[] }).items : []
   const now = Date.now()
@@ -260,21 +304,4 @@ function formatMoney(minor: string, currency: string) {
   const amount = Number(minor)
   if (!Number.isFinite(amount)) return "—"
   return new Intl.NumberFormat("ar-SA", { style: "currency", currency }).format(amount / 100)
-}
-
-async function uploadOwnerFile(organizationId: string, ownerId: string, owner: { module: "workforce" | "members"; type: "EMPLOYEE" | "MEMBER" }, kind: "IDENTITY" | "PROFILE", file: File) {
-  if (file.size > 10 * 1024 * 1024) throw new Error("file_too_large")
-  const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()))).map(byte => byte.toString(16).padStart(2, "0")).join("")
-  const request = await apiRequest<{ fileId: string; uploadUrl: string; expectedVersion: number }>(`/organizations/${organizationId}/files/upload-requests`, {
-    method: "POST",
-    headers: { "Idempotency-Key": createIdempotencyKey() },
-    body: JSON.stringify({ ownerModule: owner.module, ownerType: owner.type, ownerId, purpose: kind === "IDENTITY" ? "IDENTITY_DOCUMENT" : "PROFILE_PHOTO", originalFilename: file.name, mimeType: file.type, size: file.size, checksumSha256: sha256 }),
-  })
-  const upload = await fetch(request.data.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file })
-  if (!upload.ok) throw new Error("owner_file_upload_failed")
-  await apiRequest(`/organizations/${organizationId}/files/${request.data.fileId}/upload-completions`, {
-    method: "POST",
-    headers: { "Idempotency-Key": createIdempotencyKey() },
-    body: JSON.stringify({ expectedVersion: request.data.expectedVersion }),
-  })
 }

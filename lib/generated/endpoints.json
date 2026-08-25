@@ -200,6 +200,30 @@
     "description": "Member updated with optimistic concurrency."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}/blocks",
+    "method": "post",
+    "operationId": "blockMember",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member blocked for a documented club-policy reason; operational access is suspended."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}/block-history",
+    "method": "get",
+    "operationId": "listMemberBlockHistory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Immutable block and lift history for the authorized member profile."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}/block-lifts",
+    "method": "post",
+    "operationId": "liftMemberBlock",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member disciplinary block lifted and operational access restored."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/members/{memberId}/guardian-links",
     "method": "post",
     "operationId": "linkGuardian",
@@ -653,7 +677,7 @@
     "operationId": "listAttendanceAttempts",
     "secured": true,
     "idempotent": false,
-    "description": "Append-only attendance attempts restricted to the effective branch scope."
+    "description": "Append-only attendance attempts restricted to the selected or effective branch scope."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/attendance-attempts",
@@ -749,7 +773,7 @@
     "operationId": "listReservations",
     "secured": true,
     "idempotent": false,
-    "description": "Reservations restricted to effective branch scope."
+    "description": "Reservations restricted to the selected or effective branch scope."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/reservations",
@@ -877,7 +901,7 @@
     "operationId": "listRestaurantOrders",
     "secured": true,
     "idempotent": false,
-    "description": "Restaurant orders restricted to effective Chef branch scope."
+    "description": "Restaurant orders restricted to the selected or effective branch scope."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/restaurant-orders/{orderId}",
@@ -1021,7 +1045,7 @@
     "operationId": "listTrainers",
     "secured": true,
     "idempotent": false,
-    "description": "Trainer profiles restricted to effective branch assignments."
+    "description": "Trainer profiles restricted to selected or effective branch assignments."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/trainers",
@@ -1054,6 +1078,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Time-bounded trainer branch assignment created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/trainers/{trainerId}/availability-rules",
+    "method": "get",
+    "operationId": "listTrainerAvailability",
+    "secured": true,
+    "idempotent": false,
+    "description": "Effective-dated weekly trainer availability for the selected branch."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/trainers/{trainerId}/availability-rules",
@@ -1109,7 +1141,7 @@
     "operationId": "listMeasurementSessions",
     "secured": true,
     "idempotent": false,
-    "description": "Append-only measurement history restricted to effective branch scope."
+    "description": "Append-only measurement history restricted to selected or effective branch scope."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/measurement-sessions",
