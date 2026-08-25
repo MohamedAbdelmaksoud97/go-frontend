@@ -53,23 +53,25 @@ const sections: Array<{ id: ReportSection; label: string; icon: typeof Activity 
 export function ReportsWorkspace() {
   const context = useAppContext()
   const [date, setDate] = useState(today())
-  const [branchId, setBranchId] = useState(context.branchId)
+  const [branchSelection, setBranchSelection] = useState(() => ({ contextBranchId: context.branchId, value: context.branchId }))
+  const branchId = branchSelection.contextBranchId === context.branchId ? branchSelection.value : context.branchId
   const [section, setSection] = useState<ReportSection>("overview")
   const [rows, setRows] = useState<DailyReport[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
-  useEffect(() => { if (context.branchId) setBranchId(context.branchId) }, [context.branchId])
   useEffect(() => {
     if (!context.organizationId || !date) return
     let cancelled = false
-    setLoading(true); setError("")
-    const query = new URLSearchParams({ from: date, to: date })
-    if (branchId) query.set("branchId", branchId)
-    void apiRequest<DailyReport[]>(`/organizations/${context.organizationId}/reports/branch-daily?${query}`).then(response => {
-      if (!cancelled) setRows(Array.isArray(response.data) ? response.data : [])
-    }).catch(reason => { if (!cancelled) { setRows([]); setError(humanError(reason, "تعذر تحميل تقرير هذا اليوم.")) } }).finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+    const frame = requestAnimationFrame(() => {
+      setLoading(true); setError("")
+      const query = new URLSearchParams({ from: date, to: date })
+      if (branchId) query.set("branchId", branchId)
+      void apiRequest<DailyReport[]>(`/organizations/${context.organizationId}/reports/branch-daily?${query}`).then(response => {
+        if (!cancelled) setRows(Array.isArray(response.data) ? response.data : [])
+      }).catch(reason => { if (!cancelled) { setRows([]); setError(humanError(reason, "تعذر تحميل تقرير هذا اليوم.")) } }).finally(() => { if (!cancelled) setLoading(false) })
+    })
+    return () => { cancelled = true; cancelAnimationFrame(frame) }
   }, [branchId, context.organizationId, date])
 
   const totals = useMemo(() => aggregate(rows), [rows])
@@ -84,7 +86,7 @@ export function ReportsWorkspace() {
 
     <Card className="reports-print-hidden"><CardContent className="grid gap-4 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
       <label className="text-xs font-bold"><span>يوم التقرير</span><DateTimeInput aria-label="يوم التقرير" type="date" value={date} onChange={event => setDate(event.target.value)} className="mt-2 h-11" /></label>
-      <label className="text-xs font-bold">نطاق التقرير<select aria-label="نطاق التقرير" value={branchId} onChange={event => setBranchId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary">{context.branches.length > 1 && <option value="">كل الفروع المسموح بها</option>}{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.nameAr ?? branch.name ?? "فرع"}</option>)}</select></label>
+      <label className="text-xs font-bold">نطاق التقرير<select aria-label="نطاق التقرير" value={branchId} onChange={event => setBranchSelection({ contextBranchId: context.branchId, value: event.target.value })} className="mt-2 h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary">{context.branches.length > 1 && <option value="">كل الفروع المسموح بها</option>}{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.nameAr ?? branch.name ?? "فرع"}</option>)}</select></label>
       <div className="rounded-xl bg-primary/10 px-4 py-3 text-xs font-bold text-amber-700 dark:text-primary"><CalendarDays className="ml-2 inline size-4" />{formatDate(date)}</div>
     </CardContent></Card>
 

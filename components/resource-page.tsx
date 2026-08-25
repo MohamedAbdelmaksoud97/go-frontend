@@ -210,15 +210,14 @@ function renewalEligibility(record: ApiRecord, policy?: ApiRecord) {
   if (!policy) return { allowed: false, message: "لا توجد سياسة تجديد محفوظة مع هذا الاشتراك." }
   const termEnd = new Date(String(record.termEnd ?? ""))
   if (Number.isNaN(termEnd.getTime())) return { allowed: false, message: "تعذر قراءة تاريخ نهاية الاشتراك." }
-  const earlyDays = Number(policy.allowEarlyRenewalDays)
   const graceDays = Number(policy.graceDays)
-  if (!Number.isInteger(earlyDays) || earlyDays < 0 || !Number.isInteger(graceDays) || graceDays < 0) return { allowed: false, message: "إعدادات سياسة التجديد المحفوظة غير صالحة." }
-  const earliest = new Date(termEnd.getTime() - earlyDays * 86_400_000)
+  if (!Number.isInteger(graceDays) || graceDays < 0) return { allowed: false, message: "إعدادات سياسة التجديد المحفوظة غير صالحة." }
   const latest = new Date(termEnd.getTime() + graceDays * 86_400_000)
   const now = new Date()
-  if (now < earliest) return { allowed: false, message: `يتاح التجديد من ${earliest.toLocaleDateString("ar-SA")} وفق سياسة الباقة.` }
   if (now > latest) return { allowed: false, message: `انتهت مهلة التجديد في ${latest.toLocaleDateString("ar-SA")} وفق سياسة الباقة.` }
-  return { allowed: true, message: `تجديد الاشتراك وفق سياسة الباقة (مهلة ما بعد الانتهاء: ${graceDays} يوم).` }
+  return { allowed: true, message: now < termEnd
+    ? "تجديد مبكر مع ترحيل كامل المدة المتبقية تلقائيًا."
+    : `تجديد الاشتراك وفق سياسة الباقة (مهلة ما بعد الانتهاء: ${graceDays} يوم).` }
 }
 
 function SubscriptionFreezeDialog({
@@ -325,13 +324,15 @@ function SubscriptionPolicyActionDialog({
   const subscriptionNumber = String(record.subscriptionNumber ?? "")
   const renewal = capturedPolicyConfiguration(record, "RENEWAL")
   const cancellation = capturedPolicyConfiguration(record, "CANCELLATION")
-  const defaultStart = (() => {
+  const rollover = (() => {
     const now = new Date()
     const termEnd = new Date(String(record.termEnd ?? ""))
-    const value = !Number.isNaN(termEnd.getTime()) && termEnd > now ? termEnd : now
-    return localDateTimeValue(value)
+    const startAt = !Number.isNaN(termEnd.getTime()) && termEnd > now ? termEnd : now
+    return {
+      startAt,
+      remainingDays: Number.isNaN(termEnd.getTime()) ? 0 : Math.max(0, Math.ceil((termEnd.getTime() - now.getTime()) / 86_400_000)),
+    }
   })()
-  const [startAt, setStartAt] = useState(defaultStart)
   const [promoCode, setPromoCode] = useState("")
   const [reason, setReason] = useState("")
   const [saving, setSaving] = useState(false)
@@ -343,7 +344,6 @@ function SubscriptionPolicyActionDialog({
     if (!subscriptionId) { setError("تعذر تحديد الاشتراك. حدّث الصفحة وحاول مجددًا."); return }
     if (renewing && !renewal) { setError("لا توجد سياسة تجديد محفوظة مع هذا الاشتراك."); return }
     if (!renewing && !cancellation) { setError("لا توجد سياسة إلغاء محفوظة مع هذا الاشتراك."); return }
-    if (renewing && (!startAt || Number.isNaN(new Date(startAt).getTime()))) { setError("حدد تاريخ بداية صحيحًا للاشتراك المجدد."); return }
     if (!renewing && reason.trim().length < 3) { setError("اكتب سببًا واضحًا للإلغاء من 3 أحرف على الأقل."); return }
     setSaving(true)
     setError("")
@@ -351,10 +351,10 @@ function SubscriptionPolicyActionDialog({
       await apiRequest(`/organizations/${organizationId}/subscriptions/${subscriptionId}/${renewing ? "renewals" : "cancellations"}`, {
         method: "POST",
         body: JSON.stringify(renewing
-          ? { expectedVersion: Number(record.version ?? 1), startAt: new Date(startAt).toISOString(), ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {}) }
+          ? { expectedVersion: Number(record.version ?? 1), ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {}) }
           : { expectedVersion: Number(record.version ?? 1), reason: reason.trim() }),
       })
-      toast.success(renewing ? "تم إنشاء الاشتراك المجدد وربطه بالاشتراك السابق." : "تم تسجيل طلب الإلغاء وتطبيق سياسة الباقة المحفوظة مع الاشتراك.")
+      toast.success(renewing ? "تم التجديد مع حفظ المدة المتبقية وجدولة الفترة الجديدة بعدها." : "تم تسجيل طلب الإلغاء وتطبيق سياسة الباقة المحفوظة مع الاشتراك.")
       onSaved()
     } catch (cause) {
       setError(humanError(cause, renewing ? "تعذر تجديد هذا الاشتراك وفق سياسة الباقة." : "تعذر إلغاء هذا الاشتراك وفق سياسة الباقة."))
@@ -373,8 +373,7 @@ function SubscriptionPolicyActionDialog({
       </div>
 
       {renewing ? <>
-        <div className="mt-5 rounded-2xl bg-emerald-500/8 p-4 text-xs leading-6">تسمح السياسة بالتجديد المبكر قبل النهاية بـ <strong>{Number(renewal?.allowEarlyRenewalDays ?? 0)} يوم</strong>، وحتى <strong>{Number(renewal?.graceDays ?? 0)} يوم</strong> بعد الانتهاء. سيُنشأ اشتراك جديد مرتبط بهذا الاشتراك مع التقاط سياسات الباقة الحالية.</div>
-        <label className="mt-5 block text-xs font-bold">بداية الاشتراك المجدد<span className="mr-1 text-red-500">*</span><DateTimeInput type="datetime-local" required value={startAt} onChange={event => setStartAt(event.target.value)} className="mt-2 h-11" /></label>
+        <div className="mt-5 rounded-2xl bg-emerald-500/8 p-4 text-xs leading-6"><p className="font-black">ترحيل تلقائي دون فقد المدة المتبقية</p><p className="mt-1 text-muted-foreground">{rollover.remainingDays > 0 ? `سيحتفظ العضو بنحو ${rollover.remainingDays} يوم متبقٍ،` : "انتهت المدة الحالية،"} وتبدأ فترة التجديد تلقائيًا في <strong>{rollover.startAt.toLocaleString("ar-SA")}</strong>. لا يحدث تداخل بين الفترتين، وتُلتقط أسعار وسياسات الباقة الحالية للتجديد.</p><p className="mt-1 text-muted-foreground">مهلة التجديد بعد الانتهاء وفق السياسة: <strong>{Number(renewal?.graceDays ?? 0)} يوم</strong>.</p></div>
         <label className="mt-4 block text-xs font-bold">رمز الخصم (اختياري)<Input value={promoCode} onChange={event => setPromoCode(event.target.value)} className="mt-2" /></label>
       </> : <>
         <div className="mt-5 rounded-2xl bg-red-500/8 p-4 text-xs leading-6"><p className="font-black">السياسة المطبقة: {cancellationMode === "IMMEDIATE_PRORATED" ? "إلغاء فوري مع احتساب الاسترداد" : "إلغاء في نهاية مدة الاشتراك"}</p><p className="mt-1 text-muted-foreground">مهلة الإشعار: {Number(cancellation?.noticeDays ?? 0)} يوم · رسم الإلغاء: {moneyMinor(cancellation?.feeMinor)} · الاسترداد {cancellation?.refundable ? "مسموح" : "غير مسموح"}.</p></div>
@@ -385,10 +384,6 @@ function SubscriptionPolicyActionDialog({
       <div className="mt-6 flex gap-2 border-t pt-5"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>رجوع</Button><Button type="submit" className="mr-auto" variant={renewing ? "default" : "destructive"} disabled={saving}>{saving ? "جارٍ التنفيذ..." : renewing ? "تأكيد التجديد" : "تأكيد الإلغاء"}</Button></div>
     </form>
   </div>
-}
-
-function localDateTimeValue(value: Date) {
-  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
 
 function moneyMinor(value: unknown) {

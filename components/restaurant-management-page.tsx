@@ -63,10 +63,7 @@ export function RestaurantManagementPage() {
   const canReadAllRestaurantBranches = context.grants.some(grant => grant.organizationId === context.organizationId && ["restaurant.orders.read", "restaurant.orders.prepare", "restaurant.orders.manage"].includes(grant.permission) && grant.scopeType === "ORGANIZATION")
   const canPrepareOrders = context.canAccess(["restaurant.orders.prepare"])
   const effectiveKitchenScope = canReadAllRestaurantBranches ? kitchenScope : "CURRENT"
-
-  useEffect(() => {
-    if (!availableTabs.some(item => item.key === tab) && availableTabs[0]) setTab(availableTabs[0].key)
-  }, [availableTabs, tab])
+  const activeTab = availableTabs.some(item => item.key === tab) ? tab : availableTabs[0]?.key
 
   async function load() {
     if (!hasRuntimeApi() || !context.organizationId || !context.branchId) { setLoading(false); return }
@@ -99,22 +96,23 @@ export function RestaurantManagementPage() {
   }, [context.organizationId, context.branchId, date, effectiveKitchenScope, canReadCatalog, canReadMenu, canReadOrders, canRedeemMealPlans])
 
   useEffect(() => {
-    if (!hasRuntimeApi() || !context.organizationId || !context.branchId || !canRedeemMealPlans || !redemptionForm.memberId) {
-      setSubscriptions([])
-      return
-    }
     let active = true
-    void apiRequest<SubscriptionOption[] | { items: SubscriptionOption[] }>(`/organizations/${context.organizationId}/subscriptions?memberId=${encodeURIComponent(redemptionForm.memberId)}&branchId=${encodeURIComponent(context.branchId)}&limit=100`)
-      .then(response => {
-        if (!active) return
-        const eligible = (list(response.data) as SubscriptionOption[]).filter(subscription =>
-          ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(subscription.status) && subscription.commercialSnapshot?.fulfillmentKind === "MEAL_PLAN",
-        )
-        setSubscriptions(eligible)
-        setRedemptionForm(current => ({ ...current, subscriptionId: eligible.some(item => item.id === current.subscriptionId) ? current.subscriptionId : eligible[0]?.id ?? "" }))
-      })
-      .catch(reason => { if (active) setError(humanError(reason, "تعذر تحميل خطط الوجبات النشطة لهذا العضو.")) })
-    return () => { active = false }
+    const frame = requestAnimationFrame(() => {
+      setSubscriptions([])
+      setRedemptionForm(current => ({ ...current, subscriptionId: "" }))
+      if (!hasRuntimeApi() || !context.organizationId || !context.branchId || !canRedeemMealPlans || !redemptionForm.memberId) return
+      void apiRequest<SubscriptionOption[] | { items: SubscriptionOption[] }>(`/organizations/${context.organizationId}/subscriptions?memberId=${encodeURIComponent(redemptionForm.memberId)}&branchId=${encodeURIComponent(context.branchId)}&limit=100`)
+        .then(response => {
+          if (!active) return
+          const eligible = (list(response.data) as SubscriptionOption[]).filter(subscription =>
+            ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(subscription.status) && subscription.commercialSnapshot?.fulfillmentKind === "MEAL_PLAN",
+          )
+          setSubscriptions(eligible)
+          setRedemptionForm(current => ({ ...current, subscriptionId: eligible[0]?.id ?? "" }))
+        })
+        .catch(reason => { if (active) setError(humanError(reason, "تعذر تحميل خطط الوجبات النشطة لهذا العضو.")) })
+    })
+    return () => { active = false; cancelAnimationFrame(frame) }
   }, [canRedeemMealPlans, context.branchId, context.organizationId, redemptionForm.memberId])
 
   function setMealField(key: string, value: string | boolean) { setMealForm(current => ({ ...current, [key]: value } as typeof current)) }
@@ -195,9 +193,9 @@ export function RestaurantManagementPage() {
   }
 
   return <div className="fade-up space-y-5">
-    <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><div className="flex gap-2">{availableTabs.map(item => <Button key={item.key} variant={tab === item.key ? "default" : "outline"} onClick={() => setTab(item.key)}><item.icon />{item.label}</Button>)}</div></header>
+    <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><div className="flex gap-2">{availableTabs.map(item => <Button key={item.key} variant={activeTab === item.key ? "default" : "outline"} onClick={() => setTab(item.key)}><item.icon />{item.label}</Button>)}</div></header>
     {error && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : tab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} /> : tab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} /> : tab === "redemptions" ? <MealPlanRedemptionPanel members={members} subscriptions={subscriptions} meals={meals} form={redemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
+    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel members={members} subscriptions={subscriptions} meals={meals} form={redemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
   </div>
 }
 

@@ -83,9 +83,11 @@ export function TrainerAssignmentManager() {
   useEffect(() => {
     const search = query.trim()
     if (search.length < 2 || !context.organizationId || !context.branchId) {
-      setMemberSearchResults(null)
-      setMemberSearchLoading(false)
-      return
+      const frame = requestAnimationFrame(() => {
+        setMemberSearchResults(null)
+        setMemberSearchLoading(false)
+      })
+      return () => cancelAnimationFrame(frame)
     }
     let cancelled = false
     const timer = window.setTimeout(async () => {

@@ -29,6 +29,7 @@ export const permissionActions: Record<string, string> = {
 
 const permissionLabelOverrides: Record<string, string> = {
   "members.block": "حظر الأعضاء ورفع الحظر",
+  "members.contacts.read": "عرض أرقام هواتف الأعضاء وبريدهم كاملًا",
   "sales.checkout": "إتمام عمليات البيع",
   "attendance.check-in": "تسجيل دخول الأعضاء",
   "finance.refunds.issue": "تنفيذ الاسترجاعات المالية",
