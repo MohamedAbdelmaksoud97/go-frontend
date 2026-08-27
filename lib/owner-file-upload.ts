@@ -25,10 +25,10 @@ export async function uploadOwnerFile(
   const bytes = await file.arrayBuffer()
   const mimeType = await detectSupportedMimeType(bytes)
   if (!mimeType || (kind === "PROFILE" && mimeType === "application/pdf")) {
-    throw new ApiError({ type: "about:blank", title: "صيغة ملف غير مدعومة", status: 422, detail: "File MIME type is not allowed.", code: "file_type_not_allowed" })
+    throw new ApiError({ type: "about:blank", title: "صيغة ملف غير مدعومة", status: 422, detail: "استخدم صيغة ملف مدعومة ثم حاول مرة أخرى.", code: "file_type_not_allowed" })
   }
   if (file.size < 1 || file.size > MAX_FILE_SIZE) {
-    throw new ApiError({ type: "about:blank", title: "حجم ملف غير صالح", status: 422, detail: "File size is outside the allowed range.", code: "invalid_file_size" })
+    throw new ApiError({ type: "about:blank", title: "حجم ملف غير صالح", status: 422, detail: "حجم الملف خارج النطاق المسموح.", code: "invalid_file_size" })
   }
 
   const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(byte => byte.toString(16).padStart(2, "0")).join("")
@@ -39,7 +39,7 @@ export async function uploadOwnerFile(
   })
   const upload = await fetch(request.data.uploadUrl, { method: "PUT", headers: { "Content-Type": mimeType }, body: bytes })
   if (!upload.ok) {
-    throw new ApiError({ type: "about:blank", title: "تعذر رفع الملف", status: upload.status || 502, detail: "The storage service rejected the file upload.", code: "owner_file_upload_failed" })
+    throw new ApiError({ type: "about:blank", title: "تعذر رفع الملف", status: upload.status || 502, detail: "تعذر رفع الملف حاليًا. حاول مرة أخرى بعد قليل.", code: "owner_file_upload_failed" })
   }
   const completion = await apiRequest<{ fileId: string; uploadStatus: string; scanStatus: string; version: number }>(`/organizations/${organizationId}/files/${request.data.fileId}/upload-completions`, {
     method: "POST",

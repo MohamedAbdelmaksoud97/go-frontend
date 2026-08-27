@@ -3,13 +3,20 @@ import { createHash } from "node:crypto"
 const API_BASE=(process.env.API_BASE_URL??process.env.NEXT_PUBLIC_API_BASE_URL??"http://127.0.0.1:3001").replace(/\/$/,"")
 
 export const SESSION_MAX_AGE_SECONDS=60*60*24*7
-export const sessionCookieOptions={
+const DEFAULT_ACCESS_TOKEN_AGE_SECONDS=60*60
+const baseCookieOptions={
  httpOnly:true,
  sameSite:"lax" as const,
  secure:process.env.NODE_ENV==="production",
  path:"/",
- maxAge:SESSION_MAX_AGE_SECONDS,
  priority:"high" as const,
+}
+export const refreshTokenCookieOptions={...baseCookieOptions,maxAge:SESSION_MAX_AGE_SECONDS}
+
+export function accessTokenCookieOptions(expiresIn?:number){
+ const providerAge=Number.isFinite(expiresIn)&&Number(expiresIn)>0?Math.floor(Number(expiresIn)):DEFAULT_ACCESS_TOKEN_AGE_SECONDS
+ const clockSkew=Math.min(60,Math.max(1,Math.floor(providerAge/10)))
+ return {...baseCookieOptions,maxAge:Math.max(1,Math.min(SESSION_MAX_AGE_SECONDS,providerAge-clockSkew))}
 }
 
 export type RefreshedSession={accessToken:string;refreshToken:string;expiresIn?:number}
@@ -30,6 +37,7 @@ async function requestRefreshedSession(refreshToken:string):Promise<RefreshResul
    headers:{"Content-Type":"application/json",Accept:"application/json"},
    body:JSON.stringify({refreshToken}),
    cache:"no-store",
+   signal:AbortSignal.timeout(12_000),
   })
   if(!response.ok)return {ok:false,status:response.status}
   const payload=await response.json().catch(()=>null)

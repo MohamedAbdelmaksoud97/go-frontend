@@ -8,7 +8,7 @@ import { BrandLogo } from "@/components/brand-logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ApiError, hasRuntimeApi, signInWithPassword } from "@/lib/api-client"
-import { humanError } from "@/lib/human-errors"
+import { humanError, UserInputError } from "@/lib/human-errors"
 import { passwordLengthError } from "@/lib/password-policy"
 
 type Audience = "staff" | "member" | "member-test"
@@ -53,17 +53,17 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const passwordError = passwordLengthError(password)
-      if (passwordError) throw new Error(passwordError)
+      if (passwordError) throw new UserInputError(passwordError)
       if (staff || memberUsesEmail) {
-        if (!email.trim()) throw new Error(staff ? "أدخل الرقم الوظيفي أو البريد الإلكتروني." : "أدخل بريدًا إلكترونيًا صحيحًا.")
-        if (memberUsesEmail && !/^\S+@\S+\.\S+$/u.test(email.trim())) throw new Error("أدخل بريدًا إلكترونيًا صحيحًا.")
+        if (!email.trim()) throw new UserInputError(staff ? "أدخل الرقم الوظيفي أو البريد الإلكتروني." : "أدخل بريدًا إلكترونيًا صحيحًا.")
+        if (memberUsesEmail && !/^\S+@\S+\.\S+$/u.test(email.trim())) throw new UserInputError("أدخل بريدًا إلكترونيًا صحيحًا.")
         if (hasRuntimeApi()) {
           await signInWithPassword(staff ? "staff" : "member-test", staff
             ? { identifier: email.trim(), password }
             : { email: email.trim(), password })
         }
       } else {
-        if (!/^\+[1-9]\d{7,14}$/u.test(normalizedPhone())) throw new Error("أدخل رقم الجوال بالصيغة الدولية، مثل +9665… أو +2010…")
+        if (!/^\+[1-9]\d{7,14}$/u.test(normalizedPhone())) throw new UserInputError("أدخل رقم الجوال بالصيغة الدولية، مثل +9665… أو +2010…")
         if (hasRuntimeApi()) await signInWithPassword("member", { phone: normalizedPhone(), password })
       }
       if (!hasRuntimeApi()) await new Promise(resolve => setTimeout(resolve, 450))
@@ -72,9 +72,7 @@ export default function LoginPage() {
       if (!staff && reason instanceof ApiError && reason.problem.code === "invalid_credentials") {
         setError("رقم الجوال أو كلمة المرور غير صحيحة، أو لم يتم تفعيل حساب العضو بعد.")
       } else {
-        setError(reason instanceof Error && reason.name !== "ApiError"
-          ? reason.message
-          : humanError(reason, "تعذر إكمال تسجيل الدخول. حاول مرة أخرى."))
+        setError(humanError(reason, "تعذر إكمال تسجيل الدخول. حاول مرة أخرى."))
       }
     } finally {
       setLoading(false)

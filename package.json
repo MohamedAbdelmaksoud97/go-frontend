@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "check:coverage": "node scripts/check-endpoint-coverage.mjs",
-    "test": "npm run check:coverage && npm run lint"
+    "check:errors": "node scripts/check-error-safety.mjs",
+    "test": "npm run check:coverage && npm run check:errors && npm run lint"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

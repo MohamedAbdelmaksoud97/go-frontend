@@ -1,5 +1,12 @@
 import { ApiError } from "@/lib/api-client";
 
+export class UserInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserInputError";
+  }
+}
+
 const messages: Record<string, string> = {
   self_trainer_not_found:
     "حساب الموظف غير مرتبط بملف مدرب نشط. أنشئ ملف المدرب واربطه بالموظف ثم عيّنه إلى الفرع.",
@@ -47,6 +54,12 @@ const messages: Record<string, string> = {
     "حساب الموظف غير نشط. فعّل الموظف أولًا قبل تعديل حسابه أو تعيينه الوظيفي.",
   auth_provider_unavailable:
     "خدمة حسابات الموظفين غير مهيأة حاليًا. لم تُحفظ العملية؛ راجع إعدادات خدمة الدخول ثم حاول مجددًا.",
+  auth_session_refresh_unavailable:
+    "تعذر تجديد الجلسة مؤقتًا بسبب انقطاع خدمة الدخول. جلستك محفوظة؛ حاول مجددًا بعد قليل.",
+  session_refresh_temporarily_unavailable:
+    "تعذر تجديد الجلسة مؤقتًا بسبب مشكلة اتصال. جلستك محفوظة؛ حاول مجددًا بعد قليل.",
+  session_persistence_failed:
+    "تم التحقق من بيانات الدخول لكن تعذر حفظ الجلسة الآمنة. أعد المحاولة.",
   invalid_auth_provider_response:
     "أعادت خدمة حسابات الموظفين استجابة غير مكتملة؛ لم تُحفظ بيانات الموظف. حاول مجددًا ثم راجع إعدادات خدمة الحسابات إذا استمرت المشكلة.",
   invalid_employee_assignment_period:
@@ -256,6 +269,7 @@ export function humanError(
   error: unknown,
   fallback = "تعذر إكمال الإجراء. حاول مرة أخرى.",
 ) {
+  if (error instanceof UserInputError) return error.message;
   if (error instanceof ApiError) {
     const isGenericServerError =
       error.problem.code === "internal_error" ||
@@ -265,7 +279,7 @@ export function humanError(
     if (!isGenericServerError && messages[error.problem.code])
       return messages[error.problem.code];
     if (error.problem.status === 401)
-      return "انتهت جلستك. سجّل الدخول مرة أخرى. ";
+      return "انتهت جلستك. سجّل الدخول مرة أخرى.";
     if (error.problem.status === 403)
       return "لا تملك الصلاحية اللازمة لإتمام هذا الإجراء.";
     if (error.problem.status === 404)
@@ -276,12 +290,28 @@ export function humanError(
       return "عدد المحاولات كبير. انتظر قليلًا ثم حاول مجددًا.";
     if (error.problem.status >= 500) {
       const tracking = error.problem.correlationId
-        ? ` رقم التتبع: ${error.problem.correlationId}`
+        ? ` وإذا استمرت المشكلة، تواصل مع الدعم واذكر رقم التتبع: ${error.problem.correlationId}.`
         : "";
-      return `${fallback} حاول مجددًا، وإذا تكرر الخطأ أرسل رقم التتبع لمسؤول النظام.${tracking}`;
+      return `${fallback}${tracking}`;
     }
-    return error.problem.detail || fallback;
+    return genericProblemMessage(error.problem.code, error.problem.status, fallback);
   }
+  return fallback;
+}
+
+function genericProblemMessage(code: string, status: number, fallback: string) {
+  if (code.endsWith("_not_found") || code === "not_found")
+    return "لم يعد السجل المطلوب متاحًا. حدّث الصفحة ثم حاول مجددًا.";
+  if (/(?:^|_)(?:conflict|duplicate|exists|overlap)(?:_|$)/u.test(code) || code.includes("already"))
+    return "تتعارض العملية مع بيانات موجودة أو تغيّرت مؤخرًا. حدّث الصفحة وراجع البيانات ثم حاول مجددًا.";
+  if (/(?:^|_)(?:required|invalid|mismatch|unsupported|exceeded)(?:_|$)/u.test(code))
+    return "راجع البيانات المطلوبة والقيم المدخلة ثم حاول مجددًا.";
+  if (/(?:not_active|inactive|expired|closed|not_allowed|not_eligible|forbidden)/u.test(code))
+    return "لا يمكن تنفيذ الإجراء في الحالة الحالية. راجع حالة السجل والصلاحيات ثم حاول مجددًا.";
+  if (/(?:unavailable|timeout|provider|storage|connection|failed)/u.test(code))
+    return "الخدمة المطلوبة غير متاحة مؤقتًا. حاول مرة أخرى بعد قليل.";
+  if (status === 400 || status === 422)
+    return "لا يمكن تنفيذ الإجراء بالبيانات أو الحالة الحالية. راجع المدخلات ثم حاول مجددًا.";
   return fallback;
 }
 
@@ -314,11 +344,6 @@ const fieldLabels: Record<string, string> = {
 
 function requestValidationMessage(problem: ApiError["problem"]) {
   const issue = problem.errors?.[0];
-  const rawMessage = issue?.message?.toLowerCase() ?? "";
-  if (rawMessage.includes("phone or email"))
-    return "أدخل رقم جوال أو بريدًا إلكترونيًا واحدًا على الأقل.";
-  if (rawMessage.includes("general interest"))
-    return "اختر تصنيف الاهتمام دون ربطه بعنصر محدد.";
   const path = [...(issue?.path ?? [])]
     .reverse()
     .find((value) => typeof value === "string");
