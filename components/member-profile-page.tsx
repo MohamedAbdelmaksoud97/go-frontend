@@ -4,14 +4,16 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   ArrowRight, CalendarDays, Camera, CircleX, CreditCard, FileBadge, FileText,
-  Loader2, Mail, MapPin, Package, Phone, RefreshCw, ShoppingBag, UserRound,
-  UtensilsCrossed, Printer, ShieldAlert, Snowflake, UploadCloud,
+  Loader2, Mail, MapPin, Package, Pencil, Phone, RefreshCw, ShoppingBag, UserRound,
+  UtensilsCrossed, Printer, ShieldAlert, Snowflake, UploadCloud, X,
 } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { DateTimeInput } from "@/components/date-time-input"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { cn } from "@/lib/utils"
@@ -48,6 +50,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
   const [active, setActive] = useState<SectionKey>("profile")
   const [reloadKey, setReloadKey] = useState(0)
   const [uploadingFile, setUploadingFile] = useState<OwnerFileKind>()
+  const [editingMember, setEditingMember] = useState(false)
   const [loadedAt] = useState(() => Date.now())
 
   const permissions = useMemo(() => ({
@@ -61,6 +64,9 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     blocks: context.canAccess(["members.read"]),
   }), [context])
   const canUploadFiles = context.canAccess(["files.manage"]) && context.canAccess(["members.manage"])
+  const canEditMember = context.canAccess(["members.manage"])
+  const canEditMemberContacts = canEditMember && context.canAccess(["members.contacts.read"])
+  const canEditSensitiveMemberData = canEditMember && context.canAccess(["members.sensitive.manage"])
   const activeOrganizationId = context.organizationId
   const activeBranchId = context.branchId
   const contextLoading = context.loading
@@ -197,7 +203,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
           <Avatar name={text(member.name, "عضو النادي")} url={photoUrl}/>
           <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black sm:text-3xl">{text(member.name, "عضو النادي")}</h1><StatusBadge status={text(member.status, "ACTIVE")}/></div><div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground"><span dir="ltr">رقم العضوية: <strong>{text(member.memberNumber)}</strong></span>{Boolean(member.legacyMemberNumber) && <span dir="ltr">الرقم القديم: <strong>{text(member.legacyMemberNumber)}</strong></span>}<span className="inline-flex items-center gap-1"><MapPin className="size-3.5"/>{branchName}</span></div></div>
-          <Button variant="outline" onClick={() => setReloadKey(value => value + 1)}><RefreshCw/>تحديث الملف</Button>
+          <div className="flex flex-wrap gap-2">{canEditMember && <Button onClick={() => setEditingMember(true)}><Pencil/>تعديل بيانات العضو</Button>}<Button variant="outline" onClick={() => setReloadKey(value => value + 1)}><RefreshCw/>تحديث الملف</Button></div>
         </div>
       </div>
       <div className="grid gap-px border-t bg-border sm:grid-cols-2 lg:grid-cols-4">
@@ -227,7 +233,101 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
       </div></CardContent></Card>}
       <FilesSection rows={data.files} urls={data.fileUrls} error={data.errors.files}/>
     </div>}
+    {editingMember && <MemberEditDialog organizationId={context.organizationId} member={member} canEditContacts={canEditMemberContacts} canEditSensitive={canEditSensitiveMemberData} onClose={() => setEditingMember(false)} onSaved={() => { setEditingMember(false); setReloadKey(value => value + 1) }} />}
   </div>
+}
+
+function MemberEditDialog({ organizationId, member, canEditContacts, canEditSensitive, onClose, onSaved }: { organizationId: string; member: Row; canEditContacts: boolean; canEditSensitive: boolean; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast()
+  const contacts = Array.isArray(member.contacts) ? member.contacts.filter(isRow) : []
+  const primaryPhone = contacts.find(contact => text(contact.type, "") === "PHONE" && Boolean(contact.isPrimary)) ?? contacts.find(contact => text(contact.type, "") === "PHONE")
+  const primaryEmail = contacts.find(contact => text(contact.type, "") === "EMAIL" && Boolean(contact.isPrimary)) ?? contacts.find(contact => text(contact.type, "") === "EMAIL")
+  const [form, setForm] = useState({
+    name: text(member.name, ""),
+    phone: canEditContacts ? text(primaryPhone?.value, "") : "",
+    email: canEditContacts ? text(primaryEmail?.value, "") : "",
+    gender: text(member.gender, "UNSPECIFIED"),
+    birthDate: text(member.birthDate, ""),
+    nationalityCode: text(member.nationalityCode, ""),
+    nationalId: canEditSensitive ? text(member.nationalId, "") : "",
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+
+  function update(field: keyof typeof form, value: string) { setForm(current => ({ ...current, [field]: value })) }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (form.name.trim().length < 2) { setError("اكتب اسم العضو من حرفين على الأقل."); return }
+    setSaving(true)
+    setError("")
+    try {
+      const body: Record<string, unknown> = {
+        expectedVersion: Number(member.version ?? 1),
+        name: form.name.trim(),
+        gender: form.gender,
+        birthDate: form.birthDate || null,
+        nationalityCode: form.nationalityCode.trim() || null,
+        ...(canEditContacts ? { contacts: revisePrimaryContacts(contacts, form.phone, form.email) } : {}),
+        ...(canEditSensitive ? { nationalId: form.nationalId.trim() || null } : {}),
+      }
+      await apiRequest(`/organizations/${organizationId}/members/${text(member.id, "")}`, { method: "PATCH", body: JSON.stringify(body) })
+      toast.success("تم تحديث بيانات العضو بنجاح وحفظ التغيير في سجل التدقيق.")
+      onSaved()
+    } catch (reason) {
+      setError(humanError(reason, "تعذر تحديث بيانات العضو. راجع الاسم وبيانات التواصل ثم حاول مجددًا."))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose() }}>
+    <form onSubmit={submit} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border bg-card shadow-2xl" dir="rtl">
+      <div className="flex items-start gap-4 border-b p-5 sm:p-6"><span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/15 text-primary"><Pencil/></span><div><h2 className="text-xl font-black">تعديل بيانات العضو</h2><p className="mt-1 text-xs text-muted-foreground">رقم العضوية <span dir="ltr">{text(member.memberNumber)}</span> ثابت ولا يتغير.</p></div><Button type="button" variant="ghost" size="icon" className="mr-auto" onClick={onClose} disabled={saving} aria-label="إغلاق"><X/></Button></div>
+      <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6">
+        <Field label="الاسم الكامل" required><Input value={form.name} onChange={event => update("name", event.target.value)} minLength={2} maxLength={160} required/></Field>
+        <Field label="الجنس"><select value={form.gender} onChange={event => update("gender", event.target.value)} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary"><option value="MALE">ذكر</option><option value="FEMALE">أنثى</option><option value="UNSPECIFIED">غير محدد</option></select></Field>
+        <Field label="تاريخ الميلاد"><DateTimeInput type="date" value={form.birthDate} max={new Date().toISOString().slice(0, 10)} onChange={event => update("birthDate", event.target.value)}/></Field>
+        <Field label="الجنسية"><Input value={form.nationalityCode} onChange={event => update("nationalityCode", event.target.value)} maxLength={80} placeholder="مثال: سعودي أو مصري"/></Field>
+        {canEditContacts && <><Field label="رقم الجوال" hint="استخدم صيغة دولية مثل +9665XXXXXXXX"><Input type="tel" dir="ltr" value={form.phone} onChange={event => update("phone", event.target.value)} placeholder="+9665XXXXXXXX"/></Field><Field label="البريد الإلكتروني"><Input type="email" dir="ltr" value={form.email} onChange={event => update("email", event.target.value)} maxLength={254} placeholder="name@example.com"/></Field></>}
+        {canEditSensitive && <Field label="رقم الهوية" hint="بيان حساس لا يظهر أو يُعدّل إلا بصلاحية مستقلة"><Input dir="ltr" value={form.nationalId} onChange={event => update("nationalId", event.target.value)} minLength={4} maxLength={40}/></Field>}
+      </div>
+      {!canEditContacts && <p className="mx-5 mb-4 rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground sm:mx-6">بيانات التواصل مخفية لأن حسابك لا يملك صلاحية عرض بيانات اتصال الأعضاء؛ لن يتم تغييرها.</p>}
+      {error && <p role="alert" className="mx-5 mb-4 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive sm:mx-6">{error}</p>}
+      <div className="flex flex-wrap gap-2 border-t p-5 sm:p-6"><Button type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin"/> : <Pencil/>}{saving ? "جارٍ الحفظ..." : "حفظ التعديلات"}</Button><Button type="button" variant="outline" onClick={onClose} disabled={saving}>إلغاء</Button></div>
+    </form>
+  </div>
+}
+
+function Field({ label, required = false, hint, children }: { label: string; required?: boolean; hint?: string; children: React.ReactNode }) {
+  return <label className="grid gap-2 text-sm font-bold"><span>{label}{required && <span className="mr-1 text-destructive">*</span>}</span>{children}{hint && <span className="text-[10px] font-normal leading-5 text-muted-foreground">{hint}</span>}</label>
+}
+
+function revisePrimaryContacts(source: Row[], phone: string, email: string) {
+  const contacts = source.flatMap(contact => {
+    const type = text(contact.type, "")
+    const value = text(contact.value, "")
+    return (type === "PHONE" || type === "EMAIL") && value ? [{ type, value, isPrimary: Boolean(contact.isPrimary) }] : []
+  })
+  const replace = (type: "PHONE" | "EMAIL", rawValue: string) => {
+    const value = rawValue.trim().replace(type === "PHONE" ? /[\s()-]/gu : /\s/gu, "")
+    const indexes = contacts.flatMap((contact, index) => contact.type === type ? [index] : [])
+    const primaryIndex = indexes.find(index => contacts[index]?.isPrimary) ?? indexes[0]
+    if (!value) {
+      if (primaryIndex !== undefined) contacts.splice(primaryIndex, 1)
+      const remaining = contacts.find(contact => contact.type === type)
+      if (remaining) remaining.isPrimary = true
+      return
+    }
+    if (primaryIndex === undefined) contacts.push({ type, value, isPrimary: true })
+    else {
+      contacts[primaryIndex] = { type, value, isPrimary: true }
+      contacts.forEach((contact, index) => { if (contact.type === type && index !== primaryIndex) contact.isPrimary = false })
+    }
+  }
+  replace("PHONE", phone)
+  replace("EMAIL", email)
+  return contacts
 }
 
 function ProfileSection({ member, contacts, branchName, identity, identityUrl, showSensitiveNotes }: { member: Row; contacts: Row[]; branchName: string; identity?: Row; identityUrl?: string; showSensitiveNotes: boolean }) {

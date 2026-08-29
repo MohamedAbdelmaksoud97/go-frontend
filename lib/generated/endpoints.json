@@ -512,6 +512,14 @@
     "description": "Append-only term or visit adjustment recorded."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/start-date-changes",
+    "method": "post",
+    "operationId": "rescheduleSubscriptionStart",
+    "secured": true,
+    "idempotent": false,
+    "description": "A not-yet-started subscription is rescheduled while preserving its captured term duration."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/orders",
     "method": "get",
     "operationId": "listSalesOrders",

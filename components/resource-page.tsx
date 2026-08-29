@@ -486,6 +486,18 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
   })
 
   if (operationId === "listSubscriptions" && id) {
+    if (["PENDING_ACTIVATION", "SCHEDULED"].includes(status)) actions.push({
+      label: "تعديل موعد بداية الاشتراك",
+      permission: "subscriptions.adjustments.manage",
+      path: `/organizations/${organizationId}/subscriptions/${id}/start-date-changes`,
+      description: "يمكن تعديل الموعد قبل بدء الاشتراك فقط. يحتفظ النظام بمدة الاشتراك كاملة وينقل تاريخ النهاية بنفس الفارق. إذا كان الاشتراك مسددًا ومجدولًا واخترت الوقت الحالي فسيصبح نشطًا فورًا.",
+      confirmLabel: "حفظ موعد البداية الجديد",
+      fields: [
+        { name: "startAt", label: "موعد البداية الجديد", type: "datetime-local", initial: localDateTime(new Date()), required: true, hint: `الموعد الحالي: ${new Date(String(record.termStart ?? "")).toLocaleString("ar-SA")}` },
+        { name: "reason", label: "سبب تعديل الموعد", type: "textarea", initial: "طلب العضو", required: true, placeholder: "اكتب سببًا واضحًا لتعديل موعد البداية" },
+      ],
+      body: values => ({ expectedVersion: version, startAt: new Date(values.startAt).toISOString(), reason: values.reason.trim() }),
+    })
     if (status === "PENDING_ACTIVATION") actions.push({ label: "تفعيل الاشتراك", permission: "subscriptions.activate", path: `/organizations/${organizationId}/subscriptions/${id}/activations`, body: () => ({ expectedVersion: version }) })
     if (status === "ACTIVE") actions.push({
       label: "تجميد الاشتراك",
@@ -776,6 +788,11 @@ function businessDate(value: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value)
   const part = (type: string) => parts.find(item => item.type === type)?.value ?? ""
   return `${part("year")}-${part("month")}-${part("day")}`
+}
+
+function localDateTime(value: Date) {
+  const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
 }
 
 function metricNote(recordCount: number, fallback: string) {
