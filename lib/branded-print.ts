@@ -42,9 +42,10 @@ const baseStyles = `
   @media print{button{display:none}.print-brand-logo,th,.document-subject{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}
 `
 
-export function openBrandedPrintWindow({ title, subtitle, body, extraStyles = "", windowFeatures = "noopener,noreferrer,width=900,height=900" }: BrandedPrintOptions) {
+export function openBrandedPrintWindow({ title, subtitle, body, extraStyles = "", windowFeatures = "width=900,height=900" }: BrandedPrintOptions) {
   const popup = window.open("", "_blank", windowFeatures)
   if (!popup) return false
+  popup.opener = null
   popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${escapePrintHtml(title)}</title><style>${baseStyles}${extraStyles}</style></head><body><button type="button" onclick="window.print()">طباعة</button><header class="print-brand-header"><div class="print-brand"><div class="print-brand-logo"><img src="/go-fitness-logo.png" alt="شعار GO Fitness"></div><div class="print-brand-copy"><strong>GO Fitness</strong><span>${escapePrintHtml(subtitle)}</span></div></div></header>${body}<script>window.onload=()=>window.print()</script></body></html>`)
   popup.document.close()
   return true

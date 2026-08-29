@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Activity, CalendarDays, CreditCard, Dumbbell, Loader2, Printer, ReceiptText, RefreshCw, ShoppingBag, Utensils, X } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -118,7 +119,7 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
   </>
 }
 
-function SubscriptionButtons({ row, busy, onAction }: { row: Row; busy: boolean; onAction: (value: "freezes" | "resumptions" | "cancellations") => void }) { const value = String(row.status ?? ""); return <>{["ACTIVE", "ACTIVE_PROVISIONAL"].includes(value) && <><Button size="sm" variant="outline" disabled={busy} onClick={() => onAction("freezes")}>تجميد العضوية</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => onAction("cancellations")}>طلب إلغاء</Button></>}{value === "FROZEN" && <Button size="sm" disabled={busy} onClick={() => onAction("resumptions")}>استئناف</Button>}</> }
+function SubscriptionButtons({ row, busy, onAction }: { row: Row; busy: boolean; onAction: (value: "freezes" | "resumptions" | "cancellations") => void }) { const value = String(row.status ?? ""); const cancellationPending = Boolean(row.cancellationRequest); return <>{cancellationPending && <Badge variant="warning">الإلغاء مجدول</Badge>}{["ACTIVE", "ACTIVE_PROVISIONAL"].includes(value) && !cancellationPending && <><Button size="sm" variant="outline" disabled={busy} onClick={() => onAction("freezes")}>تجميد العضوية</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => onAction("cancellations")}>طلب إلغاء</Button></>}{value === "FROZEN" && !cancellationPending && <Button size="sm" disabled={busy} onClick={() => onAction("resumptions")}>استئناف</Button>}</> }
 function FreezeHistory({ row }: { row: Row }) { const periods = Array.isArray(row.freezePeriods) ? row.freezePeriods as Row[] : []; if (!periods.length) return null; return <div className="mt-3 rounded-xl border bg-background/60 p-3"><p className="text-xs font-black">سجل التجميدات</p><div className="mt-2 space-y-1.5">{periods.map((period, index) => <p key={String(period.id ?? index)} className="text-[11px] leading-5 text-muted-foreground">{dateOnly(period.startedAt)} — {period.resumedAt ? `استؤنف في ${dateOnly(period.resumedAt)}` : `مجمّد حتى ${dateOnly(period.plannedEndAt)}`} · {String(period.reason ?? "دون سبب مسجل")}</p>)}</div></div> }
 function list(value: unknown): Row[] { if (Array.isArray(value)) return value as Row[]; if (value && typeof value === "object" && Array.isArray((value as { items?: unknown[] }).items)) return (value as { items: Row[] }).items; return [] }
 function title(row: Row, active: string, index: number) {

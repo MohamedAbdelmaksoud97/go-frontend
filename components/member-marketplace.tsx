@@ -8,10 +8,10 @@ import { Card, CardContent } from "@/components/ui/card"
 import { useToast } from "@/components/toast-provider"
 import { apiRequest, createIdempotencyKey } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
-import { escapePrintHtml, openBrandedPrintWindow } from "@/lib/branded-print"
+import { ContractPrintSheets, printContractDocument, printableContract, type ContractSnapshot } from "@/components/invoice-details-page"
 
 type Row = Record<string, unknown>
-type Member = { organizationId: string; memberId: string; canBook?: boolean; canManageMembership?: boolean }
+type Member = { organizationId: string; memberId: string; memberName: string; memberNumber: string; canBook?: boolean; canManageMembership?: boolean }
 type Tab = "packages" | "services" | "booking"
 type Quote = { targetName: string; baseAmountMinor: string; discountMinor: string; netMinor: string; taxMinor: string; grossMinor: string; taxInclusive: boolean; promotion?: { name: string } }
 type PendingCheckout = { item: Row; type: "PACKAGE" | "SERVICE"; quote: Quote; contracts: Row[] }
@@ -24,6 +24,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
   const [services, setServices] = useState<Row[]>([])
   const [resource, setResource] = useState<Row>()
   const [pending, setPending] = useState<PendingCheckout>()
+  const [printable, setPrintable] = useState<ContractSnapshot>()
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState("")
   const [error, setError] = useState("")
@@ -105,6 +106,13 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
     })).data
   }
 
+  function printContract(contract: Row, packageName?: string) {
+    const snapshot = printableContract(contract, packageName)
+    if (!snapshot) { setError("تعذر تجهيز نسخة العقد للطباعة. حدّث الصفحة وحاول مجددًا."); return }
+    setPrintable(snapshot)
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => void printContractDocument()))
+  }
+
   const tabs: Array<[Tab, string]> = [
     ...(member.canManageMembership ? [["packages", "الباقات"], ["services", "الخدمات"]] as Array<[Tab, string]> : []),
     ...(member.canBook ? [["booking", "حجز موعد"]] as Array<[Tab, string]> : []),
@@ -126,7 +134,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
               <div className="flex items-start justify-between gap-3"><div><p className="font-black">{String(item.name ?? item.code ?? "خيار متاح")}</p><p className="mt-1 text-xs leading-6 text-muted-foreground">{String(item.description ?? item.facilityName ?? item.categoryName ?? "متاح للحجز والشراء من بوابة العضو")}</p></div>{item.amountMinor != null && <Badge variant="outline">{money(item.amountMinor)} ر.س</Badge>}</div>
               {tab === "packages" && <PackageDetails item={item} />}
               {tab === "services" && Boolean(item.categoryName) && <p className="mt-3 text-xs text-muted-foreground">التصنيف: {String(item.categoryName)}</p>}
-              <ContractSummary contracts={tab === "packages" ? contractsFor(item, "PACKAGE", services) : tab === "services" ? contractsFor(item, "SERVICE", services) : contractsForResource(item, services)} />
+              <ContractSummary contracts={tab === "packages" ? contractsFor(item, "PACKAGE", services) : tab === "services" ? contractsFor(item, "SERVICE", services) : contractsForResource(item, services)} onPrint={contract => printContract(contract, String(item.name ?? item.code ?? ""))} />
               <Button className="mt-4 w-full" size="sm" disabled={Boolean(busy)} onClick={() => tab === "booking" ? void chooseResource(item) : void prepareCheckout(item, tab === "packages" ? "PACKAGE" : "SERVICE")}>{busy === String(item.id) ? <Loader2 className="animate-spin" /> : tab === "booking" ? <CalendarPlus /> : <ShoppingBag />}{tab === "booking" ? "عرض المواعيد المتاحة" : "عرض السعر النهائي"}</Button>
             </article>)}
             {!items.length && <div className="rounded-2xl border border-dashed p-10 text-center lg:col-span-2"><CalendarDays className="mx-auto size-9 text-muted-foreground/50" /><p className="mt-3 text-sm font-bold">لا توجد خيارات منشورة في هذا الفرع حاليًا</p><p className="mt-1 text-xs text-muted-foreground">يمكنك اختيار فرع آخر من القائمة بالأعلى.</p></div>}
@@ -135,17 +143,18 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
         {resource && <div className="mt-5 border-t pt-5"><h3 className="text-sm font-black">المواعيد المتاحة — {String(resource.name ?? "")}</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{slots.map((slot, index) => <Button key={String(slot.id ?? index)} variant="outline" className="h-auto justify-between py-3" disabled={Boolean(busy)} onClick={() => void book(slot)}><span>{date(slot.startsAt)}</span><span className="text-[10px] text-muted-foreground">متاح {String(slot.availableCount ?? "")}</span>{busy === String(slot.id) && <Loader2 className="animate-spin" />}</Button>)}{!slots.length && <p className="text-xs text-muted-foreground">لا توجد مواعيد شاغرة خلال الثلاثين يومًا القادمة.</p>}</div></div>}
       </CardContent>
     </Card>
-    {pending && <QuoteDialog pending={pending} busy={Boolean(busy)} onClose={() => setPending(undefined)} onConfirm={() => void confirmCheckout()} />}
+    {pending && <QuoteDialog pending={pending} busy={Boolean(busy)} onClose={() => setPending(undefined)} onConfirm={() => void confirmCheckout()} onPrint={contract => printContract(contract, String(pending.item.name ?? pending.item.code ?? ""))} />}
+    {printable && <ContractPrintSheets context={{ branchName: branchName ?? "الفرع المختار", preview: true, member: { name: member.memberName, memberNumber: member.memberNumber } }} contracts={[printable]} />}
   </>
 }
 
-function QuoteDialog({ pending, busy, onClose, onConfirm }: { pending: PendingCheckout; busy: boolean; onClose: () => void; onConfirm: () => void }) {
+function QuoteDialog({ pending, busy, onClose, onConfirm, onPrint }: { pending: PendingCheckout; busy: boolean; onClose: () => void; onConfirm: () => void; onPrint: (contract: Row) => void }) {
   const quote = pending.quote
   return <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="member-quote-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}>
     <div className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl"><div className="flex items-start gap-3"><span className="grid size-12 place-items-center rounded-2xl bg-primary/15 text-primary"><CheckCircle2 /></span><div><p className="text-xs font-bold text-primary">مراجعة الطلب</p><h3 id="member-quote-title" className="mt-1 text-xl font-black">{quote.targetName}</h3></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} disabled={busy} aria-label="إغلاق"><X /></Button></div>
       <dl className="mt-6 space-y-3 rounded-2xl bg-secondary/50 p-4 text-sm"><PriceRow label="السعر قبل الخصم" value={quote.baseAmountMinor} />{Number(quote.discountMinor) > 0 && <PriceRow label={`الخصم${quote.promotion ? ` — ${quote.promotion.name}` : ""}`} value={quote.discountMinor} negative />}<PriceRow label="الصافي قبل الضريبة" value={quote.netMinor} /><PriceRow label="الضريبة" value={quote.taxMinor} /><div className="border-t pt-3"><PriceRow label="الإجمالي المطلوب في الاستقبال" value={quote.grossMinor} strong /></div></dl>
       <p className="mt-4 text-xs leading-6 text-muted-foreground">سيُنشأ الطلب وفاتورة برقم واضح. يكتمل تفعيل الاشتراك أو الخدمة بعد السداد في استقبال النادي.</p>
-      <ContractSummary contracts={pending.contracts} expanded />
+      <ContractSummary contracts={pending.contracts} expanded onPrint={onPrint} />
       <div className="mt-6 flex gap-3"><Button className="flex-1" onClick={onConfirm} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <CreditCard />}تأكيد وإنشاء الفاتورة</Button><Button variant="outline" onClick={onClose} disabled={busy}>رجوع</Button></div>
     </div>
   </div>
@@ -174,16 +183,7 @@ function contractsForResource(resource: Row, services: Row[]) {
   const service = services.find(item => String(item.id) === String(resource.serviceId))
   return service ? contractsFor(service, "SERVICE", services) : []
 }
-function ContractSummary({ contracts, expanded = false }: { contracts: Row[]; expanded?: boolean }) {
+function ContractSummary({ contracts, expanded = false, onPrint }: { contracts: Row[]; expanded?: boolean; onPrint: (contract: Row) => void }) {
   if (!contracts.length) return null
-  return <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3"><p className="flex items-center gap-2 text-xs font-black"><FileText className="size-4 text-primary"/>عقود يجب الاطلاع عليها</p><div className="mt-2 space-y-2">{contracts.map(contract => <details key={String(contract.id)} open={expanded} className="rounded-lg bg-card p-3"><summary className="cursor-pointer text-xs font-bold">{String(contract.contractTitle ?? `عقد ${contract.name ?? "النشاط"}`)}</summary><p className="mt-3 whitespace-pre-wrap text-xs leading-6 text-muted-foreground">{String(contract.contractContent ?? "")}</p><Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => printContract(contract)}><Printer/>طباعة العقد</Button></details>)}</div></div>
-}
-function printContract(contract: Row) {
-  const activityName = String(contract.name ?? "النشاط")
-  const title = String(contract.contractTitle ?? `عقد ${activityName}`)
-  openBrandedPrintWindow({
-    title,
-    subtitle: "نسخة بنود عقد النشاط",
-    body: `<section class="document-heading"><p class="eyebrow">عقد ممارسة نشاط</p><h1>${escapePrintHtml(title)}</h1></section><section class="document-subject"><span>النشاط</span><strong>${escapePrintHtml(activityName)}</strong><small>تطبق هذه البنود عند الاشتراك في خدمة أو باقة مرتبطة بالنشاط.</small></section><p class="document-preamble">تم إعداد هذه الوثيقة لعرض البنود المعتمدة لممارسة نشاط <strong>${escapePrintHtml(activityName)}</strong>.</p><section class="document-section"><h2>بنود ممارسة النشاط</h2><div class="document-terms">${escapePrintHtml(String(contract.contractContent ?? ""))}</div></section><section class="document-signatures"><div>توقيع المشترك</div><div>توقيع الموظف المختص</div><div>التاريخ</div></section>`,
-  })
+  return <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3"><p className="flex items-center gap-2 text-xs font-black"><FileText className="size-4 text-primary"/>عقود يجب الاطلاع عليها</p><div className="mt-2 space-y-2">{contracts.map(contract => <details key={String(contract.id)} open={expanded} className="rounded-lg bg-card p-3"><summary className="cursor-pointer text-xs font-bold">{String(contract.contractTitle ?? `عقد ${contract.name ?? "النشاط"}`)}</summary><p className="mt-3 whitespace-pre-wrap text-xs leading-6 text-muted-foreground">{String(contract.contractContent ?? "")}</p><Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => onPrint(contract)}><Printer/>طباعة العقد</Button></details>)}</div></div>
 }

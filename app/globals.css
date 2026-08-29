@@ -55,6 +55,9 @@
 @media print {
   body { background: white !important; color: black !important; }
   body * { visibility: hidden !important; }
+  html[data-invoice-print-mode="contract"] body { margin: 0 !important; padding: 0 !important; }
+  html[data-invoice-print-mode="contract"] body *:not(:has([data-contract-print])):not([data-contract-print]):not([data-contract-print] *) { display: none !important; }
+  html[data-invoice-print-mode="contract"] body *:has([data-contract-print]) { position: static !important; width: auto !important; max-width: none !important; min-height: 0 !important; height: auto !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; transform: none !important; }
   [data-app-content] { min-height: 0 !important; overflow: visible !important; padding-right: 0 !important; }
   .reports-print-root, .reports-print-root *, [data-invoice-print], [data-invoice-print] *, [data-contract-print], [data-contract-print] * { visibility: visible !important; }
   .reports-print-root {
