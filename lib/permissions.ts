@@ -6,7 +6,7 @@ export const permissionImplications:Readonly<Record<string,readonly string[]>>={
  "workforce.manage":["workforce.read"],"workforce.assignments.manage":["workforce.read"],"workforce.accounts.manage":["workforce.read"],
  "files.manage":["files.read"],"catalog.manage":["catalog.read"],"catalog.availability.manage":["catalog.read"],
  "commercial.manage":["commercial.read"],"pricing.manage":["commercial.read"],"promotions.manage":["commercial.read"],"policies.manage":["commercial.read"],
- "subscriptions.activate":["subscriptions.read"],"subscriptions.freeze":["subscriptions.read"],"subscriptions.cancel":["subscriptions.read"],"subscriptions.renew":["subscriptions.read"],"subscriptions.adjustments.manage":["subscriptions.read"],
+ "subscriptions.freeze":["subscriptions.read"],"subscriptions.cancel":["subscriptions.read"],"subscriptions.renew":["subscriptions.read"],"subscriptions.adjustments.manage":["subscriptions.read"],
  "sales.checkout":["sales.read","members.read","commercial.read","restaurant.catalog.read","restaurant.menu.read","retail.catalog.read","retail.inventory.read"],"finance.payments.record":["finance.payments.read","finance.invoices.read"],"finance.refunds.issue":["finance.payments.read"],
  "finance.expenses.manage":["finance.expenses.read"],"finance.expenses.approve":["finance.expenses.read"],"finance.expenses.pay":["finance.expenses.read"],
  "finance.cash-points.manage":["finance.cash-points.read"],"finance.cash-shifts.manage":["finance.cash-points.read"],

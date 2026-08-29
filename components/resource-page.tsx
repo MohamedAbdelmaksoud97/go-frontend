@@ -498,7 +498,6 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
       ],
       body: values => ({ expectedVersion: version, startAt: new Date(values.startAt).toISOString(), reason: values.reason.trim() }),
     })
-    if (status === "PENDING_ACTIVATION") actions.push({ label: "تفعيل الاشتراك", permission: "subscriptions.activate", path: `/organizations/${organizationId}/subscriptions/${id}/activations`, body: () => ({ expectedVersion: version }) })
     if (status === "ACTIVE") actions.push({
       label: "تجميد الاشتراك",
       permission: "subscriptions.freeze",
