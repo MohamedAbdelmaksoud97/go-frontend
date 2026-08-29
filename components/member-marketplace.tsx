@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { useToast } from "@/components/toast-provider"
 import { apiRequest, createIdempotencyKey } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
+import { escapePrintHtml, openBrandedPrintWindow } from "@/lib/branded-print"
 
 type Row = Record<string, unknown>
 type Member = { organizationId: string; memberId: string; canBook?: boolean; canManageMembership?: boolean }
@@ -178,9 +179,11 @@ function ContractSummary({ contracts, expanded = false }: { contracts: Row[]; ex
   return <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3"><p className="flex items-center gap-2 text-xs font-black"><FileText className="size-4 text-primary"/>عقود يجب الاطلاع عليها</p><div className="mt-2 space-y-2">{contracts.map(contract => <details key={String(contract.id)} open={expanded} className="rounded-lg bg-card p-3"><summary className="cursor-pointer text-xs font-bold">{String(contract.contractTitle ?? `عقد ${contract.name ?? "النشاط"}`)}</summary><p className="mt-3 whitespace-pre-wrap text-xs leading-6 text-muted-foreground">{String(contract.contractContent ?? "")}</p><Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => printContract(contract)}><Printer/>طباعة العقد</Button></details>)}</div></div>
 }
 function printContract(contract: Row) {
-  const popup = window.open("", "_blank", "noopener,noreferrer")
-  if (!popup) return
-  popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${escapeHtml(String(contract.contractTitle ?? "عقد النشاط"))}</title><style>body{font-family:Cairo,Arial,sans-serif;max-width:850px;margin:40px auto;line-height:2;padding:0 24px}h1{border-bottom:2px solid;padding-bottom:16px}p{white-space:pre-wrap}</style></head><body><h1>${escapeHtml(String(contract.contractTitle ?? `عقد ${contract.name ?? "النشاط"}`))}</h1><p>${escapeHtml(String(contract.contractContent ?? ""))}</p><script>window.onload=()=>window.print()</script></body></html>`)
-  popup.document.close()
+  const activityName = String(contract.name ?? "النشاط")
+  const title = String(contract.contractTitle ?? `عقد ${activityName}`)
+  openBrandedPrintWindow({
+    title,
+    subtitle: "نسخة بنود عقد النشاط",
+    body: `<section class="document-heading"><p class="eyebrow">عقد ممارسة نشاط</p><h1>${escapePrintHtml(title)}</h1></section><section class="document-subject"><span>النشاط</span><strong>${escapePrintHtml(activityName)}</strong><small>تطبق هذه البنود عند الاشتراك في خدمة أو باقة مرتبطة بالنشاط.</small></section><p class="document-preamble">تم إعداد هذه الوثيقة لعرض البنود المعتمدة لممارسة نشاط <strong>${escapePrintHtml(activityName)}</strong>.</p><section class="document-section"><h2>بنود ممارسة النشاط</h2><div class="document-terms">${escapePrintHtml(String(contract.contractContent ?? ""))}</div></section><section class="document-signatures"><div>توقيع المشترك</div><div>توقيع الموظف المختص</div><div>التاريخ</div></section>`,
+  })
 }
-function escapeHtml(value: string) { return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character] ?? character)) }

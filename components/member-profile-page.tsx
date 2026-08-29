@@ -19,6 +19,7 @@ import { humanError } from "@/lib/human-errors"
 import { cn } from "@/lib/utils"
 import { ownerFileValidationError, uploadOwnerFile, type OwnerFileKind } from "@/lib/owner-file-upload"
 import { useToast } from "@/components/toast-provider"
+import { escapePrintHtml, openBrandedPrintWindow } from "@/lib/branded-print"
 
 type Row = Record<string, unknown>
 type Branch = { id: string; nameAr?: string; name?: string }
@@ -474,9 +475,11 @@ function subscriptionContracts(subscription: Row, services: Row[], activities: R
   return activities.filter(activity => activityIds.has(text(activity.id)) && Boolean(activity.contractContent))
 }
 function printContract(contract: Row) {
-  const popup = window.open("", "_blank", "noopener,noreferrer")
-  if (!popup) return
-  popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${escapeHtml(text(contract.contractTitle, "عقد النشاط"))}</title><style>body{font-family:Cairo,Arial,sans-serif;max-width:850px;margin:40px auto;line-height:2;color:#111;padding:0 24px}h1{border-bottom:2px solid #111;padding-bottom:16px}p{white-space:pre-wrap}</style></head><body><h1>${escapeHtml(text(contract.contractTitle, `عقد ${text(contract.name)}`))}</h1><p>${escapeHtml(text(contract.contractContent, ""))}</p><script>window.onload=()=>window.print()</script></body></html>`)
-  popup.document.close()
+  const activityName = text(contract.name, "النشاط")
+  const title = text(contract.contractTitle, `عقد ${activityName}`)
+  openBrandedPrintWindow({
+    title,
+    subtitle: "نسخة بنود عقد النشاط",
+    body: `<section class="document-heading"><p class="eyebrow">عقد ممارسة نشاط</p><h1>${escapePrintHtml(title)}</h1></section><section class="document-subject"><span>النشاط</span><strong>${escapePrintHtml(activityName)}</strong><small>تطبق هذه البنود عند الاشتراك في خدمة أو باقة مرتبطة بالنشاط.</small></section><p class="document-preamble">تم إعداد هذه الوثيقة لعرض البنود المعتمدة لممارسة نشاط <strong>${escapePrintHtml(activityName)}</strong>.</p><section class="document-section"><h2>بنود ممارسة النشاط</h2><div class="document-terms">${escapePrintHtml(text(contract.contractContent, ""))}</div></section><section class="document-signatures"><div>توقيع المشترك</div><div>توقيع الموظف المختص</div><div>التاريخ</div></section>`,
+  })
 }
-function escapeHtml(value: string) { return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character] ?? character)) }

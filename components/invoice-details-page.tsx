@@ -6,7 +6,7 @@ import Image from "next/image"
 import {
   ArrowRight, BadgePercent, Banknote, Building2, FileText,
   Hash, Loader2, Package, ReceiptText, RefreshCw, RotateCcw, ShoppingBag,
-  UserRound, WalletCards, Printer,
+  UserRound, WalletCards, Printer, FileSignature, Files,
 } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { StatusBadge } from "@/components/status-badge"
@@ -19,8 +19,9 @@ import { humanError } from "@/lib/human-errors"
 type InvoiceLine = {
   id: string; orderLineId?: string; description: string; lineType?: string; targetId?: string; targetCode?: string; targetName?: string
   quantity: number; unitNetMinor: string; netMinor: string; discountMinor: string; taxMinor: string; grossMinor: string
-  taxRateBps: number; taxInclusive: boolean; fulfillmentStatus?: string; fulfillmentReferenceId?: string; commercialSnapshot?: Record<string, unknown>
+  taxRateBps: number; taxInclusive: boolean; fulfillmentStatus?: string; fulfillmentReferenceId?: string; commercialSnapshot?: Record<string, unknown>; contractSnapshots: Record<string, unknown>[]
 }
+type ContractSnapshot = { activityId: string; activityCode: string; activityName: string; contractType: "GENERAL_ACTIVITY" | "CHILD_ACADEMY"; contractTitle: string; contractContent: string; packageName?: string; source: "SALE" | "LEGACY_BACKFILL" }
 type InvoicePayment = {
   allocationId: string; allocationAmountMinor: string; allocatedAt: string; id: string; method: string; status: string
   amountMinor: string; allocatedMinor: string; refundedMinor: string; currency: string; externalReference?: string
@@ -62,6 +63,7 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
   }, [context.loading, context.organizationId, invoiceId, reloadKey])
 
   const invoiceType = useMemo(() => describeInvoiceType(invoice?.lines ?? []), [invoice?.lines])
+  const contracts = useMemo(() => invoiceContracts(invoice?.lines ?? []), [invoice?.lines])
 
   if (context.loading || loading) return <div className="grid min-h-[55vh] place-items-center"><div className="text-center"><Loader2 className="mx-auto size-9 animate-spin text-primary"/><p className="mt-3 text-sm text-muted-foreground">جارٍ تجهيز تفاصيل الفاتورة…</p></div></div>
   if (!context.canAccess(["finance.invoices.read"])) return <EmptyState title="لا تملك صلاحية عرض الفواتير" detail="اطلب من مسؤول النظام منحك صلاحية عرض الفواتير في فرعك." />
@@ -77,9 +79,16 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
         <p className="mt-2 text-sm text-muted-foreground">تفاصيل البنود والتحصيل والضرائب والبيانات المرتبطة بهذه الفاتورة.</p>
       </div>
       <div className="flex flex-wrap gap-2 print:hidden">
-        <Button variant="outline" onClick={() => window.print()}><Printer/>طباعة الفاتورة</Button>
+        <Button variant="outline" onClick={() => printDocument("invoice")}><Printer/>طباعة الفاتورة</Button>
+        <Button variant="outline" disabled={!contracts.length} title={!contracts.length ? "لا يوجد عقد مرتبط ببنود هذه الفاتورة" : undefined} onClick={() => printDocument("contract")}><FileSignature/>طباعة العقد{contracts.length > 1 ? ` (${contracts.length})` : ""}</Button>
+        <Button disabled={!contracts.length} title={!contracts.length ? "لا يوجد عقد مرتبط ببنود هذه الفاتورة" : undefined} onClick={() => printDocument("combined")}><Files/>العقد والفاتورة معًا</Button>
         <Button variant="outline" onClick={() => setReloadKey(value => value + 1)}><RefreshCw/>تحديث التفاصيل</Button>
       </div>
+    </div>
+
+    <div role="status" className={`flex items-start gap-3 rounded-2xl border p-4 text-sm ${contracts.length ? "border-amber-600/40 bg-amber-500/10" : "bg-secondary/35"}`}>
+      <FileSignature className="mt-0.5 size-5 shrink-0 text-amber-700" aria-hidden="true"/>
+      <div><p className="font-bold">{contracts.length ? `${contracts.length === 1 ? "عقد واحد مرتبط" : `${contracts.length} عقود مرتبطة`} بهذه الفاتورة` : "لا يوجد عقد مرتبط بهذه الفاتورة"}</p><p className="mt-1 text-xs leading-6 text-muted-foreground">{contracts.length ? "يمكن طباعة العقد منفردًا أو مع الفاتورة. البنود المحفوظة وقت البيع لا تتغير عند تعديل النشاط لاحقًا." : "ترتبط العقود بفواتير الاشتراكات عندما تحتوي خدمات الباقة على نشاط له عنوان وبنود عقد."}</p></div>
     </div>
 
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -118,6 +127,7 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Hash className="text-primary"/>البيانات المرجعية</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Info label="معرّف الفاتورة" value={invoice.id} mono/><Info label="معرّف طلب البيع" value={invoice.orderId} mono/><Info label="إصدار السجل" value={String(invoice.version)}/><Info label="صافي البنود" value={money(invoice.netMinor, invoice.currency)}/><Info label="وقت الإنشاء" value={dateTime(invoice.createdAt)}/><Info label="عملة الفاتورة" value={invoice.currency}/></div>{Object.keys(invoice.taxSnapshot??{}).length>0&&<details className="mt-5 rounded-xl border bg-secondary/20 p-4"><summary className="cursor-pointer font-bold">مرجع الضريبة المحفوظ وقت الإصدار</summary><SnapshotGrid value={invoice.taxSnapshot}/></details>}</CardContent></Card>
   </div>
   <InvoicePrintSheet invoice={invoice} invoiceType={invoiceType}/>
+  <ContractPrintSheets invoice={invoice} contracts={contracts}/>
   </>
 }
 
@@ -126,8 +136,8 @@ function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; 
   return <section data-invoice-print className={`invoice-print-sheet${dense ? " invoice-print-sheet--dense" : ""}`} dir="rtl" aria-label={`نسخة طباعة الفاتورة ${invoice.invoiceNumber}`}>
     <header className="invoice-print-header">
       <div className="invoice-print-brand">
-        <Image src="/go-fitness-logo.png" alt="GO Fitness" width={104} height={58} priority/>
-        <div><strong>GO Fitness</strong><span>{invoice.branch.name}</span></div>
+        <div className="print-logo-plate"><Image src="/go-fitness-logo.png" alt="شعار GO Fitness" width={104} height={58} priority/></div>
+        <div className="invoice-print-brand-copy"><strong>GO Fitness</strong><span>{invoice.branch.name}</span></div>
       </div>
       <div className="invoice-print-title"><p>فاتورة ضريبية</p><h1>{invoice.invoiceNumber}</h1><span>{invoiceType}</span></div>
     </header>
@@ -136,11 +146,11 @@ function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; 
       <PrintDatum label="تاريخ الإصدار" value={dateTime(invoice.issuedAt)}/>
       <PrintDatum label="حالة الفاتورة" value={statusLabel(invoice.status)}/>
       <PrintDatum label="رقم طلب البيع" value={invoice.order?.orderNumber ?? "—"}/>
-      <PrintDatum label="الفرع" value={`${invoice.branch.name} · ${invoice.branch.code}`}/>
+      <PrintDatum label="الفرع" value={invoice.branch.name}/>
     </div>
 
     <div className="invoice-print-parties">
-      <PrintParty title="مقدم الخدمة" rows={[["المنشأة", "GO Fitness"], ["الفرع", invoice.branch.name], ["رمز الفرع", invoice.branch.code]]}/>
+      <PrintParty title="مقدم الخدمة" rows={[["المنشأة", "GO Fitness"], ["الفرع", invoice.branch.name]]}/>
       <PrintParty title="العميل" rows={invoice.member ? [["الاسم", invoice.member.name], ["رقم العضوية", invoice.member.memberNumber], ["الجوال", invoice.member.phone ?? "—"], ["البريد", invoice.member.email ?? "—"]] : [["نوع العميل", invoice.order ? buyerLabel(invoice.order.buyerType) : "عميل نقدي"], ["العضوية", "غير مرتبطة"]]}/>
     </div>
 
@@ -150,7 +160,7 @@ function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; 
         <thead><tr><th>#</th><th>البيان</th><th>الكمية</th><th>سعر الوحدة</th><th>الخصم</th><th>الضريبة</th><th>الإجمالي</th></tr></thead>
         <tbody>{invoice.lines.length ? invoice.lines.map((line, index) => <tr key={line.id}>
           <td>{index + 1}</td>
-          <td><strong>{line.targetName || line.description}</strong><small>{[line.targetCode, lineTypeLabel(line.lineType)].filter(Boolean).join(" · ")}</small></td>
+          <td><strong>{line.targetName || line.description}</strong><small>{lineTypeLabel(line.lineType)}</small></td>
           <td>{line.quantity}</td>
           <td>{money(line.unitNetMinor, invoice.currency)}</td>
           <td>{money(line.discountMinor, invoice.currency)}</td>
@@ -164,7 +174,7 @@ function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; 
       <div className="invoice-print-payments">
         <h2>التحصيل</h2>
         {invoice.payments.length ? invoice.payments.map(payment => <div key={payment.allocationId} className="invoice-print-payment">
-          <span><strong>{paymentMethodLabel(payment.method)}</strong><small>{payment.externalReference || shortId(payment.id)} · {dateTime(payment.receivedAt)}</small></span>
+          <span><strong>{paymentMethodLabel(payment.method)}</strong><small>{[payment.externalReference, dateTime(payment.receivedAt)].filter(Boolean).join(" · ")}</small></span>
           <b>{money(payment.allocationAmountMinor, payment.currency)}</b>
         </div>) : <p>لم تُسجل دفعات على الفاتورة.</p>}
         {invoice.refunds.length > 0 && <p className="invoice-print-refund">إجمالي المسترجعات: <strong>{money(invoice.refunds.reduce((sum, refund) => sum + Number(refund.amountMinor || 0), 0), invoice.currency)}</strong></p>}
@@ -181,10 +191,75 @@ function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; 
 
     {invoice.status === "VOIDED" && <div className="invoice-print-void"><strong>فاتورة ملغاة</strong><span>{invoice.voidReason || "لم يُسجل سبب الإلغاء."}{invoice.voidedAt ? ` · ${dateTime(invoice.voidedAt)}` : ""}</span></div>}
     <footer className="invoice-print-footer">
-      <span>معرّف الفاتورة: <b dir="ltr">{invoice.id}</b></span>
+      <span>رقم الفاتورة: <b dir="ltr">{invoice.invoiceNumber}</b></span>
       <span>أُنشئت هذه النسخة إلكترونيًا من نظام GO Fitness.</span>
     </footer>
   </section>
+}
+
+function ContractPrintSheets({ invoice, contracts }: { invoice: InvoiceDetails; contracts: ContractSnapshot[] }) {
+  return <div data-contract-print className="contract-print-root" dir="rtl" aria-label="نسخة طباعة العقود">
+    {contracts.map((contract, index) => <article className="contract-print-sheet" key={`${contract.activityId}-${index}`}>
+      <header className="contract-print-header">
+        <div className="contract-print-brand"><div className="print-logo-plate"><Image src="/go-fitness-logo.png" alt="شعار GO Fitness" width={104} height={58}/></div><div className="contract-print-brand-copy"><strong>GO Fitness</strong><span>{invoice.branch.name}</span></div></div>
+        <div className="contract-print-heading"><p>{contract.contractType === "CHILD_ACADEMY" ? "استمارة اشتراك أكاديمية" : "عقد ممارسة نشاط"}</p><h1>{contract.contractTitle}</h1><span>وثيقة مرتبطة بالفاتورة {invoice.invoiceNumber}</span></div>
+      </header>
+
+      <section className="contract-print-subject" aria-label="النشاط محل العقد">
+        <span>النشاط محل العقد</span><strong>{contract.activityName}</strong><small>{contract.packageName ? `ضمن باقة ${contract.packageName}` : "وفق الخدمة والاشتراك الموضحين في الفاتورة"}</small>
+      </section>
+
+      <section className="contract-print-reference" aria-label="بيانات مرجعية">
+        <PrintDatum label="رقم الفاتورة" value={invoice.invoiceNumber}/><PrintDatum label="الباقة" value={contract.packageName ?? "—"}/><PrintDatum label="الفرع" value={invoice.branch.name}/><PrintDatum label="تاريخ العقد" value={dateOnly(invoice.issuedAt)}/>
+      </section>
+
+      {contract.contractType === "CHILD_ACADEMY" ? <AcademyContractParty invoice={invoice}/> : <GeneralContractParty invoice={invoice}/>}
+
+      <p className="contract-print-preamble">تم الاتفاق بين GO Fitness و{contract.contractType === "CHILD_ACADEMY" ? "ولي أمر المشترك الموضحة بياناته أدناه" : "المشترك الموضحة بياناته أعلاه"} على ممارسة نشاط <strong>{contract.activityName}</strong>{contract.packageName ? <> ضمن باقة <strong>{contract.packageName}</strong></> : null}، وذلك وفق البنود والإقرارات الواردة في هذه الوثيقة.</p>
+
+      <section className="contract-print-terms">
+        <h2>بنود ممارسة النشاط</h2>
+        <div>{contract.contractContent}</div>
+      </section>
+
+      {contract.contractType === "CHILD_ACADEMY" ? <section className="contract-print-declarations">
+        <h2>إقرار ولي الأمر</h2>
+        <p>أقر بصفتي ولي أمر المشترك بأن البيانات الموضحة صحيحة، وأنني قرأت بنود العقد والتعليمات وفهمتها وأوافق عليها، وأتحمل مسؤولية إبلاغ الأكاديمية كتابيًا بأي حالة صحية أو دواء أو تغيير قد يؤثر في سلامة الطفل.</p>
+        <div className="contract-print-checks"><span>هل يجيد الطفل السباحة؟ ☐ نعم ☐ لا</span><span>هل توجد حالة صحية أو حساسية؟ ☐ نعم ☐ لا</span></div>
+        <div className="contract-print-notes"><span>تفاصيل صحية أو تعليمات خاصة:</span></div>
+      </section> : <section className="contract-print-declarations"><h2>إقرار المشترك</h2><p>أقر بأن البيانات الموضحة صحيحة، وأنني قرأت بنود هذا العقد وفهمتها وأوافق عليها، وأتحمل مسؤولية الإفصاح عن أي حالة صحية قد تؤثر في قدرتي على ممارسة النشاط.</p><div className="contract-print-notes"><span>ملاحظات صحية أو تعليمات خاصة:</span></div></section>}
+
+      <section className="contract-print-signatures" aria-label="التوقيعات">
+        <Signature label={contract.contractType === "CHILD_ACADEMY" ? "اسم وتوقيع ولي الأمر" : "اسم وتوقيع المشترك"}/><Signature label="توقيع الموظف المختص"/><Signature label="التاريخ"/>
+      </section>
+      <footer className="contract-print-footer"><span>مرتبط بالفاتورة: {invoice.invoiceNumber}</span><span>تم تثبيت البنود عند إصدار الفاتورة حفاظًا على سلامة السجل.</span><span>صفحة {index + 1} من {contracts.length}</span></footer>
+    </article>)}
+  </div>
+}
+
+function GeneralContractParty({ invoice }: { invoice: InvoiceDetails }) { return <section className="contract-print-party"><h2>بيانات المشترك</h2><div className="contract-print-fields"><ContractField label="الاسم" value={invoice.member?.name}/><ContractField label="رقم العضوية" value={invoice.member?.memberNumber}/><ContractField label="رقم الجوال" value={invoice.member?.phone}/><ContractField label="البريد الإلكتروني" value={invoice.member?.email}/></div></section> }
+function AcademyContractParty({ invoice }: { invoice: InvoiceDetails }) { return <><section className="contract-print-party"><h2>بيانات الطفل</h2><div className="contract-print-fields"><ContractField label="اسم الطفل" value={invoice.member?.name}/><ContractField label="رقم العضوية" value={invoice.member?.memberNumber}/><ContractField label="تاريخ الميلاد"/><ContractField label="الجنسية"/><ContractField label="الصف الدراسي"/><ContractField label="رقم الهوية / الإقامة"/></div></section><section className="contract-print-party"><h2>بيانات ولي الأمر</h2><div className="contract-print-fields"><ContractField label="اسم ولي الأمر"/><ContractField label="صلة القرابة"/><ContractField label="رقم الجوال" value={invoice.member?.phone}/><ContractField label="رقم جوال بديل"/></div></section></> }
+function ContractField({ label, value }: { label: string; value?: string }) { return <div><span>{label}</span><strong>{value || " "}</strong></div> }
+function Signature({ label }: { label: string }) { return <div><span>{label}</span><i/></div> }
+
+function invoiceContracts(lines: InvoiceLine[]): ContractSnapshot[] {
+  const result = new Map<string, ContractSnapshot>()
+  for (const line of lines) {
+    for (const snapshot of line.contractSnapshots ?? []) { const contract = normalizeContract(snapshot, line.targetName); if (contract) result.set(contract.activityId, contract) }
+  }
+  return [...result.values()]
+}
+function normalizeContract(value: Record<string, unknown>, fallbackPackageName: string | undefined): ContractSnapshot | undefined {
+  const activityId = asText(value.activityId) ?? asText(value.id); const contractTitle = asText(value.contractTitle); const contractContent = asText(value.contractContent)
+  if (!activityId || !contractTitle || !contractContent) return undefined
+  const packageName = asText(value.packageName) ?? fallbackPackageName
+  return { activityId, activityCode: asText(value.activityCode) ?? asText(value.code) ?? "—", activityName: asText(value.activityName) ?? asText(value.name) ?? "النشاط", contractType: asText(value.contractType) === "CHILD_ACADEMY" ? "CHILD_ACADEMY" : "GENERAL_ACTIVITY", contractTitle, contractContent, ...(packageName ? { packageName } : {}), source: asText(value.source) === "LEGACY_BACKFILL" ? "LEGACY_BACKFILL" : "SALE" }
+}
+function printDocument(mode: "invoice" | "contract" | "combined") {
+  document.documentElement.dataset.invoicePrintMode = mode
+  const cleanup = () => { delete document.documentElement.dataset.invoicePrintMode; window.removeEventListener("afterprint", cleanup) }
+  window.addEventListener("afterprint", cleanup)
+  window.requestAnimationFrame(() => window.print())
 }
 
 function PrintDatum({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value}</strong></div> }
@@ -199,6 +274,7 @@ function Info({ label, value, mono=false }: { label: string; value?: string; mon
 function EmptyState({ title, detail, onRetry }: { title: string; detail: string; onRetry?: () => void }) { return <Card className="mx-auto max-w-2xl"><CardContent className="py-14 text-center"><FileText className="mx-auto size-10 text-muted-foreground"/><h1 className="mt-4 text-2xl font-black">{title}</h1><p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">{detail}</p><div className="mt-6 flex justify-center gap-2"><Link href="/finance" className={buttonVariants({variant:"outline"})}><ArrowRight/>السجلات المالية</Link>{onRetry&&<Button onClick={onRetry}><RefreshCw/>إعادة المحاولة</Button>}</div></CardContent></Card> }
 function money(value: string | number | undefined, currency="SAR") { const amount=Number(value??0)/100; return new Intl.NumberFormat("ar-SA",{style:"currency",currency:currency||"SAR",maximumFractionDigits:2}).format(Number.isFinite(amount)?amount:0) }
 function dateTime(value?: string) { if(!value)return"—";const date=new Date(value);return Number.isNaN(date.getTime())?"—":new Intl.DateTimeFormat("ar-SA",{dateStyle:"medium",timeStyle:"short",timeZone:"Asia/Riyadh"}).format(date) }
+function dateOnly(value?: string) { if(!value)return"—";const date=new Date(value);return Number.isNaN(date.getTime())?"—":new Intl.DateTimeFormat("ar-SA",{dateStyle:"long",timeZone:"Asia/Riyadh"}).format(date) }
 function taxRate(value:number){return new Intl.NumberFormat("ar-SA",{style:"percent",maximumFractionDigits:2}).format(value/10_000)}
 function shortId(value:string){return value.length>13?`${value.slice(0,8)}…${value.slice(-4)}`:value}
 function describeInvoiceType(lines:InvoiceLine[]){const types=[...new Set(lines.map(line=>line.lineType).filter(Boolean))];return types.length===1?`${lineTypeLabel(types[0])} · فاتورة`:types.length>1?"فاتورة متعددة البنود":"فاتورة مبيعات"}

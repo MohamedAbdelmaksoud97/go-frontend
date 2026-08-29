@@ -138,7 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </aside>
 
-    <div className="min-h-screen min-w-0 w-full overflow-hidden lg:pr-[270px]">
+    <div data-app-content className="min-h-screen min-w-0 w-full overflow-hidden lg:pr-[270px]">
       <header data-app-chrome className="glass sticky top-0 z-30 flex h-[76px] items-center gap-3 border-b px-4 lg:px-7">
         <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="فتح القائمة"><Menu /></Button>
         <GlobalSearch memberOnlyAccount={memberOnlyAccount} />

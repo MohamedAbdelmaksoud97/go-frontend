@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Image from "next/image"
 import { Activity, CalendarDays, CalendarRange, ClipboardList, CreditCard, Download, Dumbbell, RefreshCw, ShoppingBag, Users, UtensilsCrossed, WalletCards } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { Button } from "@/components/ui/button"
@@ -92,7 +93,7 @@ export function ReportsWorkspace() {
 
     <nav className="reports-print-hidden flex gap-2 overflow-x-auto pb-1" aria-label="أنواع التقارير">{sections.map(item => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => setSection(item.id)} className={`flex shrink-0 items-center gap-2 rounded-xl border px-4 py-2 text-xs font-bold transition ${section === item.id ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:border-primary/50"}`}><Icon className="size-4" />{item.label}</button> })}</nav>
 
-    <section className="reports-print-header hidden print:block"><h1 className="text-2xl font-black">{sections.find(item => item.id === section)?.label}</h1><p className="mt-1 text-sm">{formatDate(date)} · {branchId ? branchNames.get(branchId) ?? "الفرع المحدد" : "كل الفروع"}</p></section>
+    <section className="reports-print-header hidden print:block"><div className="reports-print-brand"><div className="print-logo-plate"><Image src="/go-fitness-logo.png" alt="شعار GO Fitness" width={104} height={58}/></div><div><strong>GO Fitness</strong><span>التقارير التشغيلية</span></div></div><div className="reports-print-heading"><h1 className="text-2xl font-black">{sections.find(item => item.id === section)?.label}</h1><p className="mt-1 text-sm">{formatDate(date)} · {branchId ? branchNames.get(branchId) ?? "الفرع المحدد" : "كل الفروع"}</p></div></section>
 
     {error ? <Card><CardContent className="p-10 text-center"><p className="font-bold text-red-600">تعذر عرض التقرير</p><p className="mt-2 text-xs text-muted-foreground">{error}</p></CardContent></Card> : loading ? <div className="grid min-h-64 place-items-center"><span className="size-10 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : <>
       <section className="reports-metrics-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((metric, index) => <Card key={metric.label} className="reports-metric-card"><CardContent className="reports-metric-content p-5"><span className={`reports-metric-icon mb-4 grid size-10 place-items-center rounded-xl ${index % 3 === 0 ? "bg-primary/12 text-amber-600" : index % 3 === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{metricIcon(section, index)}</span><p className="text-xs font-bold text-muted-foreground">{metric.label}</p><p className="mt-2 text-2xl font-black tabular-nums">{metric.value}</p>{metric.note && <p className="mt-1 text-[10px] text-muted-foreground">{metric.note}</p>}</CardContent></Card>)}</section>
