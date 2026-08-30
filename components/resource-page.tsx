@@ -18,6 +18,7 @@ import { ActionDialog } from "@/components/action-dialog"
 import { operationPermissions } from "@/lib/permissions"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy"
 import { useToast } from "@/components/toast-provider"
+import { subscriptionFreezePolicy } from "@/lib/subscription-freeze-policy"
 
 type BranchLookup = { id: string; nameAr?: string; name?: string }
 type ApiRecord = Record<string, unknown>
@@ -31,6 +32,7 @@ type RecordActionField = {
   hint?: string
   required?: boolean
   min?: number
+  max?: number
 }
 type RecordAction = {
   label: string
@@ -44,6 +46,8 @@ type RecordAction = {
   fields?: RecordActionField[]
   requiresConfirmation?: boolean
   responseMessage?: (data: ApiRecord) => string
+  disabled?: boolean
+  disabledReason?: string
 }
 
 export function ResourcePage({ config, openCreate = false, initialSearch = "" }: { config: SectionConfig; openCreate?: boolean; initialSearch?: string }) {
@@ -180,6 +184,7 @@ function SubscriptionQuickActions({
 }) {
   const status = String(record.status ?? "").toUpperCase()
   const canFreeze = canAccess(["subscriptions.freeze"])
+  const freezeWindow = subscriptionFreezePolicy(record)
   const renewal = capturedPolicyConfiguration(record, "RENEWAL")
   const cancellation = capturedPolicyConfiguration(record, "CANCELLATION")
   const renewalWindow = renewalEligibility(record, renewal)
@@ -187,7 +192,7 @@ function SubscriptionQuickActions({
   const canCancel = canAccess(["subscriptions.cancel"]) && !["EXPIRED", "CANCELLED"].includes(status) && !record.cancellationRequest
 
   return <div className="flex items-center justify-center gap-1" aria-label="الإجراءات السريعة للاشتراك">
-    {canFreeze && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <Button variant="ghost" size="icon-sm" className="text-blue-600" title="تجميد هذا الاشتراك" aria-label="تجميد هذا الاشتراك" onClick={onFreeze}><Snowflake /></Button>}
+    {canFreeze && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <Button variant="ghost" size="icon-sm" className="text-blue-600" disabled={!freezeWindow.allowed} title={freezeWindow.message} aria-label="تجميد هذا الاشتراك" onClick={onFreeze}><Snowflake /></Button>}
     {canFreeze && status === "FROZEN" && <Button variant="ghost" size="icon-sm" className="text-emerald-600" title="استئناف هذا الاشتراك" aria-label="استئناف هذا الاشتراك" onClick={onFreeze}><Play /></Button>}
     {canRenew && <Button variant="ghost" size="icon-sm" className="text-emerald-600" disabled={!renewalWindow.allowed} title={renewalWindow.message} aria-label="تجديد هذا الاشتراك وفق سياسة الباقة" onClick={onRenew}><RefreshCw /></Button>}
     {canCancel && <Button variant="ghost" size="icon-sm" className="text-red-600" disabled={!cancellation} title={cancellation ? "إلغاء هذا الاشتراك وفق سياسة الباقة" : "لا توجد سياسة إلغاء محفوظة مع الاشتراك"} aria-label="إلغاء هذا الاشتراك وفق سياسة الباقة" onClick={onCancel}><CircleX /></Button>}
@@ -236,7 +241,8 @@ function SubscriptionFreezeDialog({
   const subscriptionId = String(record.id ?? record.subscriptionId ?? "")
   const subscriptionName = String(record.packageNameAr ?? record.packageName ?? record.subscriptionNumber ?? "الاشتراك")
   const subscriptionNumber = String(record.subscriptionNumber ?? "")
-  const [requestedDays, setRequestedDays] = useState("7")
+  const freezePolicy = subscriptionFreezePolicy(record)
+  const [requestedDays, setRequestedDays] = useState(String(freezePolicy.recommendedDays))
   const [reason, setReason] = useState("طلب العضو")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -248,8 +254,16 @@ function SubscriptionFreezeDialog({
       setError("تعذر تحديد الاشتراك. حدّث الصفحة وحاول مجددًا.")
       return
     }
+    if (!frozen && !freezePolicy.allowed) {
+      setError(freezePolicy.message)
+      return
+    }
     if (!frozen && (!Number.isInteger(days) || days < 1)) {
       setError("أدخل عدد أيام صحيحًا يبدأ من يوم واحد.")
+      return
+    }
+    if (!frozen && days > freezePolicy.maxDaysPerFreeze) {
+      setError(`الحد الأقصى المسموح في هذه السياسة هو ${freezePolicy.maxDaysPerFreeze} يوم.`)
       return
     }
     if (!frozen && reason.trim().length < 3) {
@@ -291,7 +305,17 @@ function SubscriptionFreezeDialog({
         : "هذا الإجراء يخص هذا الاشتراك فقط. سيطبق النظام سياسة تجميد الباقة تلقائيًا، بما فيها الحد الأقصى للأيام وعدد مرات التجميد وأي شروط أخرى مسجلة."}</p>
 
       {!frozen && <>
-        <label className="mt-5 block text-xs font-bold">عدد أيام التجميد<span className="mr-1 text-red-500">*</span><Input type="number" min={1} value={requestedDays} onChange={event => setRequestedDays(event.target.value)} className="mt-2" inputMode="numeric" /></label>
+        <div className={`mt-5 rounded-2xl border p-4 text-xs ${freezePolicy.allowed ? "border-blue-500/25 bg-blue-500/5" : "border-amber-500/30 bg-amber-500/8"}`}>
+          <p className="font-black">حدود سياسة التجميد المحفوظة مع الاشتراك</p>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <PolicyMetric label="أقصى مدة" value={`${freezePolicy.maxDaysPerFreeze} يوم`} />
+            <PolicyMetric label="المرات المتبقية" value={`${freezePolicy.remainingFreezes} من ${freezePolicy.maxFreezesPerTerm}`} />
+            <PolicyMetric label="الحد الأدنى للنشاط" value={`${freezePolicy.minimumActiveDaysBeforeFreeze} يوم`} />
+            <PolicyMetric label="أيام النشاط المحسوبة" value={`${freezePolicy.activeDays} يوم`} />
+          </div>
+          <p className="mt-3 leading-6 text-muted-foreground">{freezePolicy.message}</p>
+        </div>
+        <label className="mt-5 block text-xs font-bold">عدد أيام التجميد<span className="mr-1 text-red-500">*</span><Input type="number" min={1} max={freezePolicy.maxDaysPerFreeze || 1} value={requestedDays} onChange={event => setRequestedDays(event.target.value)} className="mt-2" inputMode="numeric" /></label>
         <label className="mt-4 block text-xs font-bold">سبب التجميد<span className="mr-1 text-red-500">*</span><textarea value={reason} onChange={event => setReason(event.target.value)} rows={4} placeholder="مثال: طلب العضو بسبب السفر" className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>
       </>}
 
@@ -299,10 +323,14 @@ function SubscriptionFreezeDialog({
 
       <div className="mt-6 flex gap-2 border-t pt-5">
         <Button type="button" variant="outline" onClick={onClose}>إلغاء</Button>
-        <Button type="submit" className="mr-auto" disabled={saving}>{saving ? "جارٍ الحفظ..." : frozen ? "استئناف الاشتراك" : "تأكيد التجميد"}</Button>
+        <Button type="submit" className="mr-auto" disabled={saving || (!frozen && (!freezePolicy.allowed || Number(requestedDays) > freezePolicy.maxDaysPerFreeze))}>{saving ? "جارٍ الحفظ..." : frozen ? "استئناف الاشتراك" : "تأكيد التجميد"}</Button>
       </div>
     </form>
   </div>
+}
+
+function PolicyMetric({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl bg-background/70 p-2"><span className="block text-[10px] text-muted-foreground">{label}</span><strong className="mt-1 block">{value}</strong></div>
 }
 
 function SubscriptionPolicyActionDialog({
@@ -435,6 +463,7 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
   const status = String(record.status ?? "")
   const id = String(record.id ?? record.subscriptionId ?? record.reservationId ?? "")
   const version = Number(record.version ?? 1)
+  const freezePolicy = subscriptionFreezePolicy(record)
   const actions: RecordAction[] = []
 
   useEffect(() => {
@@ -498,13 +527,15 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
       ],
       body: values => ({ expectedVersion: version, startAt: new Date(values.startAt).toISOString(), reason: values.reason.trim() }),
     })
-    if (status === "ACTIVE") actions.push({
+    if (["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status)) actions.push({
       label: "تجميد الاشتراك",
       permission: "subscriptions.freeze",
       path: `/organizations/${organizationId}/subscriptions/${id}/freezes`,
-      description: "حدد مدة التجميد وسجّل السبب ليظهر في سجل الاشتراك.",
+      description: `حدد مدة التجميد وسجّل السبب ليظهر في سجل الاشتراك. ${freezePolicy.message}`,
+      disabled: !freezePolicy.allowed,
+      disabledReason: freezePolicy.message,
       fields: [
-        { name: "requestedDays", label: "عدد أيام التجميد", type: "number", initial: "7", min: 1, required: true },
+        { name: "requestedDays", label: "عدد أيام التجميد", type: "number", initial: String(freezePolicy.recommendedDays), min: 1, max: freezePolicy.maxDaysPerFreeze || 1, required: true, hint: `الحد الأقصى ${freezePolicy.maxDaysPerFreeze} يوم، والمتبقي ${freezePolicy.remainingFreezes} من ${freezePolicy.maxFreezesPerTerm} مرات. أيام النشاط المحسوبة: ${freezePolicy.activeDays}.` },
         { name: "reason", label: "سبب التجميد", type: "textarea", initial: "طلب العضو", required: true, placeholder: "اكتب سببًا واضحًا للتجميد" },
       ],
       body: values => ({ expectedVersion: version, requestedDays: Number(values.requestedDays), reason: values.reason.trim() }),
@@ -629,7 +660,8 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
         <dl className="mt-6 grid gap-3 sm:grid-cols-2">{columns.map((label, index) => <div key={label} className="rounded-xl bg-secondary/55 p-4"><dt className="text-[10px] font-bold text-muted-foreground">{label}</dt><dd className="mt-2 text-sm font-bold">{index === statusIndex ? <StatusBadge status={row[index]} /> : row[index]}</dd></div>)}</dl>
         {error && !pendingAction && <p className="mt-4 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}
         {actionResult && <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"><p className="text-xs font-black text-emerald-600">تم إصدار بيانات التفعيل</p><p dir="ltr" className="mt-2 whitespace-pre-line text-left font-mono text-sm font-bold leading-7">{actionResult}</p><p className="mt-2 text-[10px] text-muted-foreground">لا يُحفظ الرمز بصورته الأصلية، لذلك انسخه الآن وسلّمه للعضو عبر قناة آمنة.</p></div>}
-        {visibleActions.length > 0 && <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">{visibleActions.map(action => <Button key={action.label} variant={action.danger ? "destructive" : "outline"} disabled={busy} onClick={() => requestAction(action)}>{action.label}</Button>)}</div>}
+        {operationId === "listSubscriptions" && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <div role="status" className={`mt-5 rounded-2xl border p-4 text-xs ${freezePolicy.allowed ? "border-blue-500/25 bg-blue-500/5" : "border-amber-500/30 bg-amber-500/8"}`}><p className="font-black">سياسة التجميد المحفوظة مع الاشتراك</p><p className="mt-2 leading-6 text-muted-foreground">{freezePolicy.message} أيام النشاط المحسوبة: {freezePolicy.activeDays}، والحد الأدنى المطلوب: {freezePolicy.minimumActiveDaysBeforeFreeze}.</p></div>}
+        {visibleActions.length > 0 && <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">{visibleActions.map(action => <Button key={action.label} variant={action.danger ? "destructive" : "outline"} disabled={busy || action.disabled} title={action.disabledReason} onClick={() => requestAction(action)}>{action.label}</Button>)}</div>}
         <Button className="mt-6 w-full" size="lg" onClick={onClose} disabled={busy}>إغلاق</Button>
       </section>
     </div>
@@ -648,6 +680,8 @@ function RecordOperationDialog({ action, busy, error, onClose, onSubmit }: { act
     if (missing) { setValidationError(`أدخل ${missing.label}.`); return }
     const numberField = action.fields?.find(field => field.type === "number" && field.min !== undefined && Number(values[field.name]) < field.min)
     if (numberField) { setValidationError(`${numberField.label} يجب ألا يقل عن ${numberField.min}.`); return }
+    const excessiveNumberField = action.fields?.find(field => field.type === "number" && field.max !== undefined && Number(values[field.name]) > field.max)
+    if (excessiveNumberField) { setValidationError(`${excessiveNumberField.label} يجب ألا يزيد على ${excessiveNumberField.max}.`); return }
     if (values.reason !== undefined && values.reason.trim().length < 3) { setValidationError("اكتب سببًا واضحًا من 3 أحرف على الأقل."); return }
     if (values.email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) { setValidationError("أدخل بريدًا إلكترونيًا صحيحًا."); return }
     if (values.password !== undefined && values.password.length < MIN_PASSWORD_LENGTH) { setValidationError(`كلمة المرور يجب ألا تقل عن ${MIN_PASSWORD_LENGTH} محارف.`); return }
@@ -666,7 +700,7 @@ function RecordOperationDialog({ action, busy, error, onClose, onSubmit }: { act
       <form onSubmit={submit} className="p-5 sm:p-6">
         {(action.fields ?? []).length > 0 ? <div className="grid gap-5">{action.fields?.map(field => <label key={field.name} className="grid gap-2 text-sm font-bold">
           <span>{field.label}{field.required && <span className="mr-1 text-destructive" aria-hidden="true">*</span>}</span>
-          {field.type === "textarea" ? <textarea value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} rows={4} className="min-h-28 w-full resize-y rounded-xl border bg-background px-4 py-3 text-sm font-medium outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15" /> : field.type === "select" ? <select required={field.required} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary"><option value="">اختر من القائمة</option>{field.options?.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : field.type === "date" || field.type === "datetime-local" || field.type === "time" ? <DateTimeInput type={field.type} required={field.required} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} className="h-11" /> : <div className="relative"><Input type={field.type === "password" ? (showPassword ? "text" : "password") : field.type} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} min={field.min} autoComplete={field.type === "password" ? "new-password" : undefined} className={field.type === "password" ? "pl-12" : undefined} />{field.type === "password" && <button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>}</div>}
+          {field.type === "textarea" ? <textarea value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} rows={4} className="min-h-28 w-full resize-y rounded-xl border bg-background px-4 py-3 text-sm font-medium outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15" /> : field.type === "select" ? <select required={field.required} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary"><option value="">اختر من القائمة</option>{field.options?.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : field.type === "date" || field.type === "datetime-local" || field.type === "time" ? <DateTimeInput type={field.type} required={field.required} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} className="h-11" /> : <div className="relative"><Input type={field.type === "password" ? (showPassword ? "text" : "password") : field.type} value={values[field.name] ?? ""} onChange={event => setValues(current => ({ ...current, [field.name]: event.target.value }))} placeholder={field.placeholder} min={field.min} max={field.max} autoComplete={field.type === "password" ? "new-password" : undefined} className={field.type === "password" ? "pl-12" : undefined} />{field.type === "password" && <button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>}</div>}
           {field.hint && <span className="text-[11px] font-normal leading-5 text-muted-foreground">{field.hint}</span>}
         </label>)}</div> : <div className={`rounded-2xl p-4 text-sm leading-7 ${action.danger ? "bg-destructive/10 text-destructive" : "bg-secondary/60"}`}>راجع أثر هذا الإجراء ثم أكّد التنفيذ. لا تغلق الصفحة أثناء الحفظ.</div>}
         {(validationError || error) && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{validationError || error}</p>}
