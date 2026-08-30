@@ -21,7 +21,7 @@ type InvoiceLine = {
   quantity: number; unitNetMinor: string; netMinor: string; discountMinor: string; taxMinor: string; grossMinor: string
   taxRateBps: number; taxInclusive: boolean; fulfillmentStatus?: string; fulfillmentReferenceId?: string; commercialSnapshot?: Record<string, unknown>; contractSnapshots: Record<string, unknown>[]
 }
-export type ContractSnapshot = { activityId: string; activityCode: string; activityName: string; contractType: "GENERAL_ACTIVITY" | "CHILD_ACADEMY"; contractTitle: string; contractContent: string; packageName?: string; source: "SALE" | "LEGACY_BACKFILL" }
+export type ContractSnapshot = { activityId: string; activityCode: string; activityName: string; packageId?: string; packageCode?: string; activityNames?: string[]; contractType: "GENERAL_ACTIVITY" | "CHILD_ACADEMY"; contractTitle: string; contractContent: string; packageName?: string; source: "SALE" | "LEGACY_BACKFILL" }
 export type ContractPrintContext = {
   branchName: string
   invoiceNumber?: string
@@ -212,8 +212,8 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
         <div className="contract-print-heading"><p>{contract.contractType === "CHILD_ACADEMY" ? "استمارة اشتراك أكاديمية" : "عقد ممارسة نشاط"}</p><h1>{contract.contractTitle}</h1><span>{context.invoiceNumber ? `وثيقة مرتبطة بالفاتورة ${context.invoiceNumber}` : "نسخة معاينة قبل الشراء"}</span></div>
       </header>
 
-      <section className="contract-print-subject" aria-label="النشاط محل العقد">
-        <span>النشاط محل العقد</span><strong>{contract.activityName}</strong><small>{contract.packageName ? `ضمن باقة ${contract.packageName}` : "وفق الخدمة والاشتراك الموضحين في الفاتورة"}</small>
+      <section className="contract-print-subject" aria-label={contract.packageId ? "الباقة محل العقد" : "النشاط محل العقد"}>
+        <span>{contract.packageId ? "الباقة محل العقد" : "النشاط محل العقد"}</span><strong>{contract.packageId ? contract.packageName : contract.activityName}</strong><small>{contract.packageId && contract.activityNames?.length ? `الأنشطة المرتبطة: ${contract.activityNames.join("، ")}` : contract.packageName ? `ضمن باقة ${contract.packageName}` : "وفق الخدمة والاشتراك الموضحين في الفاتورة"}</small>
       </section>
 
       <section className="contract-print-reference" aria-label="بيانات مرجعية">
@@ -222,7 +222,7 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
 
       {contract.contractType === "CHILD_ACADEMY" ? <AcademyContractParty member={context.member}/> : <GeneralContractParty member={context.member}/>}
 
-      <p className="contract-print-preamble">تم الاتفاق بين GO Fitness و{contract.contractType === "CHILD_ACADEMY" ? "ولي أمر المشترك الموضحة بياناته أدناه" : "المشترك الموضحة بياناته أعلاه"} على ممارسة نشاط <strong>{contract.activityName}</strong>{contract.packageName ? <> ضمن باقة <strong>{contract.packageName}</strong></> : null}، وذلك وفق البنود والإقرارات الواردة في هذه الوثيقة.</p>
+      <p className="contract-print-preamble">تم الاتفاق بين GO Fitness و{contract.contractType === "CHILD_ACADEMY" ? "ولي أمر المشترك الموضحة بياناته أدناه" : "المشترك الموضحة بياناته أعلاه"} على الاشتراك في {contract.packageId ? <>باقة <strong>{contract.packageName}</strong></> : <>نشاط <strong>{contract.activityName}</strong>{contract.packageName ? <> ضمن باقة <strong>{contract.packageName}</strong></> : null}</>}، وذلك وفق البنود والإقرارات الواردة في هذه الوثيقة.</p>
 
       <section className="contract-print-terms">
         <h2>بنود ممارسة النشاط</h2>
@@ -257,10 +257,12 @@ function invoiceContracts(lines: InvoiceLine[]): ContractSnapshot[] {
   return [...result.values()]
 }
 function normalizeContract(value: Record<string, unknown>, fallbackPackageName: string | undefined): ContractSnapshot | undefined {
-  const activityId = asText(value.activityId) ?? asText(value.id); const contractTitle = asText(value.contractTitle); const contractContent = asText(value.contractContent)
+  const packageId = asText(value.packageId); const activityId = asText(value.activityId) ?? packageId ?? asText(value.id); const contractTitle = asText(value.contractTitle); const contractContent = asText(value.contractContent)
   if (!activityId || !contractTitle || !contractContent) return undefined
   const packageName = asText(value.packageName) ?? fallbackPackageName
-  return { activityId, activityCode: asText(value.activityCode) ?? asText(value.code) ?? "—", activityName: asText(value.activityName) ?? asText(value.name) ?? "النشاط", contractType: asText(value.contractType) === "CHILD_ACADEMY" ? "CHILD_ACADEMY" : "GENERAL_ACTIVITY", contractTitle, contractContent, ...(packageName ? { packageName } : {}), source: asText(value.source) === "LEGACY_BACKFILL" ? "LEGACY_BACKFILL" : "SALE" }
+  const activityNames = Array.isArray(value.activityNames) ? value.activityNames.map(asText).filter((name): name is string => Boolean(name)) : []
+  const activityName = asText(value.activityName) ?? (activityNames.length ? activityNames.join("، ") : undefined) ?? packageName ?? "الباقة"
+  return { activityId, activityCode: asText(value.activityCode) ?? asText(value.packageCode) ?? asText(value.code) ?? "—", activityName, ...(packageId ? { packageId, packageCode: asText(value.packageCode) ?? "—" } : {}), ...(activityNames.length ? { activityNames } : {}), contractType: asText(value.contractType) === "CHILD_ACADEMY" ? "CHILD_ACADEMY" : "GENERAL_ACTIVITY", contractTitle, contractContent, ...(packageName ? { packageName } : {}), source: asText(value.source) === "LEGACY_BACKFILL" ? "LEGACY_BACKFILL" : "SALE" }
 }
 export function printableContract(value: Record<string, unknown>, fallbackPackageName?: string) { return normalizeContract(value, fallbackPackageName) }
 export async function printContractDocument() {

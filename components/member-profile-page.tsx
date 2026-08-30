@@ -468,7 +468,14 @@ function accountLabel(value: string) { return ({ LINKED: "حساب دخول مف
 function paymentMethod(value: string) { return ({ CASH: "نقدي", CARD: "بطاقة", BANK_TRANSFER: "تحويل بنكي", WALLET: "محفظة إلكترونية", OTHER: "طريقة أخرى" } as Record<string, string>)[value] ?? value }
 function fileLabel(value: string) { return ({ PROFILE_PHOTO: "الصورة الشخصية", IDENTITY_DOCUMENT: "إثبات الهوية", CONSENT: "نموذج الموافقة", EMPLOYMENT_DOCUMENT: "مستند" } as Record<string, string>)[value] ?? "مستند العضو" }
 function initials(value: string) { return value.trim().split(/\s+/u).slice(0, 2).map(part => part[0]).join("") || "ع" }
-function subscriptionContracts(subscription: Row, services: Row[], activities: Row[]) {
+function subscriptionContracts(subscription: Row, services: Row[], activities: Row[]): Row[] {
+  const snapshot = isRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
+  const captured = Array.isArray(snapshot.contracts) ? snapshot.contracts.filter(isRow) : []
+  if (captured.length) return captured.map<Row>((contract, index) => ({
+    ...contract,
+    id: String(contract.packageId ?? contract.activityId ?? `${text(subscription.id)}-${index}`),
+    name: Array.isArray(contract.activityNames) && contract.activityNames.length ? contract.activityNames.join("، ") : contract.activityName ?? contract.packageName ?? snapshot.packageName,
+  }))
   const entitlements = Array.isArray(subscription.entitlements) ? subscription.entitlements.filter(isRow) : []
   const serviceIds = new Set(entitlements.map(item => text(item.serviceId, "")).filter(Boolean))
   const activityIds = new Set(services.filter(service => serviceIds.has(text(service.id))).flatMap(service => Array.isArray(service.activityIds) ? service.activityIds.map(String) : []))

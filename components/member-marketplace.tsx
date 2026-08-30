@@ -168,16 +168,14 @@ function date(value: unknown) { const parsed = new Date(String(value)); return N
 function bookingType(value: unknown): "COURT" | "CLASS" | "PERSONAL_TRAINING" { const type = String(value); return type === "CLASS" || type === "PERSONAL_TRAINING" ? type : "COURT" }
 function invoiceSuccess(order: Row, message: string) { const invoiceNumber = String(order.invoiceNumber ?? ""); return invoiceNumber ? `${message} رقم الفاتورة: ${invoiceNumber}.` : message }
 function contractsFor(item: Row, type: "PACKAGE" | "SERVICE", services: Row[]) {
-  const relatedServices = type === "SERVICE" ? [item] : (() => {
-    const entitlements = Array.isArray(item.entitlements) ? item.entitlements as Row[] : []
-    const ids = new Set(entitlements.map(entry => String(entry.serviceId ?? "")))
-    return services.filter(service => ids.has(String(service.id ?? "")))
-  })()
-  const unique = new Map<string, Row>()
-  for (const service of relatedServices) for (const activity of Array.isArray(service.activities) ? service.activities as Row[] : []) {
-    if (activity.contractContent) unique.set(String(activity.id), activity)
+  if (type === "PACKAGE") {
+    const contract = item.contract && typeof item.contract === "object" ? item.contract as Row : undefined
+    if (!contract?.content || !contract.title) return []
+    const entitlementIds = new Set((Array.isArray(item.entitlements) ? item.entitlements as Row[] : []).map(entry => String(entry.serviceId ?? "")))
+    const activityNames = [...new Set(services.filter(service => entitlementIds.has(String(service.id ?? ""))).flatMap(service => (Array.isArray(service.activities) ? service.activities as Row[] : []).map(activity => String(activity.name ?? "")).filter(Boolean)))]
+    return [{ id: item.id, packageId: item.id, packageCode: item.code, packageName: item.name, activityNames, contractType: contract.type, contractTitle: contract.title, contractContent: contract.content, source: "SALE" }]
   }
-  return [...unique.values()]
+  return []
 }
 function contractsForResource(resource: Row, services: Row[]) {
   const service = services.find(item => String(item.id) === String(resource.serviceId))
