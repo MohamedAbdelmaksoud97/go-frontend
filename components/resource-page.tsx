@@ -188,7 +188,7 @@ function SubscriptionQuickActions({
   const renewal = capturedPolicyConfiguration(record, "RENEWAL")
   const cancellation = capturedPolicyConfiguration(record, "CANCELLATION")
   const renewalWindow = renewalEligibility(record, renewal)
-  const canRenew = canAccess(["subscriptions.renew"]) && ["ACTIVE", "EXPIRED"].includes(status)
+  const canRenew = canAccess(["subscriptions.renew"]) && canAccess(["sales.checkout"]) && ["ACTIVE", "EXPIRED"].includes(status)
   const canCancel = canAccess(["subscriptions.cancel"]) && !["EXPIRED", "CANCELLED"].includes(status) && !record.cancellationRequest
 
   return <div className="flex items-center justify-center gap-1" aria-label="الإجراءات السريعة للاشتراك">
@@ -212,6 +212,8 @@ function capturedPolicyConfiguration(record: ApiRecord, policyType: "FREEZE" | "
 }
 
 function renewalEligibility(record: ApiRecord, policy?: ApiRecord) {
+  if (record.cancellationRequest) return { allowed: false, message: "لا يمكن التجديد مع وجود طلب إلغاء قائم." }
+  if (pendingFreezeSchedule(record)) return { allowed: false, message: "ألغِ التجميد المجدول أو انتظر تنفيذه قبل التجديد حتى يُحسب موعد البداية بدقة." }
   if (!policy) return { allowed: false, message: "لا توجد سياسة تجديد محفوظة مع هذا الاشتراك." }
   const termEnd = new Date(String(record.termEnd ?? ""))
   if (Number.isNaN(termEnd.getTime())) return { allowed: false, message: "تعذر قراءة تاريخ نهاية الاشتراك." }
@@ -388,6 +390,9 @@ function SubscriptionPolicyActionDialog({
 }) {
   const toast = useToast()
   const subscriptionId = String(record.id ?? record.subscriptionId ?? "")
+  const memberId = String(record.memberId ?? "")
+  const packageId = String(record.packageId ?? "")
+  const sellingBranchId = String(record.sellingBranchId ?? "")
   const subscriptionName = String(record.packageNameAr ?? record.packageName ?? record.subscriptionNumber ?? "الاشتراك")
   const subscriptionNumber = String(record.subscriptionNumber ?? "")
   const renewal = capturedPolicyConfiguration(record, "RENEWAL")
@@ -410,19 +415,27 @@ function SubscriptionPolicyActionDialog({
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     if (!subscriptionId) { setError("تعذر تحديد الاشتراك. حدّث الصفحة وحاول مجددًا."); return }
+    if (renewing && (!memberId || !packageId || !sellingBranchId)) { setError("بيانات العضو أو الباقة أو فرع البيع غير مكتملة. حدّث الصفحة وحاول مجددًا."); return }
     if (renewing && !renewal) { setError("لا توجد سياسة تجديد محفوظة مع هذا الاشتراك."); return }
     if (!renewing && !cancellation) { setError("لا توجد سياسة إلغاء محفوظة مع هذا الاشتراك."); return }
     if (!renewing && reason.trim().length < 3) { setError("اكتب سببًا واضحًا للإلغاء من 3 أحرف على الأقل."); return }
     setSaving(true)
     setError("")
     try {
-      await apiRequest(`/organizations/${organizationId}/subscriptions/${subscriptionId}/${renewing ? "renewals" : "cancellations"}`, {
+      const response = await apiRequest<ApiRecord>(renewing
+        ? `/organizations/${organizationId}/orders`
+        : `/organizations/${organizationId}/subscriptions/${subscriptionId}/cancellations`, {
         method: "POST",
-        body: JSON.stringify(renewing
-          ? { expectedVersion: Number(record.version ?? 1), ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {}) }
-          : { expectedVersion: Number(record.version ?? 1), reason: reason.trim() }),
+        body: JSON.stringify(renewing ? {
+          sellingBranchId,
+          memberId,
+          memberSegment: "OTHER",
+          lines: [{ type: "MEMBERSHIP", targetId: packageId, quantity: 1, ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {}), renewal: { subscriptionId, expectedVersion: Number(record.version ?? 1) } }],
+        } : { expectedVersion: Number(record.version ?? 1), reason: reason.trim() }),
       })
-      toast.success(renewing ? "تم التجديد مع حفظ المدة المتبقية وجدولة الفترة الجديدة بعدها." : "تم تسجيل طلب الإلغاء وتطبيق سياسة الباقة المحفوظة مع الاشتراك.")
+      toast.success(renewing
+        ? `تم إنشاء طلب التجديد والفاتورة ${String(response.data.invoiceNumber ?? "الجديدة")}. يبدأ الاشتراك المجدّد بعد السداد وانتهاء الفترة الحالية.`
+        : "تم تسجيل طلب الإلغاء وتطبيق سياسة الباقة المحفوظة مع الاشتراك.")
       onSaved()
     } catch (cause) {
       setError(humanError(cause, renewing ? "تعذر تجديد هذا الاشتراك وفق سياسة الباقة." : "تعذر إلغاء هذا الاشتراك وفق سياسة الباقة."))
@@ -441,7 +454,7 @@ function SubscriptionPolicyActionDialog({
       </div>
 
       {renewing ? <>
-        <div className="mt-5 rounded-2xl bg-emerald-500/8 p-4 text-xs leading-6"><p className="font-black">ترحيل تلقائي دون فقد المدة المتبقية</p><p className="mt-1 text-muted-foreground">{rollover.remainingDays > 0 ? `سيحتفظ العضو بنحو ${rollover.remainingDays} يوم متبقٍ،` : "انتهت المدة الحالية،"} وتبدأ فترة التجديد تلقائيًا في <strong>{rollover.startAt.toLocaleString("ar-SA")}</strong>. لا يحدث تداخل بين الفترتين، وتُلتقط أسعار وسياسات الباقة الحالية للتجديد.</p><p className="mt-1 text-muted-foreground">مهلة التجديد بعد الانتهاء وفق السياسة: <strong>{Number(renewal?.graceDays ?? 0)} يوم</strong>.</p></div>
+        <div className="mt-5 rounded-2xl bg-emerald-500/8 p-4 text-xs leading-6"><p className="font-black">تجديد مالي كامل دون فقد المدة المتبقية</p><p className="mt-1 text-muted-foreground">{rollover.remainingDays > 0 ? `سيحتفظ العضو بنحو ${rollover.remainingDays} يوم متبقٍ،` : "انتهت المدة الحالية،"} وتبدأ فترة التجديد تلقائيًا في <strong>{rollover.startAt.toLocaleString("ar-SA")}</strong>. سيصدر طلب بيع وفاتورة بالأسعار والسياسات الحالية، ولن يصبح التجديد نافذًا قبل سداد الفاتورة.</p><p className="mt-1 text-muted-foreground">مهلة التجديد بعد الانتهاء وفق السياسة: <strong>{Number(renewal?.graceDays ?? 0)} يوم</strong>.</p></div>
         <label className="mt-4 block text-xs font-bold">رمز الخصم (اختياري)<Input value={promoCode} onChange={event => setPromoCode(event.target.value)} className="mt-2" /></label>
       </> : <>
         <div className="mt-5 rounded-2xl bg-red-500/8 p-4 text-xs leading-6"><p className="font-black">السياسة المطبقة: {cancellationMode === "IMMEDIATE_PRORATED" ? "إلغاء فوري مع احتساب الاسترداد" : "إلغاء في نهاية مدة الاشتراك"}</p><p className="mt-1 text-muted-foreground">مهلة الإشعار: {Number(cancellation?.noticeDays ?? 0)} يوم · رسم الإلغاء: {moneyMinor(cancellation?.feeMinor)} · الاسترداد {cancellation?.refundable ? "مسموح" : "غير مسموح"}.</p></div>
@@ -606,7 +619,6 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
         ],
         body: values => ({ expectedVersion: version, type: values.type, value: Number(values.value), reason: values.reason.trim() }),
       })
-      actions.push({ label: "تجديد الاشتراك", permission: "subscriptions.renew", path: `/organizations/${organizationId}/subscriptions/${id}/renewals`, body: () => ({ expectedVersion: version }) })
       actions.push({
         label: "إلغاء الاشتراك",
         permission: "subscriptions.cancel",

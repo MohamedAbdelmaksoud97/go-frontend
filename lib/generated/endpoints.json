@@ -488,14 +488,6 @@
     "description": "Subscription resumed into a new discontinuous access period."
   },
   {
-    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/renewals",
-    "method": "post",
-    "operationId": "renewSubscription",
-    "secured": true,
-    "idempotent": false,
-    "description": "New linked subscription created with a fresh commercial snapshot."
-  },
-  {
     "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/cancellations",
     "method": "post",
     "operationId": "cancelSubscription",

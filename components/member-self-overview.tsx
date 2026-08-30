@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { DateTimeInput } from "@/components/date-time-input"
-import { apiRequest } from "@/lib/api-client"
+import { useToast } from "@/components/toast-provider"
+import { apiRequest, createIdempotencyKey } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { escapePrintHtml, openBrandedPrintWindow } from "@/lib/branded-print"
 import { pendingFreezeSchedule, subscriptionFreezePolicy } from "@/lib/subscription-freeze-policy"
@@ -26,6 +27,7 @@ const allTabs = [
 ] as const
 
 export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader = true }: { member: Member; tabs?: MemberOverviewTab[]; initialTab?: MemberOverviewTab; showMemberHeader?: boolean }) {
+  const toast = useToast()
   const visibleTabs = allTabs.filter(tab => !tabs || tabs.includes(tab.key))
   const [active, setActive] = useState<MemberOverviewTab>(initialTab ?? visibleTabs[0]?.key ?? "subscriptions")
   const [rows, setRows] = useState<Row[]>([])
@@ -39,6 +41,7 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
   const [freezeReason, setFreezeReason] = useState("")
   const [freezeMode, setFreezeMode] = useState<"NOW" | "LATER">("NOW")
   const [freezeStartAt, setFreezeStartAt] = useState(localDateTime(new Date(new Date().getTime() + 7 * 86_400_000)))
+  const [renewal, setRenewal] = useState<{ row: Row; quote: Row }>()
   const selectedPendingSchedule = freezeRequest ? pendingFreezeSchedule(freezeRequest) : undefined
   const selectedFreezePolicy = freezeRequest ? subscriptionFreezePolicy({ ...freezeRequest, freezeSchedules: selectedPendingSchedule ? [] : freezeRequest.freezeSchedules }, freezeMode === "LATER" ? new Date(freezeStartAt) : new Date()) : undefined
 
@@ -107,10 +110,36 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
     if (succeeded) { setFreezeRequest(undefined); setFreezeDays("7"); setFreezeReason(""); setFreezeMode("NOW") }
   }
 
+  async function prepareRenewal(row: Row) {
+    const packageId = String(row.packageId ?? ""); const sellingBranchId = String(row.sellingBranchId ?? "")
+    if (!packageId || !sellingBranchId) { setError("تعذر تحديد الباقة أو فرع الاشتراك المطلوب تجديده."); return }
+    setBusy(String(row.id ?? "")); setError("")
+    try {
+      const quote = (await apiRequest<Row>(`/self/organizations/${member.organizationId}/quotes`, { method: "POST", body: JSON.stringify({ branchId: sellingBranchId, targetType: "PACKAGE", targetId: packageId, quantity: 1, memberSegment: "OTHER" }) })).data
+      setRenewal({ row, quote })
+    } catch (cause) { setError(humanError(cause, "تعذر حساب سعر تجديد الاشتراك.")) }
+    finally { setBusy("") }
+  }
+
+  async function confirmRenewal() {
+    if (!renewal) return
+    const row = renewal.row; const subscriptionId = String(row.id ?? ""); const packageId = String(row.packageId ?? ""); const sellingBranchId = String(row.sellingBranchId ?? "")
+    if (!subscriptionId || !packageId || !sellingBranchId) return
+    setBusy(subscriptionId); setError("")
+    try {
+      const order = (await apiRequest<Row>(`/self/organizations/${member.organizationId}/members/${member.memberId}/orders`, { method: "POST", idempotencyKey: createIdempotencyKey(), body: JSON.stringify({ sellingBranchId, memberSegment: "OTHER", lines: [{ type: "MEMBERSHIP", targetId: packageId, quantity: 1, renewal: { subscriptionId, expectedVersion: Number(row.version ?? 1) } }] }) })).data
+      setRenewal(undefined)
+      toast.success(`تم إنشاء طلب التجديد${order.invoiceNumber ? ` وفاتورة ${String(order.invoiceNumber)}` : ""}. يبدأ الاشتراك الجديد بعد انتهاء المدة الحالية، ويُفعّل بعد السداد.`)
+      await load()
+    } catch (cause) { setError(humanError(cause, "تعذر إنشاء طلب التجديد والفاتورة.")) }
+    finally { setBusy("") }
+  }
+
   return <>
     <Card className="mt-5 overflow-hidden border-primary/15"><CardContent className="p-0">{showMemberHeader && <div className="bg-gradient-to-l from-primary/[.10] to-transparent p-5"><div className="flex flex-wrap items-center gap-3"><div><p className="text-xs font-bold text-primary">بوابة العضو</p><h2 className="mt-1 text-xl font-black">{member.memberName}</h2><p className="mt-1 text-xs text-muted-foreground">رقم العضوية: {member.memberNumber}</p></div><Button className="mr-auto" variant="outline" size="sm" onClick={() => void load()}><RefreshCw />تحديث البيانات</Button></div></div>}<div className="p-5"><div className="flex flex-wrap items-center gap-3"><nav className="flex gap-2 overflow-x-auto pb-2" aria-label="أقسام حساب العضو">{visibleTabs.map(tab => <Button key={tab.key} variant={active === tab.key ? "default" : "outline"} size="sm" className="shrink-0" onClick={() => setActive(tab.key)}><tab.icon />{tab.label}</Button>)}</nav>{!showMemberHeader && <Button className="mr-auto" variant="outline" size="sm" onClick={() => void load()}><RefreshCw />تحديث</Button>}</div>{error && <p role="alert" className="mt-3 rounded-xl bg-red-500/10 p-3 text-xs text-red-600">{error}</p>}{loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="animate-spin text-primary" /></div> : <div className="mt-4 space-y-3">{rows.map((row, index) => <article key={String(row.id ?? index)} className="rounded-2xl border bg-secondary/20 p-4"><div className="flex flex-wrap items-start gap-3"><div className="min-w-0"><p className="text-sm font-black">{title(row, active, index)}</p><p className="mt-2 text-xs leading-6 text-muted-foreground">{summary(row, active)}</p>{lineNames(row).length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{lineNames(row).map((name, lineIndex) => <span key={`${name}-${lineIndex}`} className="rounded-lg bg-background px-2 py-1 text-[11px]">{name}</span>)}</div>}{active === "subscriptions" && <FreezeHistory row={row} />}</div><div className="mr-auto flex gap-2">{active === "subscriptions" && member.canManageMembership && <SubscriptionButtons row={row} busy={busy === String(row.id)} onAction={value => {
                 if (value === "cancellations") { setCancellation({ row, kind: "subscription" }); setReason(""); return }
                 if (value === "freezes") { const policy = subscriptionFreezePolicy(row); const scheduled = pendingFreezeSchedule(row); setFreezeRequest(row); setFreezeDays(String(policy.recommendedDays)); setFreezeReason(scheduled ? "طلب العضو إلغاء الجدولة" : ""); setFreezeMode("NOW"); return }
+                if (value === "renewals") { void prepareRenewal(row); return }
                 void subscriptionAction(row, value)
               }} />}{active === "invoices" && <Button size="sm" variant="outline" onClick={() => printInvoice(row, member)}><Printer />طباعة</Button>}{active === "reservations" && member.canBook && !["CANCELLED", "COMPLETED", "NO_SHOW"].includes(String(row.status)) && <Button size="sm" variant="destructive" disabled={busy === String(row.id)} onClick={() => { setCancellation({ row, kind: "reservation" }); setReason("") }}>إلغاء الحجز</Button>}</div></div></article>)}{!rows.length && <div className="rounded-2xl border border-dashed py-10 text-center"><p className="text-sm font-bold">لا توجد بيانات في هذا القسم بعد</p><p className="mt-1 text-xs text-muted-foreground">ستظهر هنا تلقائيًا فور تنفيذ العملية المرتبطة.</p></div>}</div>}</div></CardContent></Card>
     {freezeRequest && <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="freeze-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setFreezeRequest(undefined) }}>
@@ -154,12 +183,34 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
         </div>
       </div>
     </div>}
+    {renewal && <div className="fixed inset-0 z-[100] grid place-items-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="renewal-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setRenewal(undefined) }}>
+      <div className="my-auto w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl">
+        <div className="flex items-start gap-4"><div><p className="text-xs font-bold text-primary">تجديد وفق سياسة الباقة</p><h3 id="renewal-title" className="mt-1 text-xl font-black">تجديد {String(renewal.row.packageName ?? "الاشتراك")}</h3></div><Button className="mr-auto" size="icon" variant="ghost" aria-label="إغلاق" disabled={Boolean(busy)} onClick={() => setRenewal(undefined)}><X /></Button></div>
+        <p className="mt-3 text-sm leading-7 text-muted-foreground">سيُنشئ النظام طلب بيع وفاتورة مستقلة، ويحفظ السعر والسياسات الحالية للباقة. يبدأ الاشتراك الجديد بعد نهاية الاشتراك الحالي ولا يُفعّل قبل سداد الفاتورة.</p>
+        <div className="mt-5 grid grid-cols-2 gap-3"><RenewalMetric label="السعر قبل الضريبة" value={money(renewal.quote.netMinor)} /><RenewalMetric label="الضريبة" value={money(renewal.quote.taxMinor)} /><RenewalMetric label="الإجمالي" value={money(renewal.quote.grossMinor)} /><RenewalMetric label="موعد البداية" value={dateOnly(renewal.row.termEnd)} /></div>
+        <div className="mt-6 flex flex-wrap gap-2"><Button disabled={Boolean(busy)} onClick={() => void confirmRenewal()}>{busy && <Loader2 className="animate-spin" />}تأكيد وإنشاء الفاتورة</Button><Button variant="outline" disabled={Boolean(busy)} onClick={() => setRenewal(undefined)}>رجوع</Button></div>
+      </div>
+    </div>}
   </>
 }
 
-function SubscriptionButtons({ row, busy, onAction }: { row: Row; busy: boolean; onAction: (value: "freezes" | "resumptions" | "cancellations") => void }) { const value = String(row.status ?? ""); const cancellationPending = Boolean(row.cancellationRequest); const freezePolicy = subscriptionFreezePolicy(row); const scheduled = pendingFreezeSchedule(row); return <>{cancellationPending && <Badge variant="warning">الإلغاء مجدول</Badge>}{scheduled && <Badge variant="warning">التجميد مجدول</Badge>}{["ACTIVE", "ACTIVE_PROVISIONAL"].includes(value) && !cancellationPending && <><Button size="sm" variant="outline" disabled={busy || (!freezePolicy.allowed && !scheduled)} title={freezePolicy.message} onClick={() => onAction("freezes")}>{scheduled ? "إدارة موعد التجميد" : "تجميد العضوية"}</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => onAction("cancellations")}>طلب إلغاء</Button></>}{value === "FROZEN" && !cancellationPending && <Button size="sm" disabled={busy} onClick={() => onAction("resumptions")}>استئناف</Button>}</> }
+function SubscriptionButtons({ row, busy, onAction }: { row: Row; busy: boolean; onAction: (value: "freezes" | "resumptions" | "cancellations" | "renewals") => void }) { const value = String(row.status ?? ""); const cancellationPending = Boolean(row.cancellationRequest); const freezePolicy = subscriptionFreezePolicy(row); const scheduled = pendingFreezeSchedule(row); const renewalWindow = subscriptionRenewalEligibility(row); return <>{cancellationPending && <Badge variant="warning">الإلغاء مجدول</Badge>}{scheduled && <Badge variant="warning">التجميد مجدول</Badge>}{["ACTIVE", "ACTIVE_PROVISIONAL"].includes(value) && !cancellationPending && <><Button size="sm" variant="outline" disabled={busy || (!freezePolicy.allowed && !scheduled)} title={freezePolicy.message} onClick={() => onAction("freezes")}>{scheduled ? "إدارة موعد التجميد" : "تجميد العضوية"}</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => onAction("cancellations")}>طلب إلغاء</Button></>}{value === "FROZEN" && !cancellationPending && <Button size="sm" disabled={busy} onClick={() => onAction("resumptions")}>استئناف</Button>}{["ACTIVE", "EXPIRED"].includes(value) && <Button size="sm" variant="outline" disabled={busy || !renewalWindow.allowed} title={renewalWindow.message} onClick={() => onAction("renewals")}><RefreshCw />تجديد</Button>}</> }
 function FreezeMetric({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-background/70 p-2"><span className="block text-[10px] text-muted-foreground">{label}</span><strong className="mt-1 block">{value}</strong></div> }
+function RenewalMetric({ label, value }: { label: string; value: string }) { return <div className="rounded-xl border bg-secondary/25 p-3"><span className="block text-[10px] text-muted-foreground">{label}</span><strong className="mt-1 block text-sm">{value}</strong></div> }
 function FreezeHistory({ row }: { row: Row }) { const periods = Array.isArray(row.freezePeriods) ? row.freezePeriods as Row[] : []; const scheduled = pendingFreezeSchedule(row); if (!periods.length && !scheduled) return null; return <div className="mt-3 rounded-xl border bg-background/60 p-3"><p className="text-xs font-black">التجميد</p>{scheduled && <p className="mt-2 rounded-lg bg-blue-500/10 p-2 text-[11px] leading-5 text-blue-700 dark:text-blue-300">مجدول ليبدأ في {formatDate(scheduled.scheduledStartAt)} لمدة {String(scheduled.requestedDays)} يوم · {String(scheduled.reason ?? "دون سبب مسجل")}</p>}<div className="mt-2 space-y-1.5">{periods.map((period, index) => <p key={String(period.id ?? index)} className="text-[11px] leading-5 text-muted-foreground">{dateOnly(period.startedAt)} — {period.resumedAt ? `استؤنف في ${dateOnly(period.resumedAt)}` : `مجمّد حتى ${dateOnly(period.plannedEndAt)}`} · {String(period.reason ?? "دون سبب مسجل")}</p>)}</div></div> }
+function subscriptionRenewalEligibility(row: Row) {
+  if (row.cancellationRequest) return { allowed: false, message: "لا يمكن التجديد مع وجود طلب إلغاء قائم." }
+  if (pendingFreezeSchedule(row)) return { allowed: false, message: "ألغِ التجميد المجدول أو انتظر تنفيذه قبل التجديد حتى يُحسب موعد البداية بدقة." }
+  const snapshot = row.policySnapshot && typeof row.policySnapshot === "object" && !Array.isArray(row.policySnapshot) ? row.policySnapshot as Row : undefined
+  const policies = Array.isArray(snapshot?.policies) ? snapshot.policies as Row[] : []
+  const configuration = policies.find(policy => policy.policyType === "RENEWAL")?.configuration
+  if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) return { allowed: false, message: "لا توجد سياسة تجديد محفوظة مع هذا الاشتراك." }
+  const graceDays = Number((configuration as Row).graceDays); const termEnd = new Date(String(row.termEnd ?? ""))
+  if (!Number.isInteger(graceDays) || graceDays < 0 || Number.isNaN(termEnd.getTime())) return { allowed: false, message: "بيانات سياسة التجديد المحفوظة غير صالحة." }
+  const latest = new Date(termEnd.getTime() + graceDays * 86_400_000)
+  if (new Date() > latest) return { allowed: false, message: `انتهت مهلة التجديد في ${dateOnly(latest)}.` }
+  return { allowed: true, message: new Date() < termEnd ? "يبدأ التجديد بعد انتهاء المدة الحالية ولا يفقد العضو أي أيام متبقية." : "التجديد متاح خلال مهلة ما بعد انتهاء الاشتراك." }
+}
 function list(value: unknown): Row[] { if (Array.isArray(value)) return value as Row[]; if (value && typeof value === "object" && Array.isArray((value as { items?: unknown[] }).items)) return (value as { items: Row[] }).items; return [] }
 function title(row: Row, active: string, index: number) {
   const names = lineNames(row)
