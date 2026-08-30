@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
+import { escapePrintHtml, openBrandedPrintWindow } from "@/lib/branded-print"
 import { humanError } from "@/lib/human-errors"
 
 type InvoiceLine = {
@@ -37,6 +38,7 @@ type InvoicePayment = {
   cashierShiftId?: string; cashPointId?: string
 }
 type InvoiceRefund = { id: string; paymentId: string; amountMinor: string; currency: string; reason: string; refundedBy: string; refundedByName?: string; refundedAt: string }
+type InvoiceCreditNote = { id: string; creditNoteNumber: string; refundRequestId: string; netMinor: string; taxMinor: string; grossMinor: string; currency: string; reason: string; issuedByName?: string; issuedAt: string; documentSnapshot?: Record<string, unknown> }
 type InvoiceDetails = {
   id: string; invoiceNumber: string; orderId?: string; memberId?: string; sellingBranchId: string; status: string
   netMinor: string; discountMinor: string; taxMinor: string; grossMinor: string; paidMinor: string; balanceMinor: string; currency: string
@@ -44,7 +46,7 @@ type InvoiceDetails = {
   member?: { id: string; memberNumber: string; legacyMemberNumber?: string; name: string; phone?: string; email?: string }
   branch: { id: string; code: string; name: string }
   order?: { id: string; orderNumber: string; buyerType: string; status: string; createdByName?: string; createdAt: string; updatedAt: string }
-  lines: InvoiceLine[]; payments: InvoicePayment[]; refunds: InvoiceRefund[]
+  lines: InvoiceLine[]; payments: InvoicePayment[]; refunds: InvoiceRefund[]; creditNotes?: InvoiceCreditNote[]
 }
 
 export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
@@ -130,6 +132,8 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
 
     {invoice.refunds.length>0&&<Card className="overflow-hidden border-red-500/25"><CardHeader><div><CardTitle className="flex items-center gap-2"><RotateCcw className="text-red-500"/>الاسترجاعات المرتبطة</CardTitle><p className="mt-1 text-sm text-muted-foreground">عمليات الاسترجاع المسجلة على الدفعات التي سددت هذه الفاتورة.</p></div></CardHeader><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[760px] text-right"><thead className="bg-secondary/50"><tr>{["المبلغ","السبب","نفذها","التاريخ","مرجع الدفعة"].map(label=><th key={label} className="px-5 py-4 text-xs text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y">{invoice.refunds.map(refund=><tr key={refund.id}><td className="px-5 py-4 font-bold text-red-500">{money(refund.amountMinor, refund.currency)}</td><td className="px-5 py-4">{refund.reason}</td><td className="px-5 py-4">{refund.refundedByName || "موظف مخول"}</td><td className="px-5 py-4">{dateTime(refund.refundedAt)}</td><td className="px-5 py-4 font-mono text-xs">{shortId(refund.paymentId)}</td></tr>)}</tbody></table></div></Card>}
 
+    {(invoice.creditNotes?.length??0)>0&&<Card className="overflow-hidden border-blue-500/25"><CardHeader><div><CardTitle className="flex items-center gap-2"><ReceiptText className="text-blue-500"/>الإشعارات الدائنة</CardTitle><p className="mt-1 text-sm text-muted-foreground">مستندات داخلية صدرت عند تنفيذ الاسترداد ومرتبطة مباشرة بهذه الفاتورة الأصلية.</p></div><Badge variant="secondary">{invoice.creditNotes?.length} إشعار</Badge></CardHeader><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[900px] text-right"><thead className="bg-secondary/50"><tr>{["رقم الإشعار","الصافي","الضريبة","الإجمالي","سبب الإصدار","أصدره","التاريخ","الطباعة"].map(label=><th key={label} className="px-5 py-4 text-xs text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y">{invoice.creditNotes?.map(note=><tr key={note.id}><td className="px-5 py-4 font-bold" dir="ltr">{note.creditNoteNumber}</td><td className="px-5 py-4">{money(note.netMinor,note.currency)}</td><td className="px-5 py-4">{money(note.taxMinor,note.currency)}</td><td className="px-5 py-4 font-bold text-blue-500">{money(note.grossMinor,note.currency)}</td><td className="px-5 py-4">{note.reason}</td><td className="px-5 py-4">{note.issuedByName||"موظف مخول"}</td><td className="px-5 py-4">{dateTime(note.issuedAt)}</td><td className="px-5 py-4"><Button size="sm" variant="outline" className="print:hidden" onClick={()=>printInvoiceCreditNote(invoice,note)}><Printer/>طباعة</Button></td></tr>)}</tbody></table></div><CardContent className="border-t text-xs leading-6 text-muted-foreground">هذه إشعارات داخلية غير مُبلّغ عنها خارجيًا. يتطلب الإبلاغ الضريبي الإلكتروني تكاملًا منفصلًا مع منصة الفوترة الإلكترونية.</CardContent></Card>}
+
     {invoice.status === "VOIDED"&&<Card className="border-red-500/30 bg-red-500/5"><CardContent className="flex gap-3"><RotateCcw className="mt-0.5 text-red-500"/><div><p className="font-bold text-red-500">تم إلغاء هذه الفاتورة</p><p className="mt-1 text-sm text-muted-foreground">{invoice.voidReason || "لم يُسجل سبب الإلغاء."}{invoice.voidedAt ? ` · ${dateTime(invoice.voidedAt)}` : ""}</p></div></CardContent></Card>}
 
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Hash className="text-primary"/>البيانات المرجعية</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Info label="معرّف الفاتورة" value={invoice.id} mono/><Info label="معرّف طلب البيع" value={invoice.orderId} mono/><Info label="إصدار السجل" value={String(invoice.version)}/><Info label="صافي البنود" value={money(invoice.netMinor, invoice.currency)}/><Info label="وقت الإنشاء" value={dateTime(invoice.createdAt)}/><Info label="عملة الفاتورة" value={invoice.currency}/></div>{Object.keys(invoice.taxSnapshot??{}).length>0&&<details className="mt-5 rounded-xl border bg-secondary/20 p-4"><summary className="cursor-pointer font-bold">مرجع الضريبة المحفوظ وقت الإصدار</summary><SnapshotGrid value={invoice.taxSnapshot}/></details>}</CardContent></Card>
@@ -140,7 +144,7 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
 }
 
 function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; invoiceType: string }) {
-  const dense = invoice.lines.length + invoice.payments.length + invoice.refunds.length > 10
+  const dense = invoice.lines.length + invoice.payments.length + invoice.refunds.length + (invoice.creditNotes?.length??0) > 10
   return <section data-invoice-print className={`invoice-print-sheet${dense ? " invoice-print-sheet--dense" : ""}`} dir="rtl" aria-label={`نسخة طباعة الفاتورة ${invoice.invoiceNumber}`}>
     <header className="invoice-print-header">
       <div className="invoice-print-brand">
@@ -186,6 +190,7 @@ function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; 
           <b>{money(payment.allocationAmountMinor, payment.currency)}</b>
         </div>) : <p>لم تُسجل دفعات على الفاتورة.</p>}
         {invoice.refunds.length > 0 && <p className="invoice-print-refund">إجمالي المسترجعات: <strong>{money(invoice.refunds.reduce((sum, refund) => sum + Number(refund.amountMinor || 0), 0), invoice.currency)}</strong></p>}
+        {(invoice.creditNotes?.length??0) > 0 && <p className="invoice-print-refund">إجمالي الإشعارات الدائنة: <strong>{money(invoice.creditNotes?.reduce((sum, note) => sum + Number(note.grossMinor || 0), 0), invoice.currency)}</strong></p>}
       </div>
       <div className="invoice-print-totals">
         <PrintTotal label="صافي البنود" value={money(invoice.netMinor, invoice.currency)}/>
@@ -288,6 +293,7 @@ function SnapshotGrid({value}:{value:Record<string,unknown>}){return <div classN
 function TextList({title,values}:{title:string;values:string[]}){if(!values.length)return null;return <div className="mt-3"><p className="text-xs text-muted-foreground">{title}</p><div className="mt-2 flex flex-wrap gap-2">{values.map(value=><Badge key={value} variant="outline">{value}</Badge>)}</div></div>}
 function Info({ label, value, mono=false }: { label: string; value?: string; mono?: boolean }) { return <div className="flex items-start justify-between gap-4 border-b pb-2 last:border-0"><span className="text-sm text-muted-foreground">{label}</span><span className={`max-w-[70%] break-all text-left text-sm font-semibold ${mono?"font-mono text-xs":""}`}>{value || "—"}</span></div> }
 function EmptyState({ title, detail, onRetry }: { title: string; detail: string; onRetry?: () => void }) { return <Card className="mx-auto max-w-2xl"><CardContent className="py-14 text-center"><FileText className="mx-auto size-10 text-muted-foreground"/><h1 className="mt-4 text-2xl font-black">{title}</h1><p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">{detail}</p><div className="mt-6 flex justify-center gap-2"><Link href="/finance" className={buttonVariants({variant:"outline"})}><ArrowRight/>السجلات المالية</Link>{onRetry&&<Button onClick={onRetry}><RefreshCw/>إعادة المحاولة</Button>}</div></CardContent></Card> }
+function printInvoiceCreditNote(invoice:InvoiceDetails,note:InvoiceCreditNote){const html=`<section class="print-document" dir="rtl"><div class="document-heading"><p class="eyebrow">إشعار دائن داخلي</p><h1>${escapePrintHtml(note.creditNoteNumber)}</h1></div><div class="document-subject"><span>الفاتورة الأصلية</span><strong>${escapePrintHtml(invoice.invoiceNumber)}</strong><small>${escapePrintHtml(invoice.branch.name)}</small></div><div class="document-grid"><div class="document-box"><span>تاريخ الإصدار</span><strong>${escapePrintHtml(dateTime(note.issuedAt))}</strong></div><div class="document-box"><span>أصدره</span><strong>${escapePrintHtml(note.issuedByName||"موظف مخول")}</strong></div></div><section class="document-section"><h2>سبب الإصدار</h2><p>${escapePrintHtml(note.reason)}</p></section><table><tbody><tr><th>القيمة قبل الضريبة</th><td>${escapePrintHtml(money(note.netMinor,note.currency))}</td></tr><tr><th>الضريبة</th><td>${escapePrintHtml(money(note.taxMinor,note.currency))}</td></tr><tr><th>إجمالي الإشعار الدائن</th><td><strong>${escapePrintHtml(money(note.grossMinor,note.currency))}</strong></td></tr></tbody></table><p class="document-preamble">مستند داخلي مرتبط بطلب الاسترداد والفاتورة الأصلية. حالة التكامل الإلكتروني: غير مُبلّغ خارجيًا.</p></section>`;openBrandedPrintWindow({title:`إشعار دائن ${note.creditNoteNumber}`,subtitle:`مرتبط بالفاتورة ${invoice.invoiceNumber}`,body:html})}
 function money(value: string | number | undefined, currency="SAR") { const amount=Number(value??0)/100; return new Intl.NumberFormat("ar-SA",{style:"currency",currency:currency||"SAR",maximumFractionDigits:2}).format(Number.isFinite(amount)?amount:0) }
 function dateTime(value?: string) { if(!value)return"—";const date=new Date(value);return Number.isNaN(date.getTime())?"—":new Intl.DateTimeFormat("ar-SA",{dateStyle:"medium",timeStyle:"short",timeZone:"Asia/Riyadh"}).format(date) }
 function dateOnly(value?: string) { if(!value)return"—";const date=new Date(value);return Number.isNaN(date.getTime())?"—":new Intl.DateTimeFormat("ar-SA",{dateStyle:"long",timeZone:"Asia/Riyadh"}).format(date) }

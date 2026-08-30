@@ -21,6 +21,15 @@ export function pendingFreezeSchedule(record: RecordValue): RecordValue | undefi
   return array(record.freezeSchedules).map(object).find(item => String(item?.status ?? "").toUpperCase() === "PENDING")
 }
 
+export function subscriptionFreezeScheduleDeadline(record: RecordValue): Date | undefined {
+  const termEnd = validDate(record.termEnd)
+  const cancellationRequest = object(record.cancellationRequest)
+  const cancellationEffectiveAt = validDate(cancellationRequest?.effectiveAt)
+  const candidates = [termEnd, cancellationEffectiveAt].filter((value): value is Date => value !== undefined)
+  if (candidates.length === 0) return undefined
+  return new Date(Math.min(...candidates.map(value => value.getTime())))
+}
+
 export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): SubscriptionFreezePolicyView {
   const configuration = capturedFreezeConfiguration(record)
   const maxDaysPerFreeze = integer(configuration?.maxDaysPerFreeze)
@@ -95,6 +104,11 @@ function unavailable(message: string, usedFreezes: number, activeDays: number): 
 function integer(value: unknown): number | undefined {
   const parsed = Number(value)
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+function validDate(value: unknown): Date | undefined {
+  const parsed = new Date(String(value ?? ""))
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed
 }
 
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : [] }

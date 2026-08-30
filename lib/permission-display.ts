@@ -33,6 +33,7 @@ const permissionLabelOverrides: Record<string, string> = {
   "sales.checkout": "إتمام عمليات البيع",
   "attendance.check-in": "تسجيل دخول الأعضاء",
   "finance.refunds.issue": "تنفيذ الاسترجاعات المالية",
+  "finance.refunds.approve": "اعتماد ورفض طلبات الاسترداد",
   "restaurant.meal-plans.redeem": "استخدام استحقاقات خطط الوجبات",
   "workforce.attendance.record": "تسجيل حضور الموظفين",
 };

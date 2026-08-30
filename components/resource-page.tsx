@@ -18,7 +18,7 @@ import { ActionDialog } from "@/components/action-dialog"
 import { operationPermissions } from "@/lib/permissions"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy"
 import { useToast } from "@/components/toast-provider"
-import { pendingFreezeSchedule, subscriptionFreezePolicy } from "@/lib/subscription-freeze-policy"
+import { pendingFreezeSchedule, subscriptionFreezePolicy, subscriptionFreezeScheduleDeadline } from "@/lib/subscription-freeze-policy"
 
 type BranchLookup = { id: string; nameAr?: string; name?: string }
 type ApiRecord = Record<string, unknown>
@@ -147,7 +147,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     {disciplinaryMember && <MemberDisciplinaryDialog organizationId={context.organizationId} record={disciplinaryMember} onClose={() => setDisciplinaryMember(undefined)} onSaved={() => { setDisciplinaryMember(undefined); pageCache.current = []; void loadPage(0) }} />}
     {subscriptionFreezeRecord && <SubscriptionFreezeDialog organizationId={context.organizationId} record={subscriptionFreezeRecord} onClose={() => setSubscriptionFreezeRecord(undefined)} onSaved={() => { setSubscriptionFreezeRecord(undefined); pageCache.current = []; void loadPage(0) }} />}
     {subscriptionPolicyAction && <SubscriptionPolicyActionDialog organizationId={context.organizationId} record={subscriptionPolicyAction.record} action={subscriptionPolicyAction.action} onClose={() => setSubscriptionPolicyAction(undefined)} onSaved={() => { setSubscriptionPolicyAction(undefined); pageCache.current = []; void loadPage(0) }} />}
-    {selectedRow && <RecordPreview columns={config.columns} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={config.statusIndex} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
+    {selectedRow && <RecordPreview columns={config.columns} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={config.statusIndex} onFreeze={() => { setSelectedRow(undefined); setSubscriptionFreezeRecord(selectedRow.record) }} onCancel={() => { setSelectedRow(undefined); setSubscriptionPolicyAction({ record: selectedRow.record, action: "CANCEL" }) }} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
   </div>
 }
 
@@ -248,6 +248,7 @@ function SubscriptionFreezeDialog({
   const [scheduledStartAt, setScheduledStartAt] = useState(localDateTime(new Date(new Date().getTime() + 7 * 86_400_000)))
   const policyAt = scheduleMode === "LATER" ? new Date(scheduledStartAt) : new Date()
   const freezePolicy = subscriptionFreezePolicy({ ...record, freezeSchedules: pendingSchedule ? [] : record.freezeSchedules }, policyAt)
+  const freezeDeadline = subscriptionFreezeScheduleDeadline(record)
   const [requestedDays, setRequestedDays] = useState(String(freezePolicy.recommendedDays))
   const [reason, setReason] = useState(pendingSchedule ? "طلب العضو إلغاء الجدولة" : "طلب العضو")
   const [saving, setSaving] = useState(false)
@@ -272,8 +273,8 @@ function SubscriptionFreezeDialog({
       setError("اختر موعدًا صحيحًا في المستقبل لبدء التجميد.")
       return
     }
-    if (!frozen && !pendingSchedule && scheduleMode === "LATER" && policyAt >= new Date(String(record.termEnd ?? ""))) {
-      setError("يجب أن يبدأ التجميد قبل نهاية مدة الاشتراك.")
+    if (!frozen && !pendingSchedule && scheduleMode === "LATER" && freezeDeadline !== undefined && policyAt >= freezeDeadline) {
+      setError("يجب أن يبدأ التجميد قبل موعد انتهاء الاشتراك أو تنفيذ الإلغاء المجدول.")
       return
     }
     if (!frozen && !pendingSchedule && (!Number.isInteger(days) || days < 1)) {
@@ -346,7 +347,8 @@ function SubscriptionFreezeDialog({
           <Button type="button" variant={scheduleMode === "NOW" ? "default" : "outline"} onClick={() => setScheduleMode("NOW")}>ابدأ الآن</Button>
           <Button type="button" variant={scheduleMode === "LATER" ? "default" : "outline"} onClick={() => setScheduleMode("LATER")}>جدولة لموعد لاحق</Button>
         </div></fieldset>
-        {scheduleMode === "LATER" && <label className="mt-4 block text-xs font-bold">تاريخ ووقت البدء<span className="mr-1 text-red-500">*</span><DateTimeInput type="datetime-local" min={localDateTime(new Date(new Date().getTime() + 60_000))} max={localDateTime(new Date(String(record.termEnd ?? "")))} value={scheduledStartAt} onChange={event => setScheduledStartAt(event.target.value)} className="mt-2" /></label>}
+        {scheduleMode === "LATER" && <label className="mt-4 block text-xs font-bold">تاريخ ووقت البدء<span className="mr-1 text-red-500">*</span><DateTimeInput type="datetime-local" min={localDateTime(new Date(new Date().getTime() + 60_000))} max={freezeDeadline ? localDateTime(freezeDeadline) : undefined} value={scheduledStartAt} onChange={event => setScheduledStartAt(event.target.value)} className="mt-2" /></label>}
+        {record.cancellationRequest && <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs leading-6 text-amber-800 dark:text-amber-200"><p className="font-black">يوجد إلغاء مجدول لهذا الاشتراك</p><p className="mt-1">يمكن تنفيذ التجميد قبل موعد الإلغاء، وسيؤجل النظام نهاية الاشتراك وموعد الإلغاء بنفس مدة التجميد.</p></div>}
         <div className={`mt-5 rounded-2xl border p-4 text-xs ${freezePolicy.allowed ? "border-blue-500/25 bg-blue-500/5" : "border-amber-500/30 bg-amber-500/8"}`}>
           <p className="font-black">حدود سياسة التجميد المحفوظة مع الاشتراك</p>
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -410,7 +412,19 @@ function SubscriptionPolicyActionDialog({
   const [reason, setReason] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [cancellationPreview, setCancellationPreview] = useState<ApiRecord>()
+  const [previewLoading, setPreviewLoading] = useState(action === "CANCEL")
   const renewing = action === "RENEW"
+
+  useEffect(() => {
+    if (renewing || !subscriptionId) return
+    let active = true
+    apiRequest<ApiRecord>(`/organizations/${organizationId}/subscriptions/${subscriptionId}/cancellation-preview`)
+      .then(response => { if (active) setCancellationPreview(response.data) })
+      .catch(cause => { if (active) setError(humanError(cause, "تعذر حساب أثر الإلغاء. حدّث الصفحة وحاول مجددًا.")) })
+      .finally(() => { if (active) setPreviewLoading(false) })
+    return () => { active = false }
+  }, [organizationId, renewing, subscriptionId])
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -419,6 +433,7 @@ function SubscriptionPolicyActionDialog({
     if (renewing && !renewal) { setError("لا توجد سياسة تجديد محفوظة مع هذا الاشتراك."); return }
     if (!renewing && !cancellation) { setError("لا توجد سياسة إلغاء محفوظة مع هذا الاشتراك."); return }
     if (!renewing && reason.trim().length < 3) { setError("اكتب سببًا واضحًا للإلغاء من 3 أحرف على الأقل."); return }
+    if (!renewing && (!cancellationPreview || cancellationPreview.allowed === false)) { setError(String(cancellationPreview?.blockingReason ?? "تعذر التحقق من أثر الإلغاء قبل التنفيذ.")); return }
     setSaving(true)
     setError("")
     try {
@@ -458,12 +473,25 @@ function SubscriptionPolicyActionDialog({
         <label className="mt-4 block text-xs font-bold">رمز الخصم (اختياري)<Input value={promoCode} onChange={event => setPromoCode(event.target.value)} className="mt-2" /></label>
       </> : <>
         <div className="mt-5 rounded-2xl bg-red-500/8 p-4 text-xs leading-6"><p className="font-black">السياسة المطبقة: {cancellationMode === "IMMEDIATE_PRORATED" ? "إلغاء فوري مع احتساب الاسترداد" : "إلغاء في نهاية مدة الاشتراك"}</p><p className="mt-1 text-muted-foreground">مهلة الإشعار: {Number(cancellation?.noticeDays ?? 0)} يوم · رسم الإلغاء: {moneyMinor(cancellation?.feeMinor)} · الاسترداد {cancellation?.refundable ? "مسموح" : "غير مسموح"}.</p></div>
+        {previewLoading ? <div className="mt-4 flex items-center gap-2 rounded-2xl border p-4 text-sm text-muted-foreground"><RefreshCw className="size-4 animate-spin" /> جارٍ حساب التسوية النهائية…</div> : cancellationPreview && <CancellationPreviewCard preview={cancellationPreview} />}
         <label className="mt-5 block text-xs font-bold">سبب الإلغاء<span className="mr-1 text-red-500">*</span><textarea value={reason} onChange={event => setReason(event.target.value)} rows={4} placeholder="اكتب سبب طلب الإلغاء" className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>
       </>}
 
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
-      <div className="mt-6 flex gap-2 border-t pt-5"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>رجوع</Button><Button type="submit" className="mr-auto" variant={renewing ? "default" : "destructive"} disabled={saving}>{saving ? "جارٍ التنفيذ..." : renewing ? "تأكيد التجديد" : "تأكيد الإلغاء"}</Button></div>
+      <div className="mt-6 flex gap-2 border-t pt-5"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>رجوع</Button><Button type="submit" className="mr-auto" variant={renewing ? "default" : "destructive"} disabled={saving || (!renewing && (previewLoading || !cancellationPreview || cancellationPreview.allowed === false))}>{saving ? "جارٍ التنفيذ..." : renewing ? "تأكيد التجديد" : "تأكيد الإلغاء"}</Button></div>
     </form>
+  </div>
+}
+
+function CancellationPreviewCard({ preview }: { preview: ApiRecord }) {
+  const calculation = (preview.calculation && typeof preview.calculation === "object" ? preview.calculation : {}) as ApiRecord
+  const immediate = preview.mode === "IMMEDIATE_PRORATED"
+  return <div className={`mt-4 rounded-2xl border p-4 ${preview.allowed === false ? "border-red-500/40 bg-red-500/8" : "border-amber-500/35 bg-amber-500/8"}`}>
+    <p className="text-sm font-black">الأثر قبل التأكيد</p>
+    <p className="mt-1 text-xs leading-6 text-muted-foreground">{immediate ? "سيتوقف الاشتراك فورًا ويُنشأ طلب استرداد مالي للمراجعة والتنفيذ." : `سيظل الاشتراك فعالًا حتى ${new Date(String(preview.effectiveAt)).toLocaleDateString("ar-SA")}.`}</p>
+    {immediate && <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4"><PolicyMetric label="قيمة الاشتراك" value={moneyMinor(calculation.originalGrossMinor)} /><PolicyMetric label="المتبقي النسبي" value={moneyMinor(calculation.proratedGrossMinor)} /><PolicyMetric label="رسوم الإلغاء" value={moneyMinor(calculation.feeMinor)} /><PolicyMetric label="الاسترداد المتوقع" value={moneyMinor(calculation.eligibleRefundMinor)} /></div>}
+    {immediate && <p className="mt-3 text-[11px] leading-5 text-muted-foreground">تقدير الاسترداد شامل ضريبة بقيمة {moneyMinor(calculation.estimatedTaxMinor)}. تُحسم القيمة النهائية عند اعتماد الطلب وتنفيذه على الدفعات الأصلية.</p>}
+    {preview.allowed === false && <p className="mt-3 text-xs font-bold text-red-600">{String(preview.blockingReason ?? "الإلغاء غير متاح وفق السياسة.")}</p>}
   </div>
 }
 
@@ -506,7 +534,7 @@ function MemberDisciplinaryDialog({ organizationId, record, onClose, onSaved }: 
   </div>
 }
 
-function RecordPreview({ columns, row, record, operationId, organizationId, statusIndex, onClose, onChanged }: { columns: string[]; row: string[]; record: ApiRecord; operationId: string; organizationId: string; statusIndex?: number; onClose: () => void; onChanged: () => void }) {
+function RecordPreview({ columns, row, record, operationId, organizationId, statusIndex, onFreeze, onCancel, onClose, onChanged }: { columns: string[]; row: string[]; record: ApiRecord; operationId: string; organizationId: string; statusIndex?: number; onFreeze: () => void; onCancel: () => void; onClose: () => void; onChanged: () => void }) {
   const context = useAppContext()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -581,31 +609,6 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
       ],
       body: values => ({ expectedVersion: version, startAt: new Date(values.startAt).toISOString(), reason: values.reason.trim() }),
     })
-    if (["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && !freezeSchedule) actions.push({
-      label: "تجميد الاشتراك",
-      permission: "subscriptions.freeze",
-      path: `/organizations/${organizationId}/subscriptions/${id}/freezes`,
-      description: `حدد مدة التجميد وسجّل السبب ليظهر في سجل الاشتراك. ${freezePolicy.message}`,
-      disabled: !freezePolicy.allowed,
-      disabledReason: freezePolicy.message,
-      fields: [
-        { name: "startMode", label: "موعد بدء التجميد", type: "select", initial: "NOW", required: true, options: [{ value: "NOW", label: "الآن" }, { value: "LATER", label: "في موعد لاحق" }] },
-        { name: "scheduledStartAt", label: "موعد البدء عند اختيار موعد لاحق", type: "datetime-local", initial: localDateTime(new Date(new Date().getTime() + 7 * 86_400_000)), hint: "يُتجاهل هذا الحقل عند اختيار البدء الآن." },
-        { name: "requestedDays", label: "عدد أيام التجميد", type: "number", initial: String(freezePolicy.recommendedDays), min: 1, max: freezePolicy.maxDaysPerFreeze || 1, required: true, hint: `الحد الأقصى ${freezePolicy.maxDaysPerFreeze} يوم، والمتبقي ${freezePolicy.remainingFreezes} من ${freezePolicy.maxFreezesPerTerm} مرات. أيام النشاط المحسوبة: ${freezePolicy.activeDays}.` },
-        { name: "reason", label: "سبب التجميد", type: "textarea", initial: "طلب العضو", required: true, placeholder: "اكتب سببًا واضحًا للتجميد" },
-      ],
-      body: values => ({ expectedVersion: version, requestedDays: Number(values.requestedDays), reason: values.reason.trim(), ...(values.startMode === "LATER" ? { scheduledStartAt: new Date(values.scheduledStartAt).toISOString() } : {}) }),
-    })
-    if (["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && freezeSchedule) actions.push({
-      label: "إلغاء موعد التجميد المجدول",
-      permission: "subscriptions.freeze",
-      danger: true,
-      path: `/organizations/${organizationId}/subscriptions/${id}/freeze-schedules/${String(freezeSchedule.id)}/cancellations`,
-      description: `التجميد مجدول ليبدأ في ${new Date(String(freezeSchedule.scheduledStartAt)).toLocaleString("ar-SA")} لمدة ${String(freezeSchedule.requestedDays)} يوم. إلغاء الجدولة لا يجمّد الاشتراك ولا يغيّر مدته الحالية.`,
-      fields: [{ name: "reason", label: "سبب إلغاء الجدولة", type: "textarea", initial: "طلب العضو إلغاء الجدولة", required: true }],
-      body: values => ({ expectedVersion: version, reason: values.reason.trim() }),
-    })
-    if (status === "FROZEN") actions.push({ label: "استئناف الاشتراك", permission: "subscriptions.freeze", path: `/organizations/${organizationId}/subscriptions/${id}/resumptions`, body: () => ({ expectedVersion: version }) })
     if (["ACTIVE", "FROZEN"].includes(status)) {
       actions.push({
         label: "تعديل مدة أو رصيد زيارات الاشتراك",
@@ -618,15 +621,6 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
           { name: "reason", label: "سبب التعديل", type: "textarea", required: true, placeholder: "مثال: تعويض عن توقف خدمة موثّق" },
         ],
         body: values => ({ expectedVersion: version, type: values.type, value: Number(values.value), reason: values.reason.trim() }),
-      })
-      actions.push({
-        label: "إلغاء الاشتراك",
-        permission: "subscriptions.cancel",
-        danger: true,
-        path: `/organizations/${organizationId}/subscriptions/${id}/cancellations`,
-        description: "سيتم تطبيق سياسة الإلغاء المرتبطة بالاشتراك وتسجيل السبب في سجل العضو.",
-        fields: [{ name: "reason", label: "سبب الإلغاء", type: "textarea", initial: "طلب العضو", required: true, placeholder: "اكتب سبب إلغاء الاشتراك" }],
-        body: values => ({ expectedVersion: version, reason: values.reason.trim() }),
       })
     }
   }
@@ -711,6 +705,10 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
   }
 
   const visibleActions = actions.filter(action => context.canAccess([action.permission]))
+  const showSubscriptionFreezeAction = operationId === "listSubscriptions" && Boolean(id) && context.canAccess(["subscriptions.freeze"]) && ["ACTIVE", "ACTIVE_PROVISIONAL", "FROZEN"].includes(status)
+  const subscriptionFreezeActionDisabled = ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && !freezeSchedule && !freezePolicy.allowed
+  const showSubscriptionCancelAction = operationId === "listSubscriptions" && Boolean(id) && context.canAccess(["subscriptions.cancel"]) && !["EXPIRED", "CANCELLED"].includes(status) && !record.cancellationRequest
+  const cancellationPolicy = capturedPolicyConfiguration(record, "CANCELLATION")
   function requestAction(action: RecordAction) {
     setError("")
     if (action.fields?.length || action.danger || action.requiresConfirmation) setPendingAction(action)
@@ -725,7 +723,11 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
         {error && !pendingAction && <p className="mt-4 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}
         {actionResult && <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"><p className="text-xs font-black text-emerald-600">تم إصدار بيانات التفعيل</p><p dir="ltr" className="mt-2 whitespace-pre-line text-left font-mono text-sm font-bold leading-7">{actionResult}</p><p className="mt-2 text-[10px] text-muted-foreground">لا يُحفظ الرمز بصورته الأصلية، لذلك انسخه الآن وسلّمه للعضو عبر قناة آمنة.</p></div>}
         {operationId === "listSubscriptions" && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <div role="status" className={`mt-5 rounded-2xl border p-4 text-xs ${freezePolicy.allowed ? "border-blue-500/25 bg-blue-500/5" : "border-amber-500/30 bg-amber-500/8"}`}><p className="font-black">سياسة التجميد المحفوظة مع الاشتراك</p><p className="mt-2 leading-6 text-muted-foreground">{freezePolicy.message} أيام النشاط المحسوبة: {freezePolicy.activeDays}، والحد الأدنى المطلوب: {freezePolicy.minimumActiveDaysBeforeFreeze}.</p></div>}
-        {visibleActions.length > 0 && <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">{visibleActions.map(action => <Button key={action.label} variant={action.danger ? "destructive" : "outline"} disabled={busy || action.disabled} title={action.disabledReason} onClick={() => requestAction(action)}>{action.label}</Button>)}</div>}
+        {(visibleActions.length > 0 || showSubscriptionFreezeAction || showSubscriptionCancelAction) && <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">
+          {showSubscriptionFreezeAction && <Button variant="outline" disabled={busy || subscriptionFreezeActionDisabled} title={subscriptionFreezeActionDisabled ? freezePolicy.message : undefined} onClick={onFreeze}>{freezeSchedule ? "إدارة موعد التجميد" : status === "FROZEN" ? "استئناف الاشتراك" : "تجميد الاشتراك"}</Button>}
+          {showSubscriptionCancelAction && <Button variant="destructive" disabled={busy || !cancellationPolicy} title={cancellationPolicy ? "إلغاء الاشتراك وفق سياسة الباقة" : "لا توجد سياسة إلغاء محفوظة مع الاشتراك"} onClick={onCancel}>إلغاء الاشتراك</Button>}
+          {visibleActions.map(action => <Button key={action.label} variant={action.danger ? "destructive" : "outline"} disabled={busy || action.disabled} title={action.disabledReason} onClick={() => requestAction(action)}>{action.label}</Button>)}
+        </div>}
         <Button className="mt-6 w-full" size="lg" onClick={onClose} disabled={busy}>إغلاق</Button>
       </section>
     </div>
