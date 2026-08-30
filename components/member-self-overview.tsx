@@ -6,10 +6,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { DateTimeInput } from "@/components/date-time-input"
 import { apiRequest } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { escapePrintHtml, openBrandedPrintWindow } from "@/lib/branded-print"
-import { subscriptionFreezePolicy } from "@/lib/subscription-freeze-policy"
+import { pendingFreezeSchedule, subscriptionFreezePolicy } from "@/lib/subscription-freeze-policy"
 
 type Member = { organizationId: string; memberId: string; registrationBranchId: string; memberName: string; memberNumber: string; canManageMembership?: boolean; canBook?: boolean }
 type Row = Record<string, unknown>
@@ -36,7 +37,10 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
   const [freezeRequest, setFreezeRequest] = useState<Row>()
   const [freezeDays, setFreezeDays] = useState("7")
   const [freezeReason, setFreezeReason] = useState("")
-  const selectedFreezePolicy = freezeRequest ? subscriptionFreezePolicy(freezeRequest) : undefined
+  const [freezeMode, setFreezeMode] = useState<"NOW" | "LATER">("NOW")
+  const [freezeStartAt, setFreezeStartAt] = useState(localDateTime(new Date(new Date().getTime() + 7 * 86_400_000)))
+  const selectedPendingSchedule = freezeRequest ? pendingFreezeSchedule(freezeRequest) : undefined
+  const selectedFreezePolicy = freezeRequest ? subscriptionFreezePolicy({ ...freezeRequest, freezeSchedules: selectedPendingSchedule ? [] : freezeRequest.freezeSchedules }, freezeMode === "LATER" ? new Date(freezeStartAt) : new Date()) : undefined
 
   async function load() {
     setLoading(true); setError("")
@@ -49,14 +53,23 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
 
   useEffect(() => { const frame = requestAnimationFrame(() => void load()); return () => cancelAnimationFrame(frame) }, [active, member.memberId, member.organizationId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function subscriptionAction(row: Row, action: "freezes" | "resumptions" | "cancellations", actionReason?: string, requestedDays?: number) {
+  async function subscriptionAction(row: Row, action: "freezes" | "resumptions" | "cancellations", actionReason?: string, requestedDays?: number, scheduledStartAt?: string) {
     const id = String(row.id ?? row.subscriptionId ?? ""); if (!id) return false
     let body: Record<string, unknown> = { expectedVersion: Number(row.version ?? 1) }
-    if (action === "freezes") { if (!requestedDays || requestedDays < 1 || !actionReason || actionReason.trim().length < 3) return false; body = { ...body, requestedDays, reason: actionReason.trim() } }
+    if (action === "freezes") { if (!requestedDays || requestedDays < 1 || !actionReason || actionReason.trim().length < 3) return false; body = { ...body, requestedDays, reason: actionReason.trim(), ...(scheduledStartAt ? { scheduledStartAt } : {}) } }
     if (action === "cancellations") { if (!actionReason || actionReason.trim().length < 3) return false; body = { ...body, reason: actionReason.trim() } }
     setBusy(id)
     try { await apiRequest(`/self/organizations/${member.organizationId}/members/${member.memberId}/subscriptions/${id}/${action}`, { method: "POST", body: JSON.stringify(body) }); await load(); return true }
     catch (reason) { setError(humanError(reason, "تعذر تحديث الاشتراك.")); return false }
+    finally { setBusy("") }
+  }
+
+  async function cancelFreezeSchedule(row: Row, schedule: Row, cancellationReason: string) {
+    const id = String(row.id ?? row.subscriptionId ?? ""); const scheduleId = String(schedule.id ?? "")
+    if (!id || !scheduleId || cancellationReason.trim().length < 3) return false
+    setBusy(id)
+    try { await apiRequest(`/self/organizations/${member.organizationId}/members/${member.memberId}/subscriptions/${id}/freeze-schedules/${scheduleId}/cancellations`, { method: "POST", body: JSON.stringify({ expectedVersion: Number(row.version ?? 1), reason: cancellationReason.trim() }) }); await load(); return true }
+    catch (cause) { setError(humanError(cause, "تعذر إلغاء موعد التجميد.")); return false }
     finally { setBusy("") }
   }
 
@@ -79,23 +92,34 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
 
   async function confirmFreeze() {
     if (!freezeRequest) return
-    const policy = subscriptionFreezePolicy(freezeRequest)
+    if (selectedPendingSchedule) {
+      if (freezeReason.trim().length < 3) return
+      const succeeded = await cancelFreezeSchedule(freezeRequest, selectedPendingSchedule, freezeReason)
+      if (succeeded) { setFreezeRequest(undefined); setFreezeReason("") }
+      return
+    }
+    const policy = subscriptionFreezePolicy(freezeRequest, freezeMode === "LATER" ? new Date(freezeStartAt) : new Date())
     const days = Number(freezeDays)
     if (!policy.allowed || !Number.isInteger(days) || days < 1 || days > policy.maxDaysPerFreeze || freezeReason.trim().length < 3) return
-    const succeeded = await subscriptionAction(freezeRequest, "freezes", freezeReason, days)
-    if (succeeded) { setFreezeRequest(undefined); setFreezeDays("7"); setFreezeReason("") }
+    const scheduled = freezeMode === "LATER" ? new Date(freezeStartAt) : undefined
+    if (scheduled && (!Number.isFinite(scheduled.getTime()) || scheduled <= new Date() || scheduled >= new Date(String(freezeRequest.termEnd ?? "")))) return
+    const succeeded = await subscriptionAction(freezeRequest, "freezes", freezeReason, days, scheduled?.toISOString())
+    if (succeeded) { setFreezeRequest(undefined); setFreezeDays("7"); setFreezeReason(""); setFreezeMode("NOW") }
   }
 
   return <>
     <Card className="mt-5 overflow-hidden border-primary/15"><CardContent className="p-0">{showMemberHeader && <div className="bg-gradient-to-l from-primary/[.10] to-transparent p-5"><div className="flex flex-wrap items-center gap-3"><div><p className="text-xs font-bold text-primary">بوابة العضو</p><h2 className="mt-1 text-xl font-black">{member.memberName}</h2><p className="mt-1 text-xs text-muted-foreground">رقم العضوية: {member.memberNumber}</p></div><Button className="mr-auto" variant="outline" size="sm" onClick={() => void load()}><RefreshCw />تحديث البيانات</Button></div></div>}<div className="p-5"><div className="flex flex-wrap items-center gap-3"><nav className="flex gap-2 overflow-x-auto pb-2" aria-label="أقسام حساب العضو">{visibleTabs.map(tab => <Button key={tab.key} variant={active === tab.key ? "default" : "outline"} size="sm" className="shrink-0" onClick={() => setActive(tab.key)}><tab.icon />{tab.label}</Button>)}</nav>{!showMemberHeader && <Button className="mr-auto" variant="outline" size="sm" onClick={() => void load()}><RefreshCw />تحديث</Button>}</div>{error && <p role="alert" className="mt-3 rounded-xl bg-red-500/10 p-3 text-xs text-red-600">{error}</p>}{loading ? <div className="grid min-h-40 place-items-center"><Loader2 className="animate-spin text-primary" /></div> : <div className="mt-4 space-y-3">{rows.map((row, index) => <article key={String(row.id ?? index)} className="rounded-2xl border bg-secondary/20 p-4"><div className="flex flex-wrap items-start gap-3"><div className="min-w-0"><p className="text-sm font-black">{title(row, active, index)}</p><p className="mt-2 text-xs leading-6 text-muted-foreground">{summary(row, active)}</p>{lineNames(row).length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{lineNames(row).map((name, lineIndex) => <span key={`${name}-${lineIndex}`} className="rounded-lg bg-background px-2 py-1 text-[11px]">{name}</span>)}</div>}{active === "subscriptions" && <FreezeHistory row={row} />}</div><div className="mr-auto flex gap-2">{active === "subscriptions" && member.canManageMembership && <SubscriptionButtons row={row} busy={busy === String(row.id)} onAction={value => {
                 if (value === "cancellations") { setCancellation({ row, kind: "subscription" }); setReason(""); return }
-                if (value === "freezes") { const policy = subscriptionFreezePolicy(row); setFreezeRequest(row); setFreezeDays(String(policy.recommendedDays)); setFreezeReason(""); return }
+                if (value === "freezes") { const policy = subscriptionFreezePolicy(row); const scheduled = pendingFreezeSchedule(row); setFreezeRequest(row); setFreezeDays(String(policy.recommendedDays)); setFreezeReason(scheduled ? "طلب العضو إلغاء الجدولة" : ""); setFreezeMode("NOW"); return }
                 void subscriptionAction(row, value)
               }} />}{active === "invoices" && <Button size="sm" variant="outline" onClick={() => printInvoice(row, member)}><Printer />طباعة</Button>}{active === "reservations" && member.canBook && !["CANCELLED", "COMPLETED", "NO_SHOW"].includes(String(row.status)) && <Button size="sm" variant="destructive" disabled={busy === String(row.id)} onClick={() => { setCancellation({ row, kind: "reservation" }); setReason("") }}>إلغاء الحجز</Button>}</div></div></article>)}{!rows.length && <div className="rounded-2xl border border-dashed py-10 text-center"><p className="text-sm font-bold">لا توجد بيانات في هذا القسم بعد</p><p className="mt-1 text-xs text-muted-foreground">ستظهر هنا تلقائيًا فور تنفيذ العملية المرتبطة.</p></div>}</div>}</div></CardContent></Card>
-    {freezeRequest && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="freeze-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setFreezeRequest(undefined) }}>
-      <div className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl">
-        <div className="flex items-start gap-4"><div><p className="text-xs font-bold text-primary">وفق سياسة الباقة</p><h3 id="freeze-title" className="mt-1 text-xl font-black">تجميد الاشتراك</h3></div><Button className="mr-auto" size="icon" variant="ghost" aria-label="إغلاق" disabled={Boolean(busy)} onClick={() => setFreezeRequest(undefined)}><X /></Button></div>
-        <p className="mt-3 text-sm leading-7 text-muted-foreground">حدّد المدة المناسبة. سيتحقق النظام تلقائيًا من الحد الأقصى للمدة وعدد مرات التجميد والمدة الدنيا التي يجب أن يكون فيها الاشتراك نشطًا.</p>
+    {freezeRequest && <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="freeze-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setFreezeRequest(undefined) }}>
+      <div className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border bg-card p-6 shadow-2xl">
+        <div className="flex items-start gap-4"><div><p className="text-xs font-bold text-primary">وفق سياسة الباقة</p><h3 id="freeze-title" className="mt-1 text-xl font-black">{selectedPendingSchedule ? "إدارة التجميد المجدول" : "تجميد الاشتراك"}</h3></div><Button className="mr-auto" size="icon" variant="ghost" aria-label="إغلاق" disabled={Boolean(busy)} onClick={() => setFreezeRequest(undefined)}><X /></Button></div>
+        <p className="mt-3 text-sm leading-7 text-muted-foreground">{selectedPendingSchedule ? "راجع موعد التجميد القادم أو ألغِه قبل حلول وقت البدء." : "يمكنك بدء التجميد الآن أو تحديد موعد لاحق، وسيتحقق النظام من سياسة الباقة عند الجدولة وعند التنفيذ."}</p>
+        {selectedPendingSchedule ? <div className="mt-4 rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 text-sm"><p className="font-black">موعد التجميد القادم</p><p className="mt-2 text-muted-foreground">{formatDate(selectedPendingSchedule.scheduledStartAt)} · لمدة {String(selectedPendingSchedule.requestedDays)} يوم</p><p className="mt-1 text-muted-foreground">{String(selectedPendingSchedule.reason ?? "دون سبب مسجل")}</p></div> : <>
+        <fieldset className="mt-4"><legend className="text-sm font-bold">موعد البدء</legend><div className="mt-2 grid grid-cols-2 gap-2"><Button type="button" variant={freezeMode === "NOW" ? "default" : "outline"} onClick={() => setFreezeMode("NOW")}>الآن</Button><Button type="button" variant={freezeMode === "LATER" ? "default" : "outline"} onClick={() => setFreezeMode("LATER")}>موعد لاحق</Button></div></fieldset>
+        {freezeMode === "LATER" && <div className="mt-4"><label className="block text-sm font-bold" htmlFor="freeze-start-at">تاريخ ووقت بدء التجميد</label><DateTimeInput id="freeze-start-at" className="mt-2" type="datetime-local" min={localDateTime(new Date(new Date().getTime() + 60_000))} max={localDateTime(new Date(String(freezeRequest.termEnd ?? "")))} value={freezeStartAt} onChange={event => setFreezeStartAt(event.target.value)} /></div>}
         {selectedFreezePolicy && <div className={`mt-4 rounded-2xl border p-4 text-xs ${selectedFreezePolicy.allowed ? "border-blue-500/25 bg-blue-500/5" : "border-amber-500/30 bg-amber-500/8"}`}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <FreezeMetric label="أقصى مدة" value={`${selectedFreezePolicy.maxDaysPerFreeze} يوم`} />
@@ -109,7 +133,9 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
           <div><label className="block text-sm font-bold" htmlFor="freeze-days">عدد أيام التجميد</label><Input id="freeze-days" className="mt-2" type="number" min={1} max={selectedFreezePolicy?.maxDaysPerFreeze || 1} inputMode="numeric" value={freezeDays} onChange={event => setFreezeDays(event.target.value)} autoFocus /></div>
           <div><label className="block text-sm font-bold" htmlFor="freeze-reason">سبب التجميد</label><Input id="freeze-reason" className="mt-2" value={freezeReason} onChange={event => setFreezeReason(event.target.value)} placeholder="مثال: سفر أو ظرف صحي" /></div>
         </div>
-        <div className="mt-6 flex flex-wrap gap-2"><Button disabled={Boolean(busy) || !selectedFreezePolicy?.allowed || !Number.isInteger(Number(freezeDays)) || Number(freezeDays) < 1 || Number(freezeDays) > selectedFreezePolicy.maxDaysPerFreeze || freezeReason.trim().length < 3} onClick={() => void confirmFreeze()}>{busy && <Loader2 className="animate-spin" />}تأكيد التجميد</Button><Button variant="outline" disabled={Boolean(busy)} onClick={() => setFreezeRequest(undefined)}>رجوع</Button></div>
+        </>}
+        {selectedPendingSchedule && <div className="mt-5"><label className="block text-sm font-bold" htmlFor="freeze-reason">سبب إلغاء الجدولة</label><Input id="freeze-reason" className="mt-2" value={freezeReason} onChange={event => setFreezeReason(event.target.value)} /></div>}
+        <div className="mt-6 flex flex-wrap gap-2"><Button variant={selectedPendingSchedule ? "destructive" : "default"} disabled={Boolean(busy) || Boolean(selectedPendingSchedule ? freezeReason.trim().length < 3 : !selectedFreezePolicy?.allowed || !Number.isInteger(Number(freezeDays)) || Number(freezeDays) < 1 || Number(freezeDays) > (selectedFreezePolicy?.maxDaysPerFreeze ?? 0) || freezeReason.trim().length < 3)} onClick={() => void confirmFreeze()}>{busy && <Loader2 className="animate-spin" />}{selectedPendingSchedule ? "إلغاء موعد التجميد" : freezeMode === "LATER" ? "حفظ الجدولة" : "تأكيد التجميد الآن"}</Button><Button variant="outline" disabled={Boolean(busy)} onClick={() => setFreezeRequest(undefined)}>رجوع</Button></div>
       </div>
     </div>}
     {cancellation && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="cancellation-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setCancellation(undefined) }}>
@@ -131,9 +157,9 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
   </>
 }
 
-function SubscriptionButtons({ row, busy, onAction }: { row: Row; busy: boolean; onAction: (value: "freezes" | "resumptions" | "cancellations") => void }) { const value = String(row.status ?? ""); const cancellationPending = Boolean(row.cancellationRequest); const freezePolicy = subscriptionFreezePolicy(row); return <>{cancellationPending && <Badge variant="warning">الإلغاء مجدول</Badge>}{["ACTIVE", "ACTIVE_PROVISIONAL"].includes(value) && !cancellationPending && <><Button size="sm" variant="outline" disabled={busy || !freezePolicy.allowed} title={freezePolicy.message} onClick={() => onAction("freezes")}>تجميد العضوية</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => onAction("cancellations")}>طلب إلغاء</Button></>}{value === "FROZEN" && !cancellationPending && <Button size="sm" disabled={busy} onClick={() => onAction("resumptions")}>استئناف</Button>}</> }
+function SubscriptionButtons({ row, busy, onAction }: { row: Row; busy: boolean; onAction: (value: "freezes" | "resumptions" | "cancellations") => void }) { const value = String(row.status ?? ""); const cancellationPending = Boolean(row.cancellationRequest); const freezePolicy = subscriptionFreezePolicy(row); const scheduled = pendingFreezeSchedule(row); return <>{cancellationPending && <Badge variant="warning">الإلغاء مجدول</Badge>}{scheduled && <Badge variant="warning">التجميد مجدول</Badge>}{["ACTIVE", "ACTIVE_PROVISIONAL"].includes(value) && !cancellationPending && <><Button size="sm" variant="outline" disabled={busy || (!freezePolicy.allowed && !scheduled)} title={freezePolicy.message} onClick={() => onAction("freezes")}>{scheduled ? "إدارة موعد التجميد" : "تجميد العضوية"}</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => onAction("cancellations")}>طلب إلغاء</Button></>}{value === "FROZEN" && !cancellationPending && <Button size="sm" disabled={busy} onClick={() => onAction("resumptions")}>استئناف</Button>}</> }
 function FreezeMetric({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-background/70 p-2"><span className="block text-[10px] text-muted-foreground">{label}</span><strong className="mt-1 block">{value}</strong></div> }
-function FreezeHistory({ row }: { row: Row }) { const periods = Array.isArray(row.freezePeriods) ? row.freezePeriods as Row[] : []; if (!periods.length) return null; return <div className="mt-3 rounded-xl border bg-background/60 p-3"><p className="text-xs font-black">سجل التجميدات</p><div className="mt-2 space-y-1.5">{periods.map((period, index) => <p key={String(period.id ?? index)} className="text-[11px] leading-5 text-muted-foreground">{dateOnly(period.startedAt)} — {period.resumedAt ? `استؤنف في ${dateOnly(period.resumedAt)}` : `مجمّد حتى ${dateOnly(period.plannedEndAt)}`} · {String(period.reason ?? "دون سبب مسجل")}</p>)}</div></div> }
+function FreezeHistory({ row }: { row: Row }) { const periods = Array.isArray(row.freezePeriods) ? row.freezePeriods as Row[] : []; const scheduled = pendingFreezeSchedule(row); if (!periods.length && !scheduled) return null; return <div className="mt-3 rounded-xl border bg-background/60 p-3"><p className="text-xs font-black">التجميد</p>{scheduled && <p className="mt-2 rounded-lg bg-blue-500/10 p-2 text-[11px] leading-5 text-blue-700 dark:text-blue-300">مجدول ليبدأ في {formatDate(scheduled.scheduledStartAt)} لمدة {String(scheduled.requestedDays)} يوم · {String(scheduled.reason ?? "دون سبب مسجل")}</p>}<div className="mt-2 space-y-1.5">{periods.map((period, index) => <p key={String(period.id ?? index)} className="text-[11px] leading-5 text-muted-foreground">{dateOnly(period.startedAt)} — {period.resumedAt ? `استؤنف في ${dateOnly(period.resumedAt)}` : `مجمّد حتى ${dateOnly(period.plannedEndAt)}`} · {String(period.reason ?? "دون سبب مسجل")}</p>)}</div></div> }
 function list(value: unknown): Row[] { if (Array.isArray(value)) return value as Row[]; if (value && typeof value === "object" && Array.isArray((value as { items?: unknown[] }).items)) return (value as { items: Row[] }).items; return [] }
 function title(row: Row, active: string, index: number) {
   const names = lineNames(row)
@@ -161,5 +187,6 @@ function printInvoice(row: Row, member: Member) { const lines = lineNames(row); 
 function money(value: unknown) { return new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR" }).format((Number(value) || 0) / 100) }
 function formatDate(value: unknown) { const date = new Date(String(value)); return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(date) }
 function dateOnly(value: unknown) { const date = new Date(String(value)); return Number.isNaN(date.getTime()) ? "تاريخ غير متاح" : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeZone: "Asia/Riyadh" }).format(date) }
+function localDateTime(value: Date) { if (Number.isNaN(value.getTime())) return ""; const offset = value.getTimezoneOffset() * 60_000; return new Date(value.getTime() - offset).toISOString().slice(0, 16) }
 function join(values: unknown[]) { return values.filter(value => value !== undefined && value !== null && value !== "").map(String).join(" · ") }
 function status(value: unknown) { return ({ ACTIVE: "نشط", ACTIVE_PROVISIONAL: "نشط مؤقتًا", FROZEN: "مجمّد", EXPIRED: "منتهي", CANCELLED: "ملغى", PENDING_PAYMENT: "بانتظار السداد", PAID: "مدفوع", FULFILLED: "مكتمل", PENDING: "بانتظار السداد", CONFIRMED: "تم التأكيد ووصل للتشغيل", PREPARING: "قيد التحضير", READY: "جاهز للاستلام", COMPLETED: "مكتمل", NO_SHOW: "لم يحضر", ISSUED: "بانتظار السداد", PARTIALLY_PAID: "مدفوعة جزئيًا", ACCEPTED: "دخول مسموح", REJECTED: "دخول مرفوض", DRAFT: "مسودة", OPEN: "مفتوح", CLOSED: "مغلق", SKIPPED: "تم التخطي" } as Record<string, string>)[String(value)] ?? "حالة غير متاحة" }

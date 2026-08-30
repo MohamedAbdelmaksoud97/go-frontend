@@ -18,7 +18,7 @@ import { ActionDialog } from "@/components/action-dialog"
 import { operationPermissions } from "@/lib/permissions"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy"
 import { useToast } from "@/components/toast-provider"
-import { subscriptionFreezePolicy } from "@/lib/subscription-freeze-policy"
+import { pendingFreezeSchedule, subscriptionFreezePolicy } from "@/lib/subscription-freeze-policy"
 
 type BranchLookup = { id: string; nameAr?: string; name?: string }
 type ApiRecord = Record<string, unknown>
@@ -192,7 +192,7 @@ function SubscriptionQuickActions({
   const canCancel = canAccess(["subscriptions.cancel"]) && !["EXPIRED", "CANCELLED"].includes(status) && !record.cancellationRequest
 
   return <div className="flex items-center justify-center gap-1" aria-label="الإجراءات السريعة للاشتراك">
-    {canFreeze && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <Button variant="ghost" size="icon-sm" className="text-blue-600" disabled={!freezeWindow.allowed} title={freezeWindow.message} aria-label="تجميد هذا الاشتراك" onClick={onFreeze}><Snowflake /></Button>}
+    {canFreeze && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <Button variant="ghost" size="icon-sm" className="text-blue-600" disabled={!freezeWindow.allowed && !freezeWindow.pendingSchedule} title={freezeWindow.message} aria-label={freezeWindow.pendingSchedule ? "إدارة التجميد المجدول" : "تجميد هذا الاشتراك"} onClick={onFreeze}><Snowflake /></Button>}
     {canFreeze && status === "FROZEN" && <Button variant="ghost" size="icon-sm" className="text-emerald-600" title="استئناف هذا الاشتراك" aria-label="استئناف هذا الاشتراك" onClick={onFreeze}><Play /></Button>}
     {canRenew && <Button variant="ghost" size="icon-sm" className="text-emerald-600" disabled={!renewalWindow.allowed} title={renewalWindow.message} aria-label="تجديد هذا الاشتراك وفق سياسة الباقة" onClick={onRenew}><RefreshCw /></Button>}
     {canCancel && <Button variant="ghost" size="icon-sm" className="text-red-600" disabled={!cancellation} title={cancellation ? "إلغاء هذا الاشتراك وفق سياسة الباقة" : "لا توجد سياسة إلغاء محفوظة مع الاشتراك"} aria-label="إلغاء هذا الاشتراك وفق سياسة الباقة" onClick={onCancel}><CircleX /></Button>}
@@ -238,12 +238,16 @@ function SubscriptionFreezeDialog({
 }) {
   const toast = useToast()
   const frozen = String(record.status ?? "").toUpperCase() === "FROZEN"
+  const pendingSchedule = pendingFreezeSchedule(record)
   const subscriptionId = String(record.id ?? record.subscriptionId ?? "")
   const subscriptionName = String(record.packageNameAr ?? record.packageName ?? record.subscriptionNumber ?? "الاشتراك")
   const subscriptionNumber = String(record.subscriptionNumber ?? "")
-  const freezePolicy = subscriptionFreezePolicy(record)
+  const [scheduleMode, setScheduleMode] = useState<"NOW" | "LATER">("NOW")
+  const [scheduledStartAt, setScheduledStartAt] = useState(localDateTime(new Date(new Date().getTime() + 7 * 86_400_000)))
+  const policyAt = scheduleMode === "LATER" ? new Date(scheduledStartAt) : new Date()
+  const freezePolicy = subscriptionFreezePolicy({ ...record, freezeSchedules: pendingSchedule ? [] : record.freezeSchedules }, policyAt)
   const [requestedDays, setRequestedDays] = useState(String(freezePolicy.recommendedDays))
-  const [reason, setReason] = useState("طلب العضو")
+  const [reason, setReason] = useState(pendingSchedule ? "طلب العضو إلغاء الجدولة" : "طلب العضو")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
@@ -254,36 +258,57 @@ function SubscriptionFreezeDialog({
       setError("تعذر تحديد الاشتراك. حدّث الصفحة وحاول مجددًا.")
       return
     }
-    if (!frozen && !freezePolicy.allowed) {
+    if (pendingSchedule && reason.trim().length < 3) {
+      setError("اكتب سببًا واضحًا لإلغاء الجدولة.")
+      return
+    }
+    if (!frozen && !pendingSchedule && !freezePolicy.allowed) {
       setError(freezePolicy.message)
       return
     }
-    if (!frozen && (!Number.isInteger(days) || days < 1)) {
+    if (!frozen && !pendingSchedule && scheduleMode === "LATER" && (!Number.isFinite(policyAt.getTime()) || policyAt <= new Date())) {
+      setError("اختر موعدًا صحيحًا في المستقبل لبدء التجميد.")
+      return
+    }
+    if (!frozen && !pendingSchedule && scheduleMode === "LATER" && policyAt >= new Date(String(record.termEnd ?? ""))) {
+      setError("يجب أن يبدأ التجميد قبل نهاية مدة الاشتراك.")
+      return
+    }
+    if (!frozen && !pendingSchedule && (!Number.isInteger(days) || days < 1)) {
       setError("أدخل عدد أيام صحيحًا يبدأ من يوم واحد.")
       return
     }
-    if (!frozen && days > freezePolicy.maxDaysPerFreeze) {
+    if (!frozen && !pendingSchedule && days > freezePolicy.maxDaysPerFreeze) {
       setError(`الحد الأقصى المسموح في هذه السياسة هو ${freezePolicy.maxDaysPerFreeze} يوم.`)
       return
     }
-    if (!frozen && reason.trim().length < 3) {
+    if (!frozen && !pendingSchedule && reason.trim().length < 3) {
       setError("اكتب سببًا واضحًا لطلب التجميد.")
       return
     }
     setSaving(true)
     setError("")
     try {
+      if (pendingSchedule) {
+        await apiRequest(`/organizations/${organizationId}/subscriptions/${subscriptionId}/freeze-schedules/${String(pendingSchedule.id)}/cancellations`, {
+          method: "POST",
+          body: JSON.stringify({ expectedVersion: Number(record.version ?? 1), reason: reason.trim() }),
+        })
+        toast.success("تم إلغاء موعد التجميد، ولن يتغير وضع الاشتراك في الموعد السابق.")
+        onSaved()
+        return
+      }
       const suffix = frozen ? "resumptions" : "freezes"
       await apiRequest(`/organizations/${organizationId}/subscriptions/${subscriptionId}/${suffix}`, {
         method: "POST",
         body: JSON.stringify(frozen
           ? { expectedVersion: Number(record.version ?? 1) }
-          : { expectedVersion: Number(record.version ?? 1), requestedDays: days, reason: reason.trim() }),
+          : { expectedVersion: Number(record.version ?? 1), requestedDays: days, reason: reason.trim(), ...(scheduleMode === "LATER" ? { scheduledStartAt: policyAt.toISOString() } : {}) }),
       })
-      toast.success(frozen ? "تم استئناف هذا الاشتراك." : "تم تجميد هذا الاشتراك وفق سياسة الباقة.")
+      toast.success(frozen ? "تم استئناف هذا الاشتراك." : scheduleMode === "LATER" ? "تمت جدولة التجميد وسيبدأ تلقائيًا في الموعد المحدد." : "تم تجميد هذا الاشتراك وفق سياسة الباقة.")
       onSaved()
-    } catch (reason) {
-      setError(humanError(reason, frozen ? "تعذر استئناف هذا الاشتراك." : "تعذر تجميد هذا الاشتراك وفق سياسة الباقة."))
+    } catch (cause) {
+      setError(humanError(cause, pendingSchedule ? "تعذر إلغاء موعد التجميد." : frozen ? "تعذر استئناف هذا الاشتراك." : "تعذر حفظ طلب التجميد وفق سياسة الباقة."))
     } finally {
       setSaving(false)
     }
@@ -295,17 +320,31 @@ function SubscriptionFreezeDialog({
       <div className="flex items-start gap-4">
         <span className={`grid size-12 place-items-center rounded-2xl ${frozen ? "bg-emerald-500/10 text-emerald-600" : "bg-blue-500/10 text-blue-600"}`}>{frozen ? <Play /> : <Snowflake />}</span>
         <div>
-          <h2 id="subscription-freeze-title" className="text-xl font-black">{frozen ? "استئناف الاشتراك" : "تجميد اشتراك محدد"}</h2>
+          <h2 id="subscription-freeze-title" className="text-xl font-black">{pendingSchedule ? "إدارة التجميد المجدول" : frozen ? "استئناف الاشتراك" : "تجميد اشتراك محدد"}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{subscriptionName}{subscriptionNumber ? ` · ${subscriptionNumber}` : ""}</p>
         </div>
         <Button type="button" variant="ghost" size="icon" className="mr-auto" disabled={saving} onClick={onClose} aria-label="إغلاق"><X /></Button>
       </div>
 
-      <p className="mt-5 rounded-2xl bg-secondary/60 p-4 text-xs leading-6">{frozen
+      <p className="mt-5 rounded-2xl bg-secondary/60 p-4 text-xs leading-6">{pendingSchedule
+        ? "هذا الاشتراك لديه تجميد مجدول. يمكنك مراجعة الموعد وإلغاء الجدولة قبل حلول وقت البدء."
+        : frozen
         ? "سيتم استئناف هذا الاشتراك فقط، دون التأثير على أي اشتراكات أخرى يملكها العضو."
-        : "هذا الإجراء يخص هذا الاشتراك فقط. سيطبق النظام سياسة تجميد الباقة تلقائيًا، بما فيها الحد الأقصى للأيام وعدد مرات التجميد وأي شروط أخرى مسجلة."}</p>
+        : "اختر بدء التجميد الآن أو جدولته لموعد لاحق. سيطبق النظام سياسة الباقة تلقائيًا عند الحفظ وعند حلول الموعد."}</p>
 
-      {!frozen && <>
+      {pendingSchedule ? <>
+        <div className="mt-5 rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 text-sm">
+          <p className="font-black">موعد بدء التجميد</p>
+          <p className="mt-2 text-muted-foreground">{new Date(String(pendingSchedule.scheduledStartAt)).toLocaleString("ar-SA")} · لمدة {String(pendingSchedule.requestedDays)} يوم</p>
+          <p className="mt-1 text-muted-foreground">السبب: {String(pendingSchedule.reason ?? "غير مسجل")}</p>
+        </div>
+        <label className="mt-4 block text-xs font-bold">سبب إلغاء الجدولة<span className="mr-1 text-red-500">*</span><textarea value={reason} onChange={event => setReason(event.target.value)} rows={3} className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>
+      </> : !frozen && <>
+        <fieldset className="mt-5"><legend className="text-xs font-bold">موعد بدء التجميد</legend><div className="mt-2 grid grid-cols-2 gap-2">
+          <Button type="button" variant={scheduleMode === "NOW" ? "default" : "outline"} onClick={() => setScheduleMode("NOW")}>ابدأ الآن</Button>
+          <Button type="button" variant={scheduleMode === "LATER" ? "default" : "outline"} onClick={() => setScheduleMode("LATER")}>جدولة لموعد لاحق</Button>
+        </div></fieldset>
+        {scheduleMode === "LATER" && <label className="mt-4 block text-xs font-bold">تاريخ ووقت البدء<span className="mr-1 text-red-500">*</span><DateTimeInput type="datetime-local" min={localDateTime(new Date(new Date().getTime() + 60_000))} max={localDateTime(new Date(String(record.termEnd ?? "")))} value={scheduledStartAt} onChange={event => setScheduledStartAt(event.target.value)} className="mt-2" /></label>}
         <div className={`mt-5 rounded-2xl border p-4 text-xs ${freezePolicy.allowed ? "border-blue-500/25 bg-blue-500/5" : "border-amber-500/30 bg-amber-500/8"}`}>
           <p className="font-black">حدود سياسة التجميد المحفوظة مع الاشتراك</p>
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -323,8 +362,8 @@ function SubscriptionFreezeDialog({
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
       </div>
       <div className="flex shrink-0 gap-2 border-t bg-card px-6 py-4 shadow-[0_-12px_24px_-24px_rgba(0,0,0,0.8)]">
-        <Button type="button" variant="outline" disabled={saving} onClick={onClose}>إلغاء</Button>
-        <Button type="submit" className="mr-auto" disabled={saving || (!frozen && (!freezePolicy.allowed || Number(requestedDays) > freezePolicy.maxDaysPerFreeze))}>{saving ? "جارٍ الحفظ..." : frozen ? "استئناف الاشتراك" : "تأكيد التجميد"}</Button>
+        <Button type="button" variant="outline" disabled={saving} onClick={onClose}>رجوع</Button>
+        <Button type="submit" className="mr-auto" variant={pendingSchedule ? "destructive" : "default"} disabled={saving || Boolean(pendingSchedule && reason.trim().length < 3) || (!pendingSchedule && !frozen && (!freezePolicy.allowed || Number(requestedDays) > freezePolicy.maxDaysPerFreeze))}>{saving ? "جارٍ الحفظ..." : pendingSchedule ? "إلغاء موعد التجميد" : frozen ? "استئناف الاشتراك" : scheduleMode === "LATER" ? "حفظ الجدولة" : "تأكيد التجميد الآن"}</Button>
       </div>
     </form>
   </div>
@@ -465,6 +504,7 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
   const id = String(record.id ?? record.subscriptionId ?? record.reservationId ?? "")
   const version = Number(record.version ?? 1)
   const freezePolicy = subscriptionFreezePolicy(record)
+  const freezeSchedule = pendingFreezeSchedule(record)
   const actions: RecordAction[] = []
 
   useEffect(() => {
@@ -528,7 +568,7 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
       ],
       body: values => ({ expectedVersion: version, startAt: new Date(values.startAt).toISOString(), reason: values.reason.trim() }),
     })
-    if (["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status)) actions.push({
+    if (["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && !freezeSchedule) actions.push({
       label: "تجميد الاشتراك",
       permission: "subscriptions.freeze",
       path: `/organizations/${organizationId}/subscriptions/${id}/freezes`,
@@ -536,10 +576,21 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
       disabled: !freezePolicy.allowed,
       disabledReason: freezePolicy.message,
       fields: [
+        { name: "startMode", label: "موعد بدء التجميد", type: "select", initial: "NOW", required: true, options: [{ value: "NOW", label: "الآن" }, { value: "LATER", label: "في موعد لاحق" }] },
+        { name: "scheduledStartAt", label: "موعد البدء عند اختيار موعد لاحق", type: "datetime-local", initial: localDateTime(new Date(new Date().getTime() + 7 * 86_400_000)), hint: "يُتجاهل هذا الحقل عند اختيار البدء الآن." },
         { name: "requestedDays", label: "عدد أيام التجميد", type: "number", initial: String(freezePolicy.recommendedDays), min: 1, max: freezePolicy.maxDaysPerFreeze || 1, required: true, hint: `الحد الأقصى ${freezePolicy.maxDaysPerFreeze} يوم، والمتبقي ${freezePolicy.remainingFreezes} من ${freezePolicy.maxFreezesPerTerm} مرات. أيام النشاط المحسوبة: ${freezePolicy.activeDays}.` },
         { name: "reason", label: "سبب التجميد", type: "textarea", initial: "طلب العضو", required: true, placeholder: "اكتب سببًا واضحًا للتجميد" },
       ],
-      body: values => ({ expectedVersion: version, requestedDays: Number(values.requestedDays), reason: values.reason.trim() }),
+      body: values => ({ expectedVersion: version, requestedDays: Number(values.requestedDays), reason: values.reason.trim(), ...(values.startMode === "LATER" ? { scheduledStartAt: new Date(values.scheduledStartAt).toISOString() } : {}) }),
+    })
+    if (["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && freezeSchedule) actions.push({
+      label: "إلغاء موعد التجميد المجدول",
+      permission: "subscriptions.freeze",
+      danger: true,
+      path: `/organizations/${organizationId}/subscriptions/${id}/freeze-schedules/${String(freezeSchedule.id)}/cancellations`,
+      description: `التجميد مجدول ليبدأ في ${new Date(String(freezeSchedule.scheduledStartAt)).toLocaleString("ar-SA")} لمدة ${String(freezeSchedule.requestedDays)} يوم. إلغاء الجدولة لا يجمّد الاشتراك ولا يغيّر مدته الحالية.`,
+      fields: [{ name: "reason", label: "سبب إلغاء الجدولة", type: "textarea", initial: "طلب العضو إلغاء الجدولة", required: true }],
+      body: values => ({ expectedVersion: version, reason: values.reason.trim() }),
     })
     if (status === "FROZEN") actions.push({ label: "استئناف الاشتراك", permission: "subscriptions.freeze", path: `/organizations/${organizationId}/subscriptions/${id}/resumptions`, body: () => ({ expectedVersion: version }) })
     if (["ACTIVE", "FROZEN"].includes(status)) {

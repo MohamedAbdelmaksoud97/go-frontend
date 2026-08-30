@@ -14,6 +14,11 @@ export type SubscriptionFreezePolicyView = {
   remainingActiveDays: number
   recommendedDays: number
   message: string
+  pendingSchedule?: RecordValue
+}
+
+export function pendingFreezeSchedule(record: RecordValue): RecordValue | undefined {
+  return array(record.freezeSchedules).map(object).find(item => String(item?.status ?? "").toUpperCase() === "PENDING")
 }
 
 export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): SubscriptionFreezePolicyView {
@@ -21,7 +26,8 @@ export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): 
   const maxDaysPerFreeze = integer(configuration?.maxDaysPerFreeze)
   const maxFreezesPerTerm = integer(configuration?.maxFreezesPerTerm)
   const minimumActiveDaysBeforeFreeze = integer(configuration?.minimumActiveDaysBeforeFreeze)
-  const usedFreezes = array(record.freezePeriods).length
+  const pendingSchedule = pendingFreezeSchedule(record)
+  const usedFreezes = array(record.freezePeriods).length + (pendingSchedule ? 1 : 0)
   const activeDays = totalActiveDays(record.accessPeriods, at)
 
   if (maxDaysPerFreeze === undefined || maxFreezesPerTerm === undefined || minimumActiveDaysBeforeFreeze === undefined) {
@@ -41,6 +47,9 @@ export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): 
   } else if (maxDaysPerFreeze < 1 || remainingFreezes < 1) {
     allowed = false
     message = "تم استنفاد مرات التجميد المسموحة في سياسة هذا الاشتراك."
+  } else if (pendingSchedule) {
+    allowed = false
+    message = `يوجد تجميد مجدول بالفعل ليبدأ في ${new Date(String(pendingSchedule.scheduledStartAt ?? "")).toLocaleString("ar-SA")}. ألغِ الجدولة الحالية قبل إنشاء أخرى.`
   } else if (remainingActiveDays > 0) {
     allowed = false
     message = `يتبقى ${remainingActiveDays} يوم نشاط قبل السماح بالتجميد وفق السياسة.`
@@ -58,6 +67,7 @@ export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): 
     remainingActiveDays,
     recommendedDays,
     message,
+    ...(pendingSchedule ? { pendingSchedule } : {}),
   }
 }
 
