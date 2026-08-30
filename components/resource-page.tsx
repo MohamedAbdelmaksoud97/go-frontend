@@ -289,15 +289,16 @@ function SubscriptionFreezeDialog({
     }
   }
 
-  return <div className="fixed inset-0 z-[90] grid place-items-center bg-black/65 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-    <form onSubmit={submit} className="w-full max-w-lg rounded-[28px] border bg-card p-6 shadow-2xl" dir="rtl">
+  return <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="subscription-freeze-title" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose() }}>
+    <form onSubmit={submit} className="my-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-[28px] border bg-card shadow-2xl" dir="rtl">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
       <div className="flex items-start gap-4">
         <span className={`grid size-12 place-items-center rounded-2xl ${frozen ? "bg-emerald-500/10 text-emerald-600" : "bg-blue-500/10 text-blue-600"}`}>{frozen ? <Play /> : <Snowflake />}</span>
         <div>
-          <h2 className="text-xl font-black">{frozen ? "استئناف الاشتراك" : "تجميد اشتراك محدد"}</h2>
+          <h2 id="subscription-freeze-title" className="text-xl font-black">{frozen ? "استئناف الاشتراك" : "تجميد اشتراك محدد"}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{subscriptionName}{subscriptionNumber ? ` · ${subscriptionNumber}` : ""}</p>
         </div>
-        <Button type="button" variant="ghost" size="icon" className="mr-auto" onClick={onClose} aria-label="إغلاق"><X /></Button>
+        <Button type="button" variant="ghost" size="icon" className="mr-auto" disabled={saving} onClick={onClose} aria-label="إغلاق"><X /></Button>
       </div>
 
       <p className="mt-5 rounded-2xl bg-secondary/60 p-4 text-xs leading-6">{frozen
@@ -320,9 +321,9 @@ function SubscriptionFreezeDialog({
       </>}
 
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
-
-      <div className="mt-6 flex gap-2 border-t pt-5">
-        <Button type="button" variant="outline" onClick={onClose}>إلغاء</Button>
+      </div>
+      <div className="flex shrink-0 gap-2 border-t bg-card px-6 py-4 shadow-[0_-12px_24px_-24px_rgba(0,0,0,0.8)]">
+        <Button type="button" variant="outline" disabled={saving} onClick={onClose}>إلغاء</Button>
         <Button type="submit" className="mr-auto" disabled={saving || (!frozen && (!freezePolicy.allowed || Number(requestedDays) > freezePolicy.maxDaysPerFreeze))}>{saving ? "جارٍ الحفظ..." : frozen ? "استئناف الاشتراك" : "تأكيد التجميد"}</Button>
       </div>
     </form>
