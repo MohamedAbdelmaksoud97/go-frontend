@@ -35,7 +35,15 @@ type SubscriptionQuote = {
   netMinor: string
   taxMinor: string
   grossMinor: string
+  taxRateBps: number
   taxInclusive: boolean
+  promotion?: {
+    id: string
+    code: string
+    name: string
+    benefitType: "PERCENTAGE" | "FIXED_AMOUNT"
+    benefitValue: number
+  }
 }
 
 export function ActionDialog({ operationId, organizationId, branchId, onClose, onSaved, initialValues, lockedReferenceLabels }: Props) {
@@ -192,15 +200,55 @@ function SubscriptionPricePreview({ quote, loading, error }: { quote?: Subscript
   if (error) return <div className="mt-5 rounded-2xl border border-red-500/25 bg-red-500/8 p-4 text-xs font-semibold leading-6 text-red-600">{error}</div>
   if (!quote) return null
   const hasDiscount = Number(quote.discountMinor) > 0
+  const grossBeforeOfferMinor = priceBeforeOfferIncludingTax(quote)
+  const savingsMinor = subtractMinor(grossBeforeOfferMinor, quote.grossMinor)
   return <section className="mt-5 rounded-2xl border border-emerald-500/25 bg-emerald-500/6 p-4" aria-label="ملخص سعر الاشتراك">
-    <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-black">ملخص السعر في الفرع الحالي</p><p className="mt-1 text-[11px] text-muted-foreground">{quote.targetName}</p></div><strong className="text-base text-emerald-600">{formatMoney(quote.grossMinor, quote.currency)}</strong></div>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div><p className="text-xs font-black">ملخص السعر في الفرع الحالي</p><p className="mt-1 text-[11px] text-muted-foreground">{quote.targetName}</p></div>
+      <div className="text-left"><span className="block text-[10px] text-muted-foreground">الإجمالي النهائي</span><strong className="text-lg text-emerald-700 dark:text-emerald-400">{formatMoney(quote.grossMinor, quote.currency)}</strong></div>
+    </div>
+    {hasDiscount && <div className="mt-4 rounded-xl border border-amber-500/35 bg-amber-500/10 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div><span className="inline-flex rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-black text-amber-800 dark:text-amber-300">عرض مطبّق</span><p className="mt-2 text-sm font-black">{quote.promotion?.name ?? "خصم تلقائي"}</p></div>
+        {quote.promotion?.code && <div className="text-left"><span className="block text-[10px] text-muted-foreground">رمز العرض</span><b className="mt-1 block text-xs" dir="ltr">{quote.promotion.code}</b></div>}
+      </div>
+      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+        <div className="rounded-xl bg-background/70 p-3"><dt className="text-muted-foreground">السعر قبل العرض</dt><dd className="mt-1 font-bold line-through decoration-red-500/70">{formatMoney(grossBeforeOfferMinor, quote.currency)}</dd><span className="mt-1 block text-[10px] text-muted-foreground">شامل الضريبة</span></div>
+        <div className="rounded-xl bg-background/70 p-3"><dt className="text-muted-foreground">السعر بعد تطبيق العرض</dt><dd className="mt-1 font-black text-emerald-700 dark:text-emerald-400">{formatMoney(quote.grossMinor, quote.currency)}</dd><span className="mt-1 block text-[10px] text-muted-foreground">شامل الضريبة</span></div>
+        <div className="rounded-xl bg-background/70 p-3"><dt className="text-muted-foreground">إجمالي التوفير</dt><dd className="mt-1 font-black text-emerald-700 dark:text-emerald-400">{formatMoney(savingsMinor, quote.currency)}</dd><span className="mt-1 block text-[10px] text-muted-foreground">بعد احتساب الضريبة</span></div>
+      </dl>
+    </div>}
     <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-3">
-      <div><dt className="text-muted-foreground">السعر قبل الضريبة</dt><dd className="mt-1 font-bold">{formatMoney(quote.netMinor, quote.currency)}</dd></div>
-      {hasDiscount && <div><dt className="text-muted-foreground">الخصم</dt><dd className="mt-1 font-bold text-emerald-600">− {formatMoney(quote.discountMinor, quote.currency)}</dd></div>}
+      <div><dt className="text-muted-foreground">السعر بعد الخصم قبل الضريبة</dt><dd className="mt-1 font-bold">{formatMoney(quote.netMinor, quote.currency)}</dd></div>
       <div><dt className="text-muted-foreground">الضريبة</dt><dd className="mt-1 font-bold">{formatMoney(quote.taxMinor, quote.currency)}</dd></div>
-      <div><dt className="text-muted-foreground">الإجمالي شامل الضريبة</dt><dd className="mt-1 font-black">{formatMoney(quote.grossMinor, quote.currency)}</dd></div>
+      <div><dt className="text-muted-foreground">الإجمالي النهائي شامل الضريبة</dt><dd className="mt-1 font-black">{formatMoney(quote.grossMinor, quote.currency)}</dd></div>
     </dl>
   </section>
+}
+
+function priceBeforeOfferIncludingTax(quote: SubscriptionQuote) {
+  try {
+    const base = BigInt(quote.baseAmountMinor)
+    if (quote.taxInclusive) return base.toString()
+    const rate = BigInt(Math.max(0, Math.trunc(quote.taxRateBps)))
+    const tax = divideRounded(base * rate, BigInt(10_000))
+    return (base + tax).toString()
+  } catch {
+    return quote.grossMinor
+  }
+}
+
+function subtractMinor(minuend: string, subtrahend: string) {
+  try {
+    const difference = BigInt(minuend) - BigInt(subtrahend)
+    return (difference > BigInt(0) ? difference : BigInt(0)).toString()
+  } catch {
+    return "0"
+  }
+}
+
+function divideRounded(value: bigint, divisor: bigint) {
+  return (value + divisor / BigInt(2)) / divisor
 }
 
 function Field({ field, value, choices = [], loading, lockedLabel, referenceQuery, onReferenceSearch, onChange }: { field: (typeof workflows)[string]["fields"][number]; value: string | boolean | File | undefined; choices?: Choice[]; loading: boolean; lockedLabel?: string; referenceQuery: string; onReferenceSearch: (value: string) => void; onChange: (value: string | boolean | File | undefined) => void }) {
