@@ -19,6 +19,7 @@ import { operationPermissions } from "@/lib/permissions"
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy"
 import { useToast } from "@/components/toast-provider"
 import { pendingFreezeSchedule, subscriptionFreezePolicy, subscriptionFreezeScheduleDeadline } from "@/lib/subscription-freeze-policy"
+import { remainingSubscriptionDaysLabel } from "@/lib/subscription-term"
 
 type BranchLookup = { id: string; nameAr?: string; name?: string }
 type ApiRecord = Record<string, unknown>
@@ -139,7 +140,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/8 text-amber-700 dark:text-primary">{config.eyebrow}</Badge><h1 className="text-2xl font-black tracking-tight sm:text-3xl">{config.title}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{config.description}</p></div><div className="flex gap-2"><Button size="lg" variant="outline" onClick={exportCsv} disabled={!rows.length}><Download />تصدير</Button>{canCreate && <Button size="lg" className="brand-shadow" onClick={() => setShowAction(true)}><Plus />{config.action}</Button>}</div></div>
     <section className="grid gap-4 md:grid-cols-3">{config.metrics.map((metric, index) => <Card key={metric.label}><CardContent className="flex items-center gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-xl ${index === 0 ? "bg-primary/15 text-amber-600" : index === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{index === 0 ? <BarChart3 /> : index === 1 ? <Sparkles /> : <SlidersHorizontal />}</span><div><p className="text-[11px] font-semibold text-muted-foreground">{metricLabel(config.listOperationId, index, metric.label)}</p><p className="mt-1 text-xl font-black">{metricValue(config.listOperationId, index, serverRecords)}</p><p className="mt-1 text-[9px] text-muted-foreground">{metricNote(serverRecords.length, metric.note)}</p></div></CardContent></Card>)}</section>
     <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}</div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="sticky left-0 z-20 min-w-[160px] border-r bg-secondary px-3 py-3 text-[10px] font-bold text-muted-foreground shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)]">الإجراءات السريعة</th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); const recordBranchId = String(record.registrationBranchId ?? record.branchId ?? ""); const filteredBranchId = context.branches.some(branch => branch.id === filterBranchId) ? filterBranchId : ""; const actionBranchId = context.branchId || filteredBranchId || (context.branches.length === 1 ? context.branches[0]?.id ?? "" : "") || recordBranchId; return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold">{columnIndex === config.statusIndex ? <StatusBadge status={cell} /> : config.listOperationId === "listMembers" && columnIndex === 0 && memberId ? <Link href={`/members/${memberId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف العضو ${cell}`}>{cell}</Link> : config.listOperationId === "listEmployees" && columnIndex === 0 && memberId ? <Link href={`/employees/${memberId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف الموظف ${cell}`}>{cell}</Link> : cell}</td>)}<td className="sticky left-0 z-10 min-w-[160px] border-r bg-card px-3 py-4 shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)] transition-colors group-hover:bg-secondary">{config.listOperationId === "listMembers" && memberId ? <MemberQuickActions record={record} canAccess={context.canAccess} onWorkflow={(operationId, initialValues, lockedReferenceLabels) => { if (!context.branchId && actionBranchId) context.setBranchId(actionBranchId); setQuickAction({ operationId, branchId: actionBranchId, initialValues, lockedReferenceLabels }) }} onDiscipline={() => setDisciplinaryMember(record)} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listSubscriptions" ? <SubscriptionQuickActions record={record} canAccess={context.canAccess} onFreeze={() => setSubscriptionFreezeRecord(record)} onRenew={() => setSubscriptionPolicyAction({ record, action: "RENEW" })} onCancel={() => setSubscriptionPolicyAction({ record, action: "CANCEL" })} onDetails={() => setSelectedRow({ row, record })} /> : <Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button>}</td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="sticky left-0 z-20 min-w-[160px] border-r bg-secondary px-3 py-3 text-[10px] font-bold text-muted-foreground shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)]">الإجراءات السريعة</th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); const recordBranchId = String(record.registrationBranchId ?? record.branchId ?? ""); const filteredBranchId = context.branches.some(branch => branch.id === filterBranchId) ? filterBranchId : ""; const actionBranchId = context.branchId || filteredBranchId || (context.branches.length === 1 ? context.branches[0]?.id ?? "" : "") || recordBranchId; return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold"><ResourceCellValue config={config} record={record} cell={cell} columnIndex={columnIndex} recordId={memberId} /></td>)}<td className="sticky left-0 z-10 min-w-[160px] border-r bg-card px-3 py-4 shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)] transition-colors group-hover:bg-secondary">{config.listOperationId === "listMembers" && memberId ? <MemberQuickActions record={record} canAccess={context.canAccess} onWorkflow={(operationId, initialValues, lockedReferenceLabels) => { if (!context.branchId && actionBranchId) context.setBranchId(actionBranchId); setQuickAction({ operationId, branchId: actionBranchId, initialValues, lockedReferenceLabels }) }} onDiscipline={() => setDisciplinaryMember(record)} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listSubscriptions" ? <SubscriptionQuickActions record={record} canAccess={context.canAccess} onFreeze={() => setSubscriptionFreezeRecord(record)} onRenew={() => setSubscriptionPolicyAction({ record, action: "RENEW" })} onCancel={() => setSubscriptionPolicyAction({ record, action: "CANCEL" })} onDetails={() => setSelectedRow({ row, record })} /> : <Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button>}</td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
       <div className="flex items-center justify-between border-t p-4"><p className="text-[10px] text-muted-foreground">عرض {rows.length} سجلًا · الصفحة {page + 1}</p><div className="flex items-center gap-1"><Button variant="outline" size="icon-sm" disabled={page === 0 || loading} aria-label="الصفحة السابقة" onClick={() => void loadPage(page - 1)}><ChevronRight /></Button>{Array.from({ length: knownPages }, (_, index) => <Button key={index} variant={index === page ? "default" : "outline"} size="icon-sm" disabled={loading} aria-label={`الصفحة ${index + 1}`} onClick={() => void loadPage(index)}>{index + 1}</Button>)}<Button variant="outline" size="icon-sm" disabled={loading || !pageCache.current[page]?.nextCursor} aria-label="الصفحة التالية" onClick={() => void loadPage(page + 1)}><ChevronLeft /></Button></div></div>
     </Card>
     {showAction && config.createOperationId && canCreate && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} onSaved={() => { pageCache.current = []; void loadPage(0) }} />}
@@ -149,6 +150,33 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     {subscriptionPolicyAction && <SubscriptionPolicyActionDialog organizationId={context.organizationId} record={subscriptionPolicyAction.record} action={subscriptionPolicyAction.action} onClose={() => setSubscriptionPolicyAction(undefined)} onSaved={() => { setSubscriptionPolicyAction(undefined); pageCache.current = []; void loadPage(0) }} />}
     {selectedRow && <RecordPreview columns={config.columns} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={config.statusIndex} onFreeze={() => { setSelectedRow(undefined); setSubscriptionFreezeRecord(selectedRow.record) }} onCancel={() => { setSelectedRow(undefined); setSubscriptionPolicyAction({ record: selectedRow.record, action: "CANCEL" }) }} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
   </div>
+}
+
+function ResourceCellValue({ config, record, cell, columnIndex, recordId }: { config: SectionConfig; record: ApiRecord; cell: string; columnIndex: number; recordId: string }) {
+  if (columnIndex === config.statusIndex) return <StatusBadge status={cell} />
+
+  if (config.listOperationId === "listMembers" && columnIndex === 0) {
+    return <MemberIdentity name={cell} memberId={recordId} blocked={record.isBlocked === true} />
+  }
+
+  if (config.listOperationId === "listSubscriptions" && config.fields[columnIndex] === "memberName") {
+    return <MemberIdentity name={cell} blocked={record.memberIsBlocked === true} />
+  }
+
+  if (config.listOperationId === "listEmployees" && columnIndex === 0 && recordId) {
+    return <Link href={`/employees/${recordId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف الموظف ${cell}`}>{cell}</Link>
+  }
+
+  return cell
+}
+
+function MemberIdentity({ name, memberId, blocked }: { name: string; memberId?: string; blocked: boolean }) {
+  const content = <span className={blocked ? "inline-flex items-center gap-2 rounded-lg bg-red-100 px-2 py-1 text-red-900 ring-1 ring-inset ring-red-300 dark:bg-red-950/65 dark:text-red-100 dark:ring-red-700" : undefined}>
+    <span>{name}</span>
+    {blocked && <span className="inline-flex items-center gap-1 rounded-md bg-red-700 px-1.5 py-0.5 text-[9px] font-black text-white dark:bg-red-600"><UserRoundX className="size-3" aria-hidden="true" />محظور من الدخول</span>}
+  </span>
+  if (!memberId) return content
+  return <Link href={`/members/${memberId}`} className="inline-flex text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={blocked ? `فتح ملف العضو ${name}، محظور من دخول النادي` : `فتح ملف العضو ${name}`}>{content}</Link>
 }
 
 function MemberQuickActions({ record, canAccess, onWorkflow, onDiscipline, onDetails }: { record: ApiRecord; canAccess: (permissions: string[]) => boolean; onWorkflow: (operationId: string, initialValues: Record<string, string>, lockedReferenceLabels?: Record<string, string>) => void; onDiscipline: () => void; onDetails: () => void }) {
@@ -253,6 +281,20 @@ function SubscriptionFreezeDialog({
   const [reason, setReason] = useState(pendingSchedule ? "طلب العضو إلغاء الجدولة" : "طلب العضو")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [previewedAt] = useState(() => new Date())
+  const currentTermEnd = new Date(String(record.termEnd ?? ""))
+  const requestedFreezeDays = Number(requestedDays)
+  const projectedTermEnd = !frozen && Number.isFinite(currentTermEnd.getTime()) && Number.isInteger(requestedFreezeDays) && requestedFreezeDays > 0
+    ? new Date(currentTermEnd.getTime() + requestedFreezeDays * 86_400_000)
+    : undefined
+  const openFreeze = Array.isArray(record.freezePeriods)
+    ? record.freezePeriods.find(item => item && typeof item === "object" && !Array.isArray(item) && !(item as ApiRecord).resumedAt) as ApiRecord | undefined
+    : undefined
+  const plannedFreezeEnd = openFreeze ? new Date(String(openFreeze.plannedEndAt ?? "")) : undefined
+  const unusedFreezeMilliseconds = plannedFreezeEnd && Number.isFinite(plannedFreezeEnd.getTime()) ? Math.max(0, plannedFreezeEnd.getTime() - previewedAt.getTime()) : 0
+  const termEndAfterResume = frozen && Number.isFinite(currentTermEnd.getTime())
+    ? new Date(currentTermEnd.getTime() - unusedFreezeMilliseconds)
+    : undefined
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -332,8 +374,13 @@ function SubscriptionFreezeDialog({
       <p className="mt-5 rounded-2xl bg-secondary/60 p-4 text-xs leading-6">{pendingSchedule
         ? "هذا الاشتراك لديه تجميد مجدول. يمكنك مراجعة الموعد وإلغاء الجدولة قبل حلول وقت البدء."
         : frozen
-        ? "سيتم استئناف هذا الاشتراك فقط، دون التأثير على أي اشتراكات أخرى يملكها العضو."
-        : "اختر بدء التجميد الآن أو جدولته لموعد لاحق. سيطبق النظام سياسة الباقة تلقائيًا عند الحفظ وعند حلول الموعد."}</p>
+        ? "سيتم استئناف هذا الاشتراك فقط. سيحتفظ العضو بالأيام التي قضاها فعليًا في التجميد، وتُزال الأيام غير المستخدمة من تاريخ النهاية المتوقع."
+        : "اختر بدء التجميد الآن أو جدولته لموعد لاحق. عند بدء التجميد فعليًا سيمدد النظام تاريخ نهاية الاشتراك بالمدة المعتمدة، ثم يصححه تلقائيًا إذا تم الاستئناف مبكرًا."}</p>
+
+      {frozen && termEndAfterResume && <div className="mt-4 grid gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/8 p-4 text-xs sm:grid-cols-2">
+        <PolicyMetric label="النهاية المتوقعة حاليًا" value={subscriptionDateTime(currentTermEnd)} />
+        <PolicyMetric label="النهاية بعد الاستئناف الآن" value={subscriptionDateTime(termEndAfterResume)} />
+      </div>}
 
       {pendingSchedule ? <>
         <div className="mt-5 rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 text-sm">
@@ -360,6 +407,7 @@ function SubscriptionFreezeDialog({
           <p className="mt-3 leading-6 text-muted-foreground">{freezePolicy.message}</p>
         </div>
         <label className="mt-5 block text-xs font-bold">عدد أيام التجميد<span className="mr-1 text-red-500">*</span><Input type="number" min={1} max={freezePolicy.maxDaysPerFreeze || 1} value={requestedDays} onChange={event => setRequestedDays(event.target.value)} className="mt-2" inputMode="numeric" /></label>
+        {projectedTermEnd && <div className="mt-4 rounded-2xl border border-sky-500/25 bg-sky-500/8 p-4 text-xs leading-6 text-sky-800 dark:text-sky-200"><p className="font-black">أثر التجميد على نهاية الاشتراك</p><p className="mt-1">النهاية الحالية: <strong>{subscriptionDateTime(currentTermEnd)}</strong></p><p>النهاية المتوقعة عند بدء التجميد: <strong>{subscriptionDateTime(projectedTermEnd)}</strong></p>{scheduleMode === "LATER" && <p className="mt-1 text-muted-foreground">لن يتغير التاريخ قبل حلول موعد الجدولة وبدء التجميد فعليًا.</p>}</div>}
         <label className="mt-4 block text-xs font-bold">سبب التجميد<span className="mr-1 text-red-500">*</span><textarea value={reason} onChange={event => setReason(event.target.value)} rows={4} placeholder="مثال: طلب العضو بسبب السفر" className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>
       </>}
 
@@ -806,6 +854,7 @@ function readPath(record: ApiRecord, path: string): unknown { return path.split(
 function phoneFromContacts(record: ApiRecord): unknown { if (!Array.isArray(record.contacts)) return undefined; const contact = record.contacts.find(item => item && typeof item === "object" && (item as ApiRecord).type === "PHONE") as ApiRecord | undefined; return contact?.value }
 
 function displayValue(record: ApiRecord, field: string, branches: BranchLookup[]) {
+  if (field === "remainingDays") return remainingSubscriptionDaysLabel(record)
   let value = readPath(record, field)
   if ((value === undefined || value === null || value === "") && field === "outstandingMinor" && record.grossMinor !== undefined && record.paidMinor !== undefined) value = String(Number(record.grossMinor) - Number(record.paidMinor))
   if ((value === undefined || value === null || value === "") && field === "phoneE164") value = phoneFromContacts(record)
@@ -892,6 +941,10 @@ function businessDate(value: Date) {
 function localDateTime(value: Date) {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000)
   return local.toISOString().slice(0, 16)
+}
+
+function subscriptionDateTime(value: Date) {
+  return new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(value)
 }
 
 function metricNote(recordCount: number, fallback: string) {

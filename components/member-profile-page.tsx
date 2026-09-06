@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils"
 import { ownerFileValidationError, uploadOwnerFile, type OwnerFileKind } from "@/lib/owner-file-upload"
 import { useToast } from "@/components/toast-provider"
 import { escapePrintHtml, openBrandedPrintWindow } from "@/lib/branded-print"
+import { remainingSubscriptionDaysLabel } from "@/lib/subscription-term"
 
 type Row = Record<string, unknown>
 type Branch = { id: string; nameAr?: string; name?: string }
@@ -52,7 +53,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
   const [reloadKey, setReloadKey] = useState(0)
   const [uploadingFile, setUploadingFile] = useState<OwnerFileKind>()
   const [editingMember, setEditingMember] = useState(false)
-  const [loadedAt] = useState(() => Date.now())
+  const [loadedAt, setLoadedAt] = useState(() => Date.now())
 
   const permissions = useMemo(() => ({
     subscriptions: context.canAccess(["subscriptions.read"]),
@@ -161,7 +162,10 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
           return [text(file.id), response.data.downloadUrl ?? ""] as const
         }))
         next.fileUrls = Object.fromEntries(urlResults.filter((item): item is PromiseFulfilledResult<readonly [string, string]> => item.status === "fulfilled").map(item => item.value).filter(([, url]) => url))
-        if (!cancelled) setData(next)
+        if (!cancelled) {
+          setData(next)
+          setLoadedAt(Date.now())
+        }
       } catch (error) {
         if (!cancelled) setFatalError(humanError(error, "تعذر فتح ملف العضو. تأكد أن السجل ما زال متاحًا لك."))
       } finally { if (!cancelled) setLoading(false) }
@@ -218,8 +222,8 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     <nav className="flex gap-2 overflow-x-auto rounded-2xl border bg-card p-2" aria-label="أقسام ملف العضو">{tabs.map(tab => { const Icon = tab.icon; return <button key={tab.key} type="button" onClick={() => setActive(tab.key)} className={cn("inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-xs font-bold transition", active === tab.key ? "bg-primary text-primary-foreground" : "hover:bg-secondary")}><Icon className="size-4"/>{tab.label}</button> })}</nav>
 
     {active === "profile" && <ProfileSection member={member} contacts={contacts} branchName={branchName} identity={identity} identityUrl={identity ? data.fileUrls[text(identity.id)] : ""} showSensitiveNotes={context.canAccess(["members.sensitive.read"])} />} 
-    {active === "subscriptions" && <SubscriptionSection rows={data.subscriptions} branches={context.branches} activities={data.activities} services={data.services} error={data.errors.subscriptions}/>}
-    {active === "freezes" && <FreezeHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
+    {active === "subscriptions" && <SubscriptionSection rows={data.subscriptions} branches={context.branches} activities={data.activities} services={data.services} asOf={loadedAt} error={data.errors.subscriptions}/>}
+    {active === "freezes" && <FreezeHistorySection subscriptions={data.subscriptions} branches={context.branches} asOf={loadedAt} error={data.errors.subscriptions}/>}
     {active === "renewals" && <RenewalHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
     {active === "cancellations" && <CancellationHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
     {active === "blocks" && <BlockHistorySection rows={data.blockHistory} error={data.errors.blocks}/>}
@@ -346,21 +350,23 @@ function ProfileSection({ member, contacts, branchName, identity, identityUrl, s
   </div>
 }
 
-function SubscriptionSection({ rows: items, branches, activities, services, error }: ListProps & { activities: Row[]; services: Row[] }) {
+function SubscriptionSection({ rows: items, branches, activities, services, asOf, error }: ListProps & { activities: Row[]; services: Row[]; asOf: number }) {
   return <SectionShell title="الاشتراكات والباقات" count={items.length} error={error}>{items.length ? <div className="grid gap-3 lg:grid-cols-2">{items.map(row => {
     const snapshot = isRow(row.commercialSnapshot) ? row.commercialSnapshot : {}
     const freezes = Array.isArray(row.freezePeriods) ? row.freezePeriods.filter(isRow) : []
     const contracts = subscriptionContracts(row, services, activities)
+    const frozen = text(row.status).toUpperCase() === "FROZEN"
     return <article key={text(row.id)} className="rounded-2xl border bg-card p-5">
       <div className="flex items-start justify-between gap-3"><div><p className="font-black">{text(snapshot.packageName, "باقة النادي")}</p><p className="mt-1 text-xs text-muted-foreground" dir="ltr">{text(row.subscriptionNumber)}</p></div><StatusBadge status={text(row.status)}/></div>
-      <div className="mt-5 grid grid-cols-2 gap-3 text-xs"><Small label="مدة الاشتراك" value={`${date(row.termStart)} — ${date(row.termEnd)}`}/><Small label="الفرع" value={branchLabel(text(row.sellingBranchId), branches)}/><Small label="القيمة" value={money(minor(snapshot.grossMinor))}/><Small label="الاستخدام" value={row.visitAllowance == null ? "حسب صلاحيات الباقة" : `${minor(row.visitsUsed)} من ${minor(row.visitAllowance)} زيارة`}/></div>
-      {freezes.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black"><Snowflake className="size-4 text-sky-500"/>سجل التجميدات</p><div className="space-y-2">{freezes.map((freeze, index) => <div key={text(freeze.id, String(index))} className="rounded-xl bg-sky-500/8 p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{date(freeze.startedAt)} — {date(freeze.plannedEndAt)}</strong><StatusBadge status={freeze.resumedAt ? "COMPLETED" : "FROZEN"}/></div>{Boolean(freeze.reason) && <p className="mt-1 text-muted-foreground">{text(freeze.reason)}</p>}</div>)}</div></div>}
+      <div className="mt-5 grid grid-cols-2 gap-3 text-xs"><Small label={frozen ? "المدة · النهاية بعد التجميد" : "مدة الاشتراك"} value={`${date(row.termStart)} — ${date(row.termEnd)}`}/><Small label="الأيام المتبقية لانتهاء الاشتراك" value={remainingSubscriptionDaysLabel(row, asOf)}/><Small label="الفرع" value={branchLabel(text(row.sellingBranchId), branches)}/><Small label="القيمة" value={money(minor(snapshot.grossMinor))}/><Small label="الاستخدام" value={row.visitAllowance == null ? "حسب صلاحيات الباقة" : `${minor(row.visitsUsed)} من ${minor(row.visitAllowance)} زيارة`}/></div>
+      {frozen && <p className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/8 p-3 text-xs leading-6 text-sky-800 dark:text-sky-200">تاريخ النهاية المعروض يشمل مدة التجميد المعتمدة، وسيُعدّل تلقائيًا إذا استؤنف الاشتراك مبكرًا.</p>}
+      {freezes.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black"><Snowflake className="size-4 text-sky-500"/>سجل التجميدات</p><div className="space-y-2">{freezes.map((freeze, index) => <div key={text(freeze.id, String(index))} className="rounded-xl bg-sky-500/8 p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{date(freeze.startedAt)} — {date(freeze.plannedEndAt)}</strong><StatusBadge status={freeze.resumedAt ? "COMPLETED" : "FROZEN"}/></div>{Boolean(freeze.reason) && <p className="mt-1 text-muted-foreground">{text(freeze.reason)}</p>}<FreezeUsageMetrics period={freeze} asOf={asOf}/></div>)}</div></div>}
       {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printContract(contract)}><Printer/>طباعة العقد</Button></div>)}</div></div>}
     </article>
   })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}</SectionShell>
 }
 
-function FreezeHistorySection({ subscriptions, branches, error }: { subscriptions: Row[]; branches: Branch[]; error?: string }) {
+function FreezeHistorySection({ subscriptions, branches, asOf, error }: { subscriptions: Row[]; branches: Branch[]; asOf: number; error?: string }) {
   const events = subscriptions.flatMap<Row>(subscription => {
     const snapshot = isRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
     const periods = Array.isArray(subscription.freezePeriods) ? subscription.freezePeriods.filter(isRow) : []
@@ -369,11 +375,39 @@ function FreezeHistorySection({ subscriptions, branches, error }: { subscription
       subscriptionNumber: subscription.subscriptionNumber,
       packageName: snapshot.packageName,
       sellingBranchId: subscription.sellingBranchId,
+      subscriptionTermEnd: subscription.termEnd,
     }))
   })
   events.sort((a, b) => new Date(text(b.startedAt, "1970-01-01")).getTime() - new Date(text(a.startedAt, "1970-01-01")).getTime())
 
-  return <SectionShell title="سجل التجميدات" count={events.length} error={error}>{events.length ? <div className="divide-y rounded-2xl border bg-card">{events.map((event, index) => <article key={text(event.id, String(index))} className="grid gap-4 p-5 md:grid-cols-[1fr_auto_auto] md:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(event.packageName, "باقة العضو")}</p><StatusBadge status={event.resumedAt ? "COMPLETED" : "FROZEN"}/></div><p className="mt-2 text-xs text-muted-foreground">اشتراك <span dir="ltr">{text(event.subscriptionNumber)}</span> · {branchLabel(text(event.sellingBranchId), branches)}</p>{Boolean(event.reason) && <p className="mt-2 rounded-xl bg-secondary/55 p-3 text-xs">السبب: {text(event.reason)}</p>}</div><Small label="بداية التجميد" value={dateTime(event.startedAt)}/><div className="space-y-2"><Small label="النهاية المخططة" value={dateTime(event.plannedEndAt)}/><Small label="الاستئناف الفعلي" value={event.resumedAt ? dateTime(event.resumedAt) : "لم يُستأنف بعد"}/></div></article>)}</div> : <Empty text="لا توجد عمليات تجميد مسجلة لهذا العضو."/>}</SectionShell>
+  return <SectionShell title="سجل التجميدات" count={events.length} error={error}>{events.length ? <div className="divide-y rounded-2xl border bg-card">{events.map((event, index) => <article key={text(event.id, String(index))} className="p-5"><div className="grid gap-4 md:grid-cols-[1fr_auto_auto] md:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(event.packageName, "باقة العضو")}</p><StatusBadge status={event.resumedAt ? "COMPLETED" : "FROZEN"}/></div><p className="mt-2 text-xs text-muted-foreground">اشتراك <span dir="ltr">{text(event.subscriptionNumber)}</span> · {branchLabel(text(event.sellingBranchId), branches)}</p>{Boolean(event.reason) && <p className="mt-2 rounded-xl bg-secondary/55 p-3 text-xs">السبب: {text(event.reason)}</p>}{!event.resumedAt && <p className="mt-2 text-xs font-bold text-sky-700 dark:text-sky-300">نهاية الاشتراك المتوقعة بعد التجميد: {dateTime(event.subscriptionTermEnd)}</p>}</div><Small label="بداية التجميد" value={dateTime(event.startedAt)}/><div className="space-y-2"><Small label="النهاية المخططة" value={dateTime(event.plannedEndAt)}/><Small label="الاستئناف الفعلي" value={event.resumedAt ? dateTime(event.resumedAt) : "لم يُستأنف بعد"}/></div></div><FreezeUsageMetrics period={event} asOf={asOf}/></article>)}</div> : <Empty text="لا توجد عمليات تجميد مسجلة لهذا العضو."/>}</SectionShell>
+}
+
+function FreezeUsageMetrics({ period, asOf }: { period: Row; asOf: number }) {
+  const usage = freezeUsage(period, asOf)
+  return <dl className="mt-4 grid grid-cols-1 gap-2 border-t border-sky-500/15 pt-3 text-center sm:grid-cols-3">
+    <div className="rounded-xl bg-background/70 p-3"><dt className="text-[10px] font-bold text-muted-foreground">عدد أيام التجميد</dt><dd className="mt-1 text-sm font-black">{usage.total}</dd></div>
+    <div className="rounded-xl bg-background/70 p-3"><dt className="text-[10px] font-bold text-muted-foreground">الأيام المستخدمة</dt><dd className="mt-1 text-sm font-black text-sky-700 dark:text-sky-300">{usage.used}</dd></div>
+    <div className="rounded-xl bg-background/70 p-3"><dt className="text-[10px] font-bold text-muted-foreground">الأيام المتبقية</dt><dd className="mt-1 text-sm font-black text-emerald-700 dark:text-emerald-300">{usage.remaining}</dd></div>
+  </dl>
+}
+
+function freezeUsage(period: Row, asOf: number) {
+  const startedAt = new Date(text(period.startedAt, "")).getTime()
+  const plannedEndAt = new Date(text(period.plannedEndAt, "")).getTime()
+  const resumedAt = period.resumedAt ? new Date(text(period.resumedAt, "")).getTime() : undefined
+  if (!Number.isFinite(startedAt) || !Number.isFinite(plannedEndAt) || plannedEndAt <= startedAt) return { total: "—", used: "—", remaining: "—" }
+  const totalMilliseconds = plannedEndAt - startedAt
+  const completed = resumedAt !== undefined && Number.isFinite(resumedAt)
+  const usageEnd = Math.min(plannedEndAt, Math.max(startedAt, completed ? resumedAt : asOf))
+  const usedMilliseconds = usageEnd - startedAt
+  const remainingMilliseconds = completed ? 0 : Math.max(0, plannedEndAt - Math.max(startedAt, asOf))
+  return { total: formatFreezeDays(totalMilliseconds), used: formatFreezeDays(usedMilliseconds), remaining: formatFreezeDays(remainingMilliseconds) }
+}
+
+function formatFreezeDays(milliseconds: number) {
+  const days = Math.max(0, milliseconds) / 86_400_000
+  return `${new Intl.NumberFormat("ar-SA", { maximumFractionDigits: 1 }).format(days)} يوم`
 }
 
 function RenewalHistorySection({ subscriptions, branches, error }: { subscriptions: Row[]; branches: Branch[]; error?: string }) {

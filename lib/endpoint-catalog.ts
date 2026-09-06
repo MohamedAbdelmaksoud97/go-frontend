@@ -4,7 +4,7 @@ export type EndpointOperation={path:string;method:"get"|"post"|"patch"|"put"|"de
 export type EndpointModule={slug:string;label:string;description:string;match:(operation:EndpointOperation)=>boolean}
 
 export const endpointModules:EndpointModule[]=[
- {slug:"platform",label:"المنصة والمصادقة",description:"الصحة، الجلسة، OTP، MFA والحساب الشخصي",match:o=>/^\/(health|hooks)|\/auth\/|\/me$|\/self\/account$|\/openapi/.test(o.path)},
+ {slug:"platform",label:"المنصة والمصادقة",description:"الصحة، الجلسة، OTP، MFA والحساب الشخصي",match:o=>/^\/(health|hooks)|\/auth\/|\/me$|\/self\/account(?:\/|$)|\/openapi/.test(o.path)},
  {slug:"organization",label:"المنظمة والصلاحيات",description:"الفروع، الحسابات، الأدوار والمنح",match:o=>/permissions|roles|role-assignments|user-accounts|\/branches(?:\/|$)|\/organizations\/\{organizationId\}$/.test(o.path)},
  {slug:"members",label:"الأعضاء والملفات",description:"الأعضاء، أولياء الأمور، الملفات والباركود",match:o=>/members|guardian|files|access-credentials/.test(o.path)&&!o.path.includes("/self/")},
  {slug:"workforce",label:"الموظفون والمدربون",description:"الموظفون، المناوبات، الحضور والتدريب والقياسات",match:o=>/employees|employee-|positions|trainers|coaching|measurement|commission|training-plan/.test(o.path)&&!o.path.includes("/self/")},
@@ -25,7 +25,7 @@ export function endpointModule(operation:EndpointOperation){return endpointModul
 
 export const bodyPresets:Record<string,Record<string,unknown>>={
  requestPhoneOtp:{phone:"+9665XXXXXXXX"},verifyPhoneOtp:{phone:"+9665XXXXXXXX",code:"000000"},verifyMfaChallenge:{factorId:"",challengeId:"",code:"000000"},
- updateOwnAccountProfile:{displayName:"",preferredLocale:"ar",preferredTimezone:"Asia/Riyadh",smsNotificationsEnabled:true,whatsappNotificationsEnabled:true,expectedVersion:1},
+ updateOwnAccountProfile:{displayName:"",preferredLocale:"ar",preferredTimezone:"Asia/Riyadh",smsNotificationsEnabled:true,whatsappNotificationsEnabled:true,expectedVersion:1},changeOwnPassword:{currentPassword:"",newPassword:""},
  registerMember:{branchId:"",fullNameAr:"",gender:"MALE",birthDate:"2000-01-01",nationality:"SA",registeredOn:"2026-08-12",contacts:[]},
  createCommercialQuote:{branchId:"",targetType:"PACKAGE",targetId:"",quantity:1,memberSegment:"STANDARD"},
  checkoutOrder:{sellingBranchId:"",buyerType:"MEMBER",buyerMemberId:"",lines:[]},recordPayment:{collectionBranchId:"",method:"CARD",amountMinor:"0",allocations:[]},

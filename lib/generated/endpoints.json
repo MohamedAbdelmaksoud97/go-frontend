@@ -104,6 +104,14 @@
     "description": "Account profile preferences updated with optimistic concurrency."
   },
   {
+    "path": "/api/v1/self/account/password-changes",
+    "method": "post",
+    "operationId": "changeOwnPassword",
+    "secured": true,
+    "idempotent": false,
+    "description": "The authenticated member or staff account changed its own password after verifying the current password; other sessions were revoked."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}",
     "method": "get",
     "operationId": "getOrganization",
@@ -464,12 +472,12 @@
     "description": "Subscription lifecycle, periods, freezes, grants, and adjustments."
   },
   {
-    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/activations",
-    "method": "post",
-    "operationId": "activateSubscription",
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/cancellation-preview",
+    "method": "get",
+    "operationId": "previewSubscriptionCancellation",
     "secured": true,
     "idempotent": false,
-    "description": "Pending or due scheduled subscription activated."
+    "description": "Server-authoritative cancellation date and prorated refund calculation without mutation."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/freezes",
@@ -477,7 +485,15 @@
     "operationId": "freezeSubscription",
     "secured": true,
     "idempotent": false,
-    "description": "Subscription frozen under its captured policy snapshot."
+    "description": "Subscription frozen immediately or scheduled for a future effective time under its captured policy snapshot."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/freeze-schedules/{scheduleId}/cancellations",
+    "method": "post",
+    "operationId": "cancelSubscriptionFreezeSchedule",
+    "secured": true,
+    "idempotent": false,
+    "description": "A pending future freeze is cancelled before its effective time."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/subscriptions/{subscriptionId}/resumptions",
@@ -574,6 +590,38 @@
     "secured": true,
     "idempotent": false,
     "description": "Payment, allocation total, and refundable total."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/refund-requests",
+    "method": "get",
+    "operationId": "listRefundRequests",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped refund requests with invoice, payment capacity, and lifecycle state."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/refund-requests/{requestId}",
+    "method": "get",
+    "operationId": "getRefundRequest",
+    "secured": true,
+    "idempotent": false,
+    "description": "Refund request, immutable calculation, original payments, and credit note."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/refund-requests/{requestId}/reviews",
+    "method": "post",
+    "operationId": "reviewRefundRequest",
+    "secured": true,
+    "idempotent": false,
+    "description": "Approval or rejection of a pending refund request by an authorized employee."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/refund-requests/{requestId}/fulfillments",
+    "method": "post",
+    "operationId": "fulfillRefundRequest",
+    "secured": true,
+    "idempotent": true,
+    "description": "Atomic refund against original payments and immutable internal credit-note issuance."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/cash-points",
@@ -1240,6 +1288,14 @@
     "description": "Top package/service and captured-promotion performance from read models."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/reports/details",
+    "method": "get",
+    "operationId": "getDetailedOperationalReport",
+    "secured": true,
+    "idempotent": false,
+    "description": "Source-of-truth subscription, service, attendance, debt, expense, or treasury detail for an authorized branch/date range."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/reporting-rebuilds",
     "method": "post",
     "operationId": "requestReportingRebuild",
@@ -1672,12 +1728,28 @@
     "description": "Subscriptions for the exact linked member."
   },
   {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/subscriptions/{subscriptionId}/cancellation-preview",
+    "method": "get",
+    "operationId": "previewSelfMemberSubscriptionCancellation",
+    "secured": true,
+    "idempotent": false,
+    "description": "Member-visible cancellation effect and prorated refund calculation without mutation."
+  },
+  {
     "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/subscriptions/{subscriptionId}/freezes",
     "method": "post",
     "operationId": "freezeSelfMemberSubscription",
     "secured": true,
     "idempotent": false,
-    "description": "Capability-checked freeze using the captured policy."
+    "description": "Capability-checked immediate or future freeze using the captured policy."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/subscriptions/{subscriptionId}/freeze-schedules/{scheduleId}/cancellations",
+    "method": "post",
+    "operationId": "cancelSelfMemberSubscriptionFreezeSchedule",
+    "secured": true,
+    "idempotent": false,
+    "description": "Capability-checked cancellation of a pending future freeze."
   },
   {
     "path": "/api/v1/self/organizations/{organizationId}/members/{memberId}/subscriptions/{subscriptionId}/resumptions",
@@ -2000,6 +2072,22 @@
     "description": "Role permission set replaced."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/roles/{roleId}",
+    "method": "patch",
+    "operationId": "updateRole",
+    "secured": true,
+    "idempotent": false,
+    "description": "Custom role metadata and permission grants updated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/roles/{roleId}/status",
+    "method": "patch",
+    "operationId": "updateRoleStatus",
+    "secured": true,
+    "idempotent": false,
+    "description": "Custom role activated or safely archived."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/role-assignments/{assignmentId}/revocations",
     "method": "post",
     "operationId": "revokeRoleAssignment",
@@ -2094,6 +2182,78 @@
     "secured": true,
     "idempotent": false,
     "description": "Service master data updated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/commercial-policies/{policyId}",
+    "method": "patch",
+    "operationId": "updateCommercialPolicyStatus",
+    "secured": true,
+    "idempotent": false,
+    "description": "Unreferenced commercial policy version activated or archived."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/prices/{priceId}",
+    "method": "patch",
+    "operationId": "updatePrice",
+    "secured": true,
+    "idempotent": false,
+    "description": "Effective-dated price updated or safely archived."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/promotions/{promotionId}",
+    "method": "patch",
+    "operationId": "updatePromotion",
+    "secured": true,
+    "idempotent": false,
+    "description": "Promotion rules, scope, dates, and status updated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/cash-points/{cashPointId}",
+    "method": "patch",
+    "operationId": "updateCashPoint",
+    "secured": true,
+    "idempotent": false,
+    "description": "Cash point updated or archived when it has no open shift."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/expense-categories/{categoryId}",
+    "method": "patch",
+    "operationId": "updateExpenseCategory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Expense category and approval threshold updated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/facilities/{facilityId}",
+    "method": "patch",
+    "operationId": "updateFacility",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch facility updated or safely archived."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/bookable-resources/{resourceId}",
+    "method": "patch",
+    "operationId": "updateBookableResource",
+    "secured": true,
+    "idempotent": false,
+    "description": "Bookable resource configuration updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant/meal-categories/{categoryId}",
+    "method": "patch",
+    "operationId": "updateMealCategory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Restaurant meal category updated or archived."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/notification-templates/{templateId}",
+    "method": "patch",
+    "operationId": "archiveNotificationTemplate",
+    "secured": true,
+    "idempotent": false,
+    "description": "Notification template version safely archived."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/restaurant-orders/meal-plan-redemptions",
