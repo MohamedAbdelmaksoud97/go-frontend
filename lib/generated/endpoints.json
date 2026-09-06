@@ -557,7 +557,7 @@
     "operationId": "getInvoice",
     "secured": true,
     "idempotent": false,
-    "description": "VAT-ready invoice and derived balance."
+    "description": "VAT-ready invoice, derived balance, and membership term/freeze-policy print details."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/payments",

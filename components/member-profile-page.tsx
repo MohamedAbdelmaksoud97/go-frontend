@@ -361,7 +361,7 @@ function SubscriptionSection({ rows: items, branches, activities, services, asOf
       <div className="mt-5 grid grid-cols-2 gap-3 text-xs"><Small label={frozen ? "المدة · النهاية بعد التجميد" : "مدة الاشتراك"} value={`${date(row.termStart)} — ${date(row.termEnd)}`}/><Small label="الأيام المتبقية لانتهاء الاشتراك" value={remainingSubscriptionDaysLabel(row, asOf)}/><Small label="الفرع" value={branchLabel(text(row.sellingBranchId), branches)}/><Small label="القيمة" value={money(minor(snapshot.grossMinor))}/><Small label="الاستخدام" value={row.visitAllowance == null ? "حسب صلاحيات الباقة" : `${minor(row.visitsUsed)} من ${minor(row.visitAllowance)} زيارة`}/></div>
       {frozen && <p className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/8 p-3 text-xs leading-6 text-sky-800 dark:text-sky-200">تاريخ النهاية المعروض يشمل مدة التجميد المعتمدة، وسيُعدّل تلقائيًا إذا استؤنف الاشتراك مبكرًا.</p>}
       {freezes.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black"><Snowflake className="size-4 text-sky-500"/>سجل التجميدات</p><div className="space-y-2">{freezes.map((freeze, index) => <div key={text(freeze.id, String(index))} className="rounded-xl bg-sky-500/8 p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{date(freeze.startedAt)} — {date(freeze.plannedEndAt)}</strong><StatusBadge status={freeze.resumedAt ? "COMPLETED" : "FROZEN"}/></div>{Boolean(freeze.reason) && <p className="mt-1 text-muted-foreground">{text(freeze.reason)}</p>}<FreezeUsageMetrics period={freeze} asOf={asOf}/></div>)}</div></div>}
-      {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printContract(contract)}><Printer/>طباعة العقد</Button></div>)}</div></div>}
+      {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printContract(contract, row)}><Printer/>طباعة العقد</Button></div>)}</div></div>}
     </article>
   })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}</SectionShell>
 }
@@ -515,12 +515,49 @@ function subscriptionContracts(subscription: Row, services: Row[], activities: R
   const activityIds = new Set(services.filter(service => serviceIds.has(text(service.id))).flatMap(service => Array.isArray(service.activityIds) ? service.activityIds.map(String) : []))
   return activities.filter(activity => activityIds.has(text(activity.id)) && Boolean(activity.contractContent))
 }
-function printContract(contract: Row) {
+function printContract(contract: Row, subscription: Row) {
   const activityName = text(contract.name, "النشاط")
   const title = text(contract.contractTitle, `عقد ${activityName}`)
+  const details = subscriptionContractPrintRows(subscription)
   openBrandedPrintWindow({
     title,
     subtitle: "نسخة بنود عقد النشاط",
-    body: `<section class="document-heading"><p class="eyebrow">عقد ممارسة نشاط</p><h1>${escapePrintHtml(title)}</h1></section><section class="document-subject"><span>النشاط</span><strong>${escapePrintHtml(activityName)}</strong><small>تطبق هذه البنود عند الاشتراك في خدمة أو باقة مرتبطة بالنشاط.</small></section><p class="document-preamble">تم إعداد هذه الوثيقة لعرض البنود المعتمدة لممارسة نشاط <strong>${escapePrintHtml(activityName)}</strong>.</p><section class="document-section"><h2>بنود ممارسة النشاط</h2><div class="document-terms">${escapePrintHtml(text(contract.contractContent, ""))}</div></section><section class="document-signatures"><div>توقيع المشترك</div><div>توقيع الموظف المختص</div><div>التاريخ</div></section>`,
+    body: `<section class="document-heading"><p class="eyebrow">عقد ممارسة نشاط</p><h1>${escapePrintHtml(title)}</h1></section><section class="document-subject"><span>النشاط</span><strong>${escapePrintHtml(activityName)}</strong><small>تطبق هذه البنود على الاشتراك الموضح أدناه.</small></section><section class="document-section"><h2>بيانات الاشتراك والقيمة وسياسة التجميد</h2><table><tbody>${details.map(([label, value]) => `<tr><th>${escapePrintHtml(label)}</th><td>${escapePrintHtml(value)}</td></tr>`).join("")}</tbody></table></section><p class="document-preamble">تم إعداد هذه الوثيقة لممارسة نشاط <strong>${escapePrintHtml(activityName)}</strong> وفق بيانات الاشتراك والسياسة المحفوظة وقت البيع.</p><section class="document-section"><h2>بنود ممارسة النشاط</h2><div class="document-terms">${escapePrintHtml(text(contract.contractContent, ""))}</div></section><section class="document-signatures"><div>توقيع المشترك</div><div>توقيع الموظف المختص</div><div>التاريخ</div></section>`,
   })
+}
+function subscriptionContractPrintRows(subscription: Row): Array<[string, string]> {
+  const commercial = isRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
+  const promotion = isRow(commercial.promotion) ? commercial.promotion : undefined
+  const policySnapshot = isRow(subscription.policySnapshot) ? subscription.policySnapshot : {}
+  const policies = Array.isArray(policySnapshot.policies) ? policySnapshot.policies.filter(isRow) : []
+  const freeze = policies.find(policy => text(policy.policyType, "") === "FREEZE")
+  const configuration = freeze && isRow(freeze.configuration) ? freeze.configuration : undefined
+  const periods = Array.isArray(subscription.freezePeriods) ? subscription.freezePeriods.filter(isRow) : []
+  const rows: Array<[string, string]> = [
+    ["رقم الاشتراك", text(subscription.subscriptionNumber)],
+    ["الباقة", text(commercial.packageName, "باقة النادي")],
+    ["تاريخ بداية الاشتراك", date(subscription.termStart)],
+    ["تاريخ نهاية الاشتراك الحالية", date(subscription.termEnd)],
+    ["قيمة الاشتراك النهائية", money(minor(commercial.grossMinor))],
+  ]
+  if (promotion) rows.push(["العرض المطبق", text(promotion.name, text(promotion.code))])
+  if (configuration) {
+    rows.push(["مرات التجميد المسموحة", `${minor(configuration.maxFreezesPerTerm)} مرة`])
+    rows.push(["أقصى مدة للتجميد في المرة", `${minor(configuration.maxDaysPerFreeze)} يوم`])
+    rows.push(["النشاط المطلوب قبل التجميد", `${minor(configuration.minimumActiveDaysBeforeFreeze)} يوم`])
+    rows.push(["مرات التجميد المستخدمة", `${periods.length} مرة`])
+    rows.push(["أيام التجميد المستخدمة", `${totalUsedFreezeDays(periods, Date.now())} يوم`])
+    rows.push(["مرات التجميد المتبقية", `${Math.max(minor(configuration.maxFreezesPerTerm) - periods.length, 0)} مرة`])
+  }
+  return rows
+}
+function totalUsedFreezeDays(periods: Row[], asOf: number) {
+  return periods.reduce((total, period) => {
+    const startedAt = new Date(text(period.startedAt, "")).getTime()
+    const plannedEndAt = new Date(text(period.plannedEndAt, "")).getTime()
+    const resumedAt = period.resumedAt ? new Date(text(period.resumedAt, "")).getTime() : asOf
+    if (!Number.isFinite(startedAt) || !Number.isFinite(plannedEndAt) || !Number.isFinite(resumedAt)) return total
+    const elapsedMilliseconds = Math.max(0, Math.min(plannedEndAt, Math.max(startedAt, resumedAt)) - startedAt)
+    return total + Math.ceil(elapsedMilliseconds / 86_400_000)
+  }, 0)
 }

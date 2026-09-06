@@ -132,6 +132,8 @@
 .invoice-print-meta span { color: #6b7280; font-size: 8px; }
 .invoice-print-meta strong { margin-top: 2px; font-size: 9px; }
 .invoice-print-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.invoice-print-memberships { grid-template-columns: 1fr; }
+.invoice-print-memberships section { break-inside: avoid; background: #fffbeb; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 .invoice-print-parties section { border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 10px; }
 .invoice-print-parties h2, .invoice-print-lines h2, .invoice-print-payments h2 { margin: 0 0 5px; color: #92400e; font-size: 10px; font-weight: 900; }
 .invoice-print-parties section > div { display: flex; justify-content: space-between; gap: 14px; padding: 2px 0; font-size: 8.5px; }
@@ -185,6 +187,7 @@
 .contract-print-reference strong { margin-top: 2px; font-size: 10.5px; }
 .contract-print-party, .contract-print-terms, .contract-print-declarations { margin-top: 9px; border: 1px solid #9ca3af; border-radius: 7px; padding: 8px 10px; }
 .contract-print-party { break-inside: avoid; }
+.contract-print-membership { background: #fffbeb; border-color: #d6a700; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 .contract-print-party h2, .contract-print-terms h2, .contract-print-declarations h2 { margin: 0 0 6px; color: #78350f; font-size: 12px; font-weight: 900; }
 .contract-print-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px 12px; }
 .contract-print-fields > div { min-height: 24px; border-bottom: 1px solid #9ca3af; }

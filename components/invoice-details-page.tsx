@@ -21,8 +21,11 @@ type InvoiceLine = {
   id: string; orderLineId?: string; description: string; lineType?: string; targetId?: string; targetCode?: string; targetName?: string
   quantity: number; unitNetMinor: string; netMinor: string; discountMinor: string; taxMinor: string; grossMinor: string
   taxRateBps: number; taxInclusive: boolean; fulfillmentStatus?: string; fulfillmentReferenceId?: string; commercialSnapshot?: Record<string, unknown>; contractSnapshots: Record<string, unknown>[]
+  subscription?: { id: string; subscriptionNumber: string; status: string; termStart: string; termEnd: string; policySnapshot: Record<string, unknown>; freezesUsed: number; freezeDaysUsed: number }
 }
-export type ContractSnapshot = { activityId: string; activityCode: string; activityName: string; packageId?: string; packageCode?: string; activityNames?: string[]; contractType: "GENERAL_ACTIVITY" | "CHILD_ACADEMY"; contractTitle: string; contractContent: string; packageName?: string; source: "SALE" | "LEGACY_BACKFILL" }
+type FreezePolicyPrint = { name?: string; maxDaysPerFreeze?: number; maxFreezesPerTerm?: number; minimumActiveDaysBeforeFreeze?: number; freezesUsed: number; freezeDaysUsed: number }
+type MembershipPrintDetails = { lineId: string; packageName: string; subscriptionNumber?: string; status?: string; termStart?: string; termEnd?: string; promotionName?: string; priceBeforeOfferMinor?: string; subscriptionValueMinor: string; currency: string; freezePolicy?: FreezePolicyPrint }
+export type ContractSnapshot = { activityId: string; activityCode: string; activityName: string; packageId?: string; packageCode?: string; activityNames?: string[]; contractType: "GENERAL_ACTIVITY" | "CHILD_ACADEMY"; contractTitle: string; contractContent: string; packageName?: string; source: "SALE" | "LEGACY_BACKFILL"; membership?: MembershipPrintDetails }
 export type ContractPrintContext = {
   branchName: string
   invoiceNumber?: string
@@ -73,7 +76,8 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
   }, [context.loading, context.organizationId, invoiceId, reloadKey])
 
   const invoiceType = useMemo(() => describeInvoiceType(invoice?.lines ?? []), [invoice?.lines])
-  const contracts = useMemo(() => invoiceContracts(invoice?.lines ?? []), [invoice?.lines])
+  const contracts = useMemo(() => invoiceContracts(invoice?.lines ?? [], invoice?.currency ?? "SAR"), [invoice?.currency, invoice?.lines])
+  const memberships = useMemo(() => invoiceMemberships(invoice?.lines ?? [], invoice?.currency ?? "SAR"), [invoice?.currency, invoice?.lines])
 
   if (context.loading || loading) return <div className="grid min-h-[55vh] place-items-center"><div className="text-center"><Loader2 className="mx-auto size-9 animate-spin text-primary"/><p className="mt-3 text-sm text-muted-foreground">جارٍ تجهيز تفاصيل الفاتورة…</p></div></div>
   if (!context.canAccess(["finance.invoices.read"])) return <EmptyState title="لا تملك صلاحية عرض الفواتير" detail="اطلب من مسؤول النظام منحك صلاحية عرض الفواتير في فرعك." />
@@ -98,7 +102,7 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
 
     <div role="status" className={`flex items-start gap-3 rounded-2xl border p-4 text-sm ${contracts.length ? "border-amber-600/40 bg-amber-500/10" : "bg-secondary/35"}`}>
       <FileSignature className="mt-0.5 size-5 shrink-0 text-amber-700" aria-hidden="true"/>
-      <div><p className="font-bold">{contracts.length ? `${contracts.length === 1 ? "عقد واحد مرتبط" : `${contracts.length} عقود مرتبطة`} بهذه الفاتورة` : "لا يوجد عقد مرتبط بهذه الفاتورة"}</p><p className="mt-1 text-xs leading-6 text-muted-foreground">{contracts.length ? "يمكن طباعة العقد منفردًا أو مع الفاتورة. نسخة عقد الباقة المحفوظة وقت البيع لا تتغير عند تعديل الباقة لاحقًا." : "ترتبط العقود بفواتير الاشتراكات عندما تحتوي الباقة على عنوان وبنود عقد."}</p></div>
+      <div><p className="font-bold">{contracts.length ? `${contracts.length === 1 ? "عقد واحد مرتبط" : `${contracts.length} عقود مرتبطة`} بهذه الفاتورة` : "لا يوجد عقد مرتبط بهذه الفاتورة"}</p><p className="mt-1 text-xs leading-6 text-muted-foreground">{contracts.length ? "يمكن طباعة العقد منفردًا أو مع الفاتورة. البنود والعرض والقيمة وسياسة الباقة محفوظة وقت البيع، بينما تعكس النهاية وإحصاءات التجميد حالة الاشتراك الحالية." : "ترتبط العقود بفواتير الاشتراكات عندما تحتوي الباقة على عنوان وبنود عقد."}</p></div>
     </div>
 
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -138,12 +142,12 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
 
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Hash className="text-primary"/>البيانات المرجعية</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Info label="معرّف الفاتورة" value={invoice.id} mono/><Info label="معرّف طلب البيع" value={invoice.orderId} mono/><Info label="إصدار السجل" value={String(invoice.version)}/><Info label="صافي البنود" value={money(invoice.netMinor, invoice.currency)}/><Info label="وقت الإنشاء" value={dateTime(invoice.createdAt)}/><Info label="عملة الفاتورة" value={invoice.currency}/></div>{Object.keys(invoice.taxSnapshot??{}).length>0&&<details className="mt-5 rounded-xl border bg-secondary/20 p-4"><summary className="cursor-pointer font-bold">مرجع الضريبة المحفوظ وقت الإصدار</summary><SnapshotGrid value={invoice.taxSnapshot}/></details>}</CardContent></Card>
   </div>
-  <InvoicePrintSheet invoice={invoice} invoiceType={invoiceType}/>
+  <InvoicePrintSheet invoice={invoice} invoiceType={invoiceType} memberships={memberships}/>
   <ContractPrintSheets context={{ branchName: invoice.branch.name, invoiceNumber: invoice.invoiceNumber, issuedAt: invoice.issuedAt, employeeName: invoice.order?.createdByName, member: invoice.member }} contracts={contracts}/>
   </>
 }
 
-function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; invoiceType: string }) {
+function InvoicePrintSheet({ invoice, invoiceType, memberships }: { invoice: InvoiceDetails; invoiceType: string; memberships: MembershipPrintDetails[] }) {
   const dense = invoice.lines.length + invoice.payments.length + invoice.refunds.length + (invoice.creditNotes?.length??0) > 10
   return <section data-invoice-print className={`invoice-print-sheet${dense ? " invoice-print-sheet--dense" : ""}`} dir="rtl" aria-label={`نسخة طباعة الفاتورة ${invoice.invoiceNumber}`}>
     <header className="invoice-print-header">
@@ -165,6 +169,10 @@ function InvoicePrintSheet({ invoice, invoiceType }: { invoice: InvoiceDetails; 
       <PrintParty title="مقدم الخدمة" rows={[["المنشأة", "GO Fitness"], ["الفرع", invoice.branch.name], ["موظف تنفيذ العملية", invoice.order?.createdByName ?? "غير مسجل"]]}/>
       <PrintParty title="العميل" rows={invoice.member ? [["الاسم", invoice.member.name], ["رقم العضوية", invoice.member.memberNumber], ["الجوال", invoice.member.phone ?? "—"], ["البريد", invoice.member.email ?? "—"]] : [["نوع العميل", invoice.order ? buyerLabel(invoice.order.buyerType) : "عميل نقدي"], ["العضوية", "غير مرتبطة"]]}/>
     </div>
+
+    {memberships.length > 0 && <div className="invoice-print-parties invoice-print-memberships">
+      {memberships.map(membership => <PrintParty key={membership.lineId} title={`تفاصيل الاشتراك · ${membership.packageName}`} rows={membershipRows(membership)}/>) }
+    </div>}
 
     <div className="invoice-print-lines">
       <h2>تفاصيل البنود</h2>
@@ -228,6 +236,8 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
 
       {contract.contractType === "CHILD_ACADEMY" ? <AcademyContractParty member={context.member}/> : <GeneralContractParty member={context.member}/>}
 
+      {contract.membership && <MembershipContractSection membership={contract.membership} />}
+
       <p className="contract-print-preamble">تم الاتفاق بين GO Fitness و{contract.contractType === "CHILD_ACADEMY" ? "ولي أمر المشترك الموضحة بياناته أدناه" : "المشترك الموضحة بياناته أعلاه"} على الاشتراك في {contract.packageId ? <>باقة <strong>{contract.packageName}</strong></> : <>نشاط <strong>{contract.activityName}</strong>{contract.packageName ? <> ضمن باقة <strong>{contract.packageName}</strong></> : null}</>}، وذلك وفق البنود والإقرارات الواردة في هذه الوثيقة.</p>
 
       <section className="contract-print-terms">
@@ -252,13 +262,74 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
 
 function GeneralContractParty({ member }: { member?: ContractPrintContext["member"] }) { return <section className="contract-print-party"><h2>بيانات المشترك</h2><div className="contract-print-fields"><ContractField label="الاسم" value={member?.name}/><ContractField label="رقم العضوية" value={member?.memberNumber}/><ContractField label="رقم الجوال" value={member?.phone}/><ContractField label="البريد الإلكتروني" value={member?.email}/></div></section> }
 function AcademyContractParty({ member }: { member?: ContractPrintContext["member"] }) { return <><section className="contract-print-party"><h2>بيانات الطفل</h2><div className="contract-print-fields"><ContractField label="اسم الطفل" value={member?.name}/><ContractField label="رقم العضوية" value={member?.memberNumber}/><ContractField label="تاريخ الميلاد"/><ContractField label="الجنسية"/><ContractField label="الصف الدراسي"/><ContractField label="رقم الهوية / الإقامة"/></div></section><section className="contract-print-party"><h2>بيانات ولي الأمر</h2><div className="contract-print-fields"><ContractField label="اسم ولي الأمر"/><ContractField label="صلة القرابة"/><ContractField label="رقم الجوال" value={member?.phone}/><ContractField label="رقم جوال بديل"/></div></section></> }
+function MembershipContractSection({ membership }: { membership: MembershipPrintDetails }) { return <section className="contract-print-party contract-print-membership"><h2>بيانات الاشتراك والقيمة وسياسة التجميد</h2><div className="contract-print-fields">{membershipRows(membership).map(([label, value]) => <ContractField key={label} label={label} value={value}/>)}</div></section> }
 function ContractField({ label, value }: { label: string; value?: string }) { return <div><span>{label}</span><strong>{value || " "}</strong></div> }
 function Signature({ label, value }: { label: string; value?: string }) { return <div><span>{value ? `${label}: ${value}` : label}</span><i/></div> }
 
-function invoiceContracts(lines: InvoiceLine[]): ContractSnapshot[] {
+function invoiceMemberships(lines: InvoiceLine[], currency: string): MembershipPrintDetails[] {
+  return lines.map(line => membershipPrintDetails(line, currency)).filter((value): value is MembershipPrintDetails => value !== undefined)
+}
+function membershipPrintDetails(line: InvoiceLine, currency: string): MembershipPrintDetails | undefined {
+  if (line.lineType !== "MEMBERSHIP" && line.subscription === undefined) return undefined
+  const snapshot = line.commercialSnapshot ?? {}
+  const packageSnapshot = asRecord(snapshot.packageSnapshot)
+  const promotion = asRecord(snapshot.promotion)
+  const capturedPolicies = asArray(line.subscription?.policySnapshot?.policies).map(asRecord)
+  const packagePolicies = asArray(packageSnapshot.policies).map(asRecord)
+  const capturedFreeze = capturedPolicies.find(policy => asText(policy.policyType) === "FREEZE")
+  const packageFreeze = packagePolicies.find(policy => asText(policy.policyType) === "FREEZE")
+  const configuration = asRecord(capturedFreeze?.configuration ?? packageFreeze?.configuration)
+  const hasFreezePolicy = Object.keys(configuration).length > 0
+  return {
+    lineId: line.id,
+    packageName: line.targetName || line.description,
+    ...(line.subscription?.subscriptionNumber ? { subscriptionNumber: line.subscription.subscriptionNumber } : {}),
+    ...(line.subscription?.status ? { status: line.subscription.status } : {}),
+    ...(line.subscription?.termStart ? { termStart: line.subscription.termStart } : {}),
+    ...(line.subscription?.termEnd ? { termEnd: line.subscription.termEnd } : {}),
+    ...(asText(promotion.name) ? { promotionName: asText(promotion.name) } : {}),
+    ...(asText(snapshot.baseAmountMinor) ? { priceBeforeOfferMinor: asText(snapshot.baseAmountMinor) } : {}),
+    subscriptionValueMinor: line.grossMinor,
+    currency,
+    ...(hasFreezePolicy ? { freezePolicy: {
+      ...(asText(packageFreeze?.name) ? { name: asText(packageFreeze?.name) } : {}),
+      ...(asNumber(configuration.maxDaysPerFreeze) !== undefined ? { maxDaysPerFreeze: asNumber(configuration.maxDaysPerFreeze) } : {}),
+      ...(asNumber(configuration.maxFreezesPerTerm) !== undefined ? { maxFreezesPerTerm: asNumber(configuration.maxFreezesPerTerm) } : {}),
+      ...(asNumber(configuration.minimumActiveDaysBeforeFreeze) !== undefined ? { minimumActiveDaysBeforeFreeze: asNumber(configuration.minimumActiveDaysBeforeFreeze) } : {}),
+      freezesUsed: line.subscription?.freezesUsed ?? 0,
+      freezeDaysUsed: line.subscription?.freezeDaysUsed ?? 0,
+    } } : {}),
+  }
+}
+function membershipRows(membership: MembershipPrintDetails): Array<[string, string]> {
+  const rows: Array<[string, string]> = []
+  if (membership.subscriptionNumber) rows.push(["رقم الاشتراك", membership.subscriptionNumber])
+  if (membership.status) rows.push(["حالة الاشتراك", statusLabel(membership.status)])
+  if (membership.termStart) rows.push(["تاريخ بداية الاشتراك", dateOnly(membership.termStart)])
+  if (membership.termEnd) rows.push(["تاريخ نهاية الاشتراك الحالية", dateOnly(membership.termEnd)])
+  rows.push(["قيمة الاشتراك النهائية", money(membership.subscriptionValueMinor, membership.currency)])
+  if (membership.promotionName) {
+    rows.push(["العرض المطبق", membership.promotionName])
+    if (membership.priceBeforeOfferMinor) rows.push(["السعر الأساسي قبل تطبيق العرض", money(membership.priceBeforeOfferMinor, membership.currency)])
+  }
+  const policy = membership.freezePolicy
+  if (policy) {
+    if (policy.name) rows.push(["سياسة التجميد", policy.name])
+    if (policy.maxFreezesPerTerm !== undefined) rows.push(["مرات التجميد المسموحة", `${policy.maxFreezesPerTerm} مرة`])
+    if (policy.maxDaysPerFreeze !== undefined) rows.push(["أقصى مدة للتجميد في المرة", `${policy.maxDaysPerFreeze} يوم`])
+    if (policy.minimumActiveDaysBeforeFreeze !== undefined) rows.push(["النشاط المطلوب قبل التجميد", `${policy.minimumActiveDaysBeforeFreeze} يوم`])
+    rows.push(["مرات التجميد المستخدمة", `${policy.freezesUsed} مرة`])
+    rows.push(["أيام التجميد المستخدمة", `${policy.freezeDaysUsed} يوم`])
+    if (policy.maxFreezesPerTerm !== undefined) rows.push(["مرات التجميد المتبقية", `${Math.max(policy.maxFreezesPerTerm - policy.freezesUsed, 0)} مرة`])
+  }
+  return rows
+}
+
+function invoiceContracts(lines: InvoiceLine[], currency: string): ContractSnapshot[] {
   const result = new Map<string, ContractSnapshot>()
   for (const line of lines) {
-    for (const snapshot of line.contractSnapshots ?? []) { const contract = normalizeContract(snapshot, line.targetName); if (contract) result.set(contract.activityId, contract) }
+    const membership = membershipPrintDetails(line, currency)
+    for (const snapshot of line.contractSnapshots ?? []) { const contract = normalizeContract(snapshot, line.targetName); if (contract) result.set(`${contract.activityId}:${line.subscription?.id ?? line.id}`, { ...contract, ...(membership ? { membership } : {}) }) }
   }
   return [...result.values()]
 }
