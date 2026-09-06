@@ -4,7 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
-import { ArrowLeft, BookOpenText, Check, ChevronLeft, Clock3, Download, Home, Lightbulb, Search, TriangleAlert, UsersRound, X, ZoomIn } from "lucide-react"
+import { ArrowLeft, ArrowUpLeft, BookOpenText, Check, ChevronLeft, Clock3, Download, Home, Lightbulb, Link2, MousePointerClick, Search, TriangleAlert, UsersRound, X, ZoomIn } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
@@ -18,7 +18,7 @@ const toneClasses = {
 }
 
 function searchText(page: GuidePage) {
-  return [page.title, page.description, ...page.keywords, ...page.flow, ...page.sections.flatMap(section => [section.title, section.description ?? "", ...(section.steps ?? []), ...(section.points ?? []), section.note?.title ?? "", section.note?.body ?? ""])].join(" ").toLocaleLowerCase("ar")
+  return [page.title, page.description, ...page.keywords, ...page.flow, ...page.sections.flatMap(section => [section.title, section.description ?? "", ...(section.steps ?? []), ...(section.points ?? []), section.note?.title ?? "", section.note?.body ?? "", section.image?.alt ?? "", section.image?.caption ?? "", ...(section.images ?? []).flatMap(image => [image.alt, image.caption]), ...(section.links ?? []).flatMap(link => [link.label, link.description])])].join(" ").toLocaleLowerCase("ar")
 }
 
 function GuideSearch({ pages }: { pages: GuidePage[] }) {
@@ -73,8 +73,8 @@ function SectionCallout({ note }: { note: NonNullable<GuideSection["note"]> }) {
   </aside>
 }
 
-function GuideImage({ image, onZoom }: { image: NonNullable<GuideSection["image"]>; onZoom: (image: NonNullable<GuideSection["image"]>) => void }) {
-  return <figure className="mt-5 overflow-hidden rounded-2xl border bg-secondary/30">
+function GuideImage({ image, onZoom, compact = false }: { image: NonNullable<GuideSection["image"]>; onZoom: (image: NonNullable<GuideSection["image"]>) => void; compact?: boolean }) {
+  return <figure className={cn("overflow-hidden rounded-2xl border bg-secondary/30", !compact && "mt-5")}>
     <button type="button" onClick={() => onZoom(image)} className="group relative block w-full overflow-hidden bg-zinc-950 text-right" aria-label={`تكبير الصورة: ${image.alt}`}>
       <Image src={image.src} alt={image.alt} width={2048} height={1050} unoptimized className="h-auto w-full transition duration-300 group-hover:scale-[1.01]" />
       <span className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl bg-black/80 px-3 py-2 text-[11px] font-bold text-white"><ZoomIn className="size-4" />تكبير الصورة</span>
@@ -83,11 +83,35 @@ function GuideImage({ image, onZoom }: { image: NonNullable<GuideSection["image"
   </figure>
 }
 
+function GuideGallery({ images, onZoom }: { images: NonNullable<GuideSection["images"]>; onZoom: (image: NonNullable<GuideSection["image"]>) => void }) {
+  return <div className="mt-4 grid gap-4 lg:grid-cols-2" aria-label="صور إضافية لهذه الخطوة">
+    {images.map(image => <GuideImage key={image.src} image={image} onZoom={onZoom} compact />)}
+  </div>
+}
+
+function ActionLinks({ links, compact = false }: { links: NonNullable<GuideSection["links"]>; compact?: boolean }) {
+  return <div className={cn("rounded-2xl border border-primary/25 bg-primary/[.045] p-4", !compact && "mt-5")}>
+    {!compact && <div className="mb-3 flex items-start gap-3">
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-black"><MousePointerClick className="size-4" /></span>
+      <div><p className="text-sm font-black">نفّذ الإجراء داخل النظام</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">استخدم الرابط المناسب للانتقال مباشرة إلى شاشة التنفيذ الفعلية.</p></div>
+    </div>}
+    <div className={cn("grid gap-2", compact ? "sm:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2")}>
+      {links.map(link => <Link key={`${link.href}-${link.label}`} href={link.href} className="group flex min-h-20 items-start justify-between gap-3 rounded-xl border bg-background p-3 transition hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25">
+        <span><span className="block text-sm font-black group-hover:text-amber-700 dark:group-hover:text-amber-300">{link.label}</span><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">{link.description}</span></span>
+        <ArrowUpLeft className="mt-0.5 size-4 shrink-0 text-amber-700 transition group-hover:-translate-x-0.5 group-hover:-translate-y-0.5 dark:text-amber-300" aria-hidden="true" />
+      </Link>)}
+    </div>
+    {!compact && <p className="mt-3 flex items-center gap-2 text-[10px] leading-5 text-muted-foreground"><Link2 className="size-3.5 shrink-0" />ظهور الشاشة والإجراءات داخلها يعتمد على صلاحيات حسابك والفرع المختار.</p>}
+  </div>
+}
+
 function GuideSectionCard({ section, onZoom }: { section: GuideSection; onZoom: (image: NonNullable<GuideSection["image"]>) => void }) {
   return <section id={section.id} className="scroll-mt-24 rounded-3xl border bg-card p-5 shadow-sm sm:p-7">
     <h2 className="text-xl font-black sm:text-2xl">{section.title}</h2>
     {section.description && <p className="mt-2 text-sm leading-7 text-muted-foreground">{section.description}</p>}
     {section.image && <GuideImage image={section.image} onZoom={onZoom} />}
+    {section.images && <GuideGallery images={section.images} onZoom={onZoom} />}
+    {section.links && <ActionLinks links={section.links} />}
     {section.steps && <ol className="mt-5 space-y-3">{section.steps.map((step, index) => <li key={step} className="grid grid-cols-[36px_1fr] items-start gap-3 rounded-2xl border bg-secondary/25 p-3 text-sm leading-7"><span className="grid size-9 place-items-center rounded-xl bg-primary font-black text-black">{index + 1}</span><p>{step}</p></li>)}</ol>}
     {section.points && <ul className="mt-5 space-y-2">{section.points.map(point => <li key={point} className="flex items-start gap-3 text-sm leading-7"><Check className="mt-1.5 size-4 shrink-0 text-emerald-600" /><span>{point}</span></li>)}</ul>}
     {section.note && <SectionCallout note={section.note} />}
@@ -111,6 +135,7 @@ export function SystemUserGuide({ pages, page }: { pages: GuidePage[]; page?: Gu
   const index = pages.findIndex(item => item.slug === page.slug)
   const previous = pages[index - 1]
   const next = pages[index + 1]
+  const taskLinks = page.sections.flatMap(section => section.links ?? []).filter((link, linkIndex, links) => links.findIndex(candidate => candidate.href === link.href && candidate.label === link.label) === linkIndex)
 
   return <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
     <GuideNavigation pages={pages} activeSlug={page.slug} />
@@ -122,6 +147,10 @@ export function SystemUserGuide({ pages, page }: { pages: GuidePage[]; page?: Gu
       </section>
       <GuideSearch pages={pages} />
       <Workflow items={page.flow} />
+      {taskLinks.length > 0 && <section className="rounded-3xl border bg-card p-5 shadow-sm sm:p-7" aria-labelledby="guide-task-links">
+        <div className="mb-4"><p className="text-xs font-black text-amber-700 dark:text-amber-300">روابط مباشرة</p><h2 id="guide-task-links" className="mt-1 text-xl font-black">ابدأ التنفيذ من الشاشة الصحيحة</h2><p className="mt-1 text-xs leading-6 text-muted-foreground">هذه الاختصارات تنقلك إلى صفحات النظام الفعلية، ثم تجد الرابط المناسب مرة أخرى بجوار خطواته التفصيلية.</p></div>
+        <ActionLinks links={taskLinks} compact />
+      </section>}
       <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="عناوين هذه الصفحة">{page.sections.map(section => <a key={section.id} href={`#${section.id}`} className="whitespace-nowrap rounded-full border bg-card px-3 py-2 text-[11px] font-bold transition hover:border-primary hover:text-amber-700">{section.title}</a>)}</nav>
       {page.sections.map(section => <GuideSectionCard key={section.id} section={section} onZoom={setZoomed} />)}
       <nav className="grid gap-3 sm:grid-cols-2" aria-label="التنقل بين صفحات الدليل">{previous ? <Link href={`/guide/${previous.slug}`} className="rounded-2xl border bg-card p-4 transition hover:border-primary"><span className="text-[10px] text-muted-foreground">السابق</span><p className="mt-1 font-black">→ {previous.title}</p></Link> : <span />}{next && <Link href={`/guide/${next.slug}`} className="rounded-2xl border bg-card p-4 text-left transition hover:border-primary"><span className="text-[10px] text-muted-foreground">التالي</span><p className="mt-1 font-black">{next.title} ←</p></Link>}</nav>

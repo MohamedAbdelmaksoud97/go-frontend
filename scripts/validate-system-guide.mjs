@@ -42,6 +42,16 @@ try {
   await page.getByRole("button", { name: /تكبير الصورة/ }).first().click()
   if (!await page.getByRole("dialog").isVisible()) failures.push("image viewer did not open")
   await page.getByRole("button", { name: "إغلاق الصورة" }).click()
+  const directLinks = page.locator('a[href^="/system-settings"], a[href^="/subscriptions"], a[href^="/finance"]')
+  if (await directLinks.count() < 8) failures.push("package guide does not expose enough direct task links")
+  const activityLink = page.getByRole("link", { name: /فتح الرياضات والأنشطة/ }).first()
+  if (!await activityLink.isVisible()) failures.push("activity task link is not visible")
+  else {
+    await activityLink.click()
+    await page.waitForURL(/\/system-settings\/activities/)
+    await page.goBack({ waitUntil: "domcontentloaded" })
+    await page.getByRole("heading", { name: "إنشاء باقة وعرضها للبيع", level: 1 }).waitFor()
+  }
   const desktopOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   if (desktopOverflow > 2) failures.push(`desktop horizontal overflow: ${desktopOverflow}px`)
   await fs.mkdir(path.resolve("../.temp/guide-validation"), { recursive: true })
@@ -66,5 +76,5 @@ if (failures.length) {
   console.error(JSON.stringify({ failures }, null, 2))
   process.exitCode = 1
 } else {
-  console.log(JSON.stringify({ login: "ok", nativeRoutes: 14, search: "ok", navigation: "ok", imageViewer: "ok", desktop: "ok", mobile: "ok" }, null, 2))
+  console.log(JSON.stringify({ login: "ok", nativeRoutes: 14, search: "ok", navigation: "ok", directTaskLinks: "ok", imageViewer: "ok", desktop: "ok", mobile: "ok" }, null, 2))
 }
