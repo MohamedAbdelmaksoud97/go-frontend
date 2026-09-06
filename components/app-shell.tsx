@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
-  Activity, Barcode, Bell, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, Compass, CreditCard, FileText,
+  Activity, Barcode, Bell, BookOpenText, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, Compass, CreditCard, FileText,
   Dumbbell, History, LayoutDashboard, LogOut, Menu, MessageSquareText, Moon, ReceiptText, Settings,
   Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
 } from "lucide-react"
@@ -43,6 +43,9 @@ const navGroups = [
     { href: "/reports", label: "التقارير", icon: ClipboardList, permissions:["reporting.read"] },
     { href: "/audit", label: "سجل نشاط النظام", icon: History, permissions:["iam.audit.read"] },
     { href: "/system-settings/branches", label: "إعداد النظام", icon: Settings, permissions:[...systemSettingsPermissions] },
+  ]},
+  { label: "المساعدة", items: [
+    { href: "/guide", label: "دليل الاستخدام", icon: BookOpenText, permissions:[] },
   ]},
   { label: "مساحتي", items: [
     { href: "/notifications", label: "الإشعارات", icon: Bell, permissions:[] },

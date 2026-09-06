@@ -64,6 +64,7 @@ export const routePermissions:Record<string,string[]>={
  "/self-service":[],
  "/account":[],
  "/notifications":[],
+ "/guide":[],
  "/select-context":[],
 }
 
