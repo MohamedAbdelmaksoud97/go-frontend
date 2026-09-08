@@ -18,7 +18,7 @@ const toneClasses = {
 }
 
 function searchText(page: GuidePage) {
-  return [page.title, page.description, ...page.keywords, ...page.flow, ...page.sections.flatMap(section => [section.title, section.description ?? "", ...(section.steps ?? []), ...(section.points ?? []), section.note?.title ?? "", section.note?.body ?? "", section.image?.alt ?? "", section.image?.caption ?? "", ...(section.images ?? []).flatMap(image => [image.alt, image.caption]), ...(section.links ?? []).flatMap(link => [link.label, link.description])])].join(" ").toLocaleLowerCase("ar")
+  return [page.title, page.description, ...page.keywords, ...page.flow, ...page.sections.flatMap(section => [section.title, section.description ?? "", ...(section.flow ?? []), ...(section.steps ?? []), ...(section.points ?? []), ...(section.table?.headers ?? []), ...(section.table?.rows.flat() ?? []), section.note?.title ?? "", section.note?.body ?? "", section.image?.alt ?? "", section.image?.caption ?? "", ...(section.images ?? []).flatMap(image => [image.alt, image.caption]), ...(section.links ?? []).flatMap(link => [link.label, link.description])])].join(" ").toLocaleLowerCase("ar")
 }
 
 function GuideSearch({ pages }: { pages: GuidePage[] }) {
@@ -65,6 +65,15 @@ function Workflow({ items }: { items: string[] }) {
   </ol>
 }
 
+function GuideTable({ table }: { table: NonNullable<GuideSection["table"]> }) {
+  return <div className="mt-5 overflow-x-auto rounded-2xl border">
+    <table className="w-full min-w-[760px] border-collapse text-right text-xs leading-6">
+      <thead className="bg-zinc-950 text-white"><tr>{table.headers.map(header => <th key={header} className="px-4 py-3 font-black">{header}</th>)}</tr></thead>
+      <tbody className="divide-y">{table.rows.map((row, rowIndex) => <tr key={`${row[0] ?? "row"}-${rowIndex}`} className="align-top odd:bg-secondary/20">{row.map((cell, cellIndex) => <td key={`${cellIndex}-${cell}`} className="px-4 py-3">{cell}</td>)}</tr>)}</tbody>
+    </table>
+  </div>
+}
+
 function SectionCallout({ note }: { note: NonNullable<GuideSection["note"]> }) {
   const tone = note.tone ?? "info"
   return <aside className={cn("mt-5 flex items-start gap-3 rounded-2xl border p-4", toneClasses[tone])}>
@@ -109,9 +118,11 @@ function GuideSectionCard({ section, onZoom }: { section: GuideSection; onZoom: 
   return <section id={section.id} className="scroll-mt-24 rounded-3xl border bg-card p-5 shadow-sm sm:p-7">
     <h2 className="text-xl font-black sm:text-2xl">{section.title}</h2>
     {section.description && <p className="mt-2 text-sm leading-7 text-muted-foreground">{section.description}</p>}
+    {section.flow && <div className="mt-5"><Workflow items={section.flow} /></div>}
     {section.image && <GuideImage image={section.image} onZoom={onZoom} />}
     {section.images && <GuideGallery images={section.images} onZoom={onZoom} />}
     {section.links && <ActionLinks links={section.links} />}
+    {section.table && <GuideTable table={section.table} />}
     {section.steps && <ol className="mt-5 space-y-3">{section.steps.map((step, index) => <li key={step} className="grid grid-cols-[36px_1fr] items-start gap-3 rounded-2xl border bg-secondary/25 p-3 text-sm leading-7"><span className="grid size-9 place-items-center rounded-xl bg-primary font-black text-black">{index + 1}</span><p>{step}</p></li>)}</ol>}
     {section.points && <ul className="mt-5 space-y-2">{section.points.map(point => <li key={point} className="flex items-start gap-3 text-sm leading-7"><Check className="mt-1.5 size-4 shrink-0 text-emerald-600" /><span>{point}</span></li>)}</ul>}
     {section.note && <SectionCallout note={section.note} />}
