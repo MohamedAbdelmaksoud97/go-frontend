@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, CheckCircle2, Copy, Eye, EyeOff, FileCheck2, Loader2, LockKeyhole, Search, UploadCloud, X } from "lucide-react"
+import { AlertTriangle, CalendarDays, CheckCircle2, Copy, CreditCard, Eye, EyeOff, FileCheck2, Loader2, LockKeyhole, MapPin, Search, ShieldAlert, UploadCloud, UserRound, X, XCircle } from "lucide-react"
 import { endpoints } from "@/lib/endpoint-catalog"
 import { apiRequest, createIdempotencyKey, executeOperation, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/toast-provider"
 import { useAppContext } from "@/components/app-context"
 import { DateTimeInput } from "@/components/date-time-input"
+import { StatusBadge } from "@/components/status-badge"
 import { ownerFileValidationError, uploadOwnerFile } from "@/lib/owner-file-upload"
 
 type Props = {
@@ -46,6 +47,15 @@ type SubscriptionQuote = {
   }
 }
 
+type DataRow = Record<string, unknown>
+
+type AttendanceSubscriptionState = {
+  key: string
+  loading: boolean
+  items: DataRow[]
+  error?: string
+}
+
 export function ActionDialog({ operationId, organizationId, branchId, onClose, onSaved, initialValues, lockedReferenceLabels }: Props) {
   const router = useRouter()
   const toast = useToast()
@@ -58,11 +68,22 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const [options, setOptions] = useState<Record<string, Choice[]>>({})
   const [referenceQueries, setReferenceQueries] = useState<Record<string, string>>({})
   const [loadingOptions, setLoadingOptions] = useState(() => Boolean(hasRuntimeApi() && effectiveBranchId && workflow?.fields.some(field => field.type === "reference" && !lockedReferenceLabels?.[field.name])))
+  const [loadingSlots, setLoadingSlots] = useState(false)
+  const [slotError, setSlotError] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [createdEmployee, setCreatedEmployee] = useState<{ id: string; number: string; name: string }>()
   const [quoteState, setQuoteState] = useState<{ key: string; loading: boolean; quote?: SubscriptionQuote; error?: string }>({ key: "", loading: false })
+  const isManualAttendance = operationId === "recordManualAttendance"
+  const initialAttendanceMemberId = isManualAttendance ? String(initialValues?.memberId ?? "") : ""
+  const [attendanceSubscriptionsState, setAttendanceSubscriptionsState] = useState<AttendanceSubscriptionState>(() => ({ key: initialAttendanceMemberId, loading: Boolean(initialAttendanceMemberId), items: [] }))
+  const [attendanceResult, setAttendanceResult] = useState<DataRow>()
   const isSubscriptionSale = operationId === "createSubscription"
+  const selectedMemberId = String(values.memberId ?? "")
+  const selectedMember = options.memberId?.find(choice => choice.value === selectedMemberId)?.meta
+  const attendanceSubscriptions = attendanceSubscriptionsState.key === selectedMemberId ? attendanceSubscriptionsState.items : []
+  const attendanceSubscriptionsError = attendanceSubscriptionsState.key === selectedMemberId ? attendanceSubscriptionsState.error ?? "" : ""
+  const attendanceSubscriptionsLoading = Boolean(selectedMemberId && (attendanceSubscriptionsState.key !== selectedMemberId || attendanceSubscriptionsState.loading))
   const selectedPackageId = String(values.packageId ?? "")
   const quoteKey = `${effectiveBranchId}:${selectedPackageId}`
   const subscriptionQuote = quoteState.key === quoteKey ? quoteState.quote : undefined
@@ -87,12 +108,46 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         const list = Array.isArray(payload) ? payload : payload && typeof payload === "object" && "items" in payload ? (payload as { items: unknown[] }).items : []
         const available = field.name === "packageId"
           ? await sellablePackages(list, effectiveOrganizationId, effectiveBranchId)
+          : field.name === "resourceId"
+            ? list.filter(item => item && typeof item === "object" && (item as Record<string, unknown>).status === "ACTIVE")
           : list
         return [field.name, available.flatMap(item => toChoice(item, field.source!.labelKeys, field.source!.subtitleKeys, field.name === "positionId"))] as const
       } catch { return [field.name, []] as const }
     })).then(entries => { if (!cancelled) setOptions(Object.fromEntries(entries)) }).finally(() => { if (!cancelled) setLoadingOptions(false) }) }, 250)
     return () => { cancelled = true; window.clearTimeout(timer) }
   }, [context, effectiveBranchId, effectiveOrganizationId, lockedReferenceLabels, referenceQueries, workflow])
+
+  useEffect(() => {
+    if (!isManualAttendance || !selectedMemberId || !effectiveOrganizationId || !hasRuntimeApi()) return
+    let cancelled = false
+    void loadAllAttendanceSubscriptions(effectiveOrganizationId, selectedMemberId)
+      .then(items => {
+        if (cancelled) return
+        setAttendanceSubscriptionsState({ key: selectedMemberId, loading: false, items })
+      })
+      .catch(reason => {
+        if (cancelled) return
+        setAttendanceSubscriptionsState({ key: selectedMemberId, loading: false, items: [], error: humanError(reason, "تعذر تحميل اشتراكات العضو. يمكنك إعادة اختيار العضو للمحاولة مجددًا.") })
+      })
+    return () => { cancelled = true }
+  }, [effectiveOrganizationId, isManualAttendance, selectedMemberId])
+
+  useEffect(() => {
+    if (operationId !== "createManualReservation" || values.resourceType === "COURT" || !values.resourceId || !effectiveOrganizationId || !hasRuntimeApi()) return
+    let cancelled = false
+    const from = new Date()
+    const to = new Date(from.getTime() + 30 * 86_400_000)
+    void apiRequest<unknown>(`/organizations/${effectiveOrganizationId}/bookable-resources/${String(values.resourceId)}/session-slots?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`)
+      .then(response => {
+        if (cancelled) return
+        const payload = response.data
+        const list = Array.isArray(payload) ? payload : payload && typeof payload === "object" && "items" in payload ? (payload as { items: unknown[] }).items : []
+        setOptions(current => ({ ...current, sessionSlotId: list.flatMap(sessionSlotChoice) }))
+      })
+      .catch(reason => { if (!cancelled) setSlotError(humanError(reason, "تعذر تحميل المواعيد المتاحة لهذا المورد.")) })
+      .finally(() => { if (!cancelled) setLoadingSlots(false) })
+    return () => { cancelled = true }
+  }, [effectiveOrganizationId, operationId, values.resourceId, values.resourceType])
 
   useEffect(() => {
     if (!isSubscriptionSale || !selectedPackageId || !effectiveOrganizationId || !effectiveBranchId || !hasRuntimeApi()) return
@@ -134,6 +189,13 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         lines: [{ type: "MEMBERSHIP", targetId: values.packageId, quantity: 1, accessBranchId: effectiveBranchId, startAt: new Date(String(values.startAt)).toISOString() }],
       } : workflow.body(values, context)
       const response = hasRuntimeApi() ? await executeOperation<Record<string, unknown>>(path, isSubscriptionSale ? "post" : operation!.method, {}, body, isSubscriptionSale || operation!.idempotent ? createIdempotencyKey() : undefined) : undefined
+      if (isManualAttendance && response?.data.decision) {
+        setAttendanceResult(response.data)
+        if (response.data.decision === "ACCEPTED") toast.success("تم السماح للعضو بالدخول وتسجيل المحاولة بنجاح.")
+        else toast.error(`تم رفض الدخول: ${attendanceRejectionLabel(String(response.data.rejectionReason ?? ""))}`)
+        onSaved?.()
+        return
+      }
       if (["createEmployee", "registerMember"].includes(operationId) && response?.data.id) {
         const ownerId = String(response.data.id)
         const owner = operationId === "createEmployee" ? { module: "workforce" as const, type: "EMPLOYEE" as const } : { module: "members" as const, type: "MEMBER" as const }
@@ -167,7 +229,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   }
 
   return <div className="fixed inset-0 z-[80] grid place-items-end bg-black/65 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-    <section dir="rtl" role="dialog" aria-modal="true" aria-labelledby="action-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:max-w-2xl sm:rounded-[28px]">
+    <section dir="rtl" role="dialog" aria-modal="true" aria-labelledby="action-title" className={`max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:rounded-[28px] ${isManualAttendance ? "sm:max-w-4xl" : "sm:max-w-2xl"}`}>
       <header className="sticky top-0 z-10 flex items-start gap-4 border-b bg-card/95 p-5 backdrop-blur sm:p-6">
         <div className="min-w-0"><p className="text-[11px] font-bold text-amber-600 dark:text-primary">إجراء جديد</p><h2 id="action-title" className="mt-1 text-xl font-black">{workflow.title}</h2><p className="mt-2 text-xs leading-6 text-muted-foreground">{workflow.description}</p>{isSubscriptionSale && effectiveBranchId && <p className="mt-2 text-xs font-bold text-primary">فرع البيع والباقات: {effectiveBranchName}</p>}</div>
         <Button variant="ghost" size="icon" className="mr-auto" onClick={onClose} aria-label="إغلاق"><X /></Button>
@@ -184,15 +246,208 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
           </div>
           <div className="mt-6 flex flex-col-reverse justify-center gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>إغلاق</Button><Button type="button" onClick={() => { onClose(); router.push(`/employees/${createdEmployee.id}`) }}>فتح ملف الموظف</Button></div>
         </div>
-      </section> : <form onSubmit={submit} className="p-5 sm:p-6">
+      </section> : attendanceResult ? <AttendanceDecisionResult result={attendanceResult} member={selectedMember} subscriptions={attendanceSubscriptions} branchName={effectiveBranchName} onClose={onClose} onAgain={() => {
+        setAttendanceResult(undefined)
+        setValues(workflow.initial(context))
+        setAttendanceSubscriptionsState({ key: "", loading: false, items: [] })
+        setReferenceQueries({})
+      }} /> : <form onSubmit={submit} className="p-5 sm:p-6">
         {workflow.confirm && <div className="mb-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6"><AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" /><p>{workflow.confirm}</p></div>}
-        <div className="grid gap-5 sm:grid-cols-2">{visibleFields.map(field => <Field key={field.name} field={field} value={values[field.name]} choices={options[field.name]} loading={loadingOptions} lockedLabel={lockedReferenceLabels?.[field.name]} referenceQuery={referenceQueries[field.name] ?? ""} onReferenceSearch={query => setReferenceQueries(current => ({ ...current, [field.name]: query }))} onChange={value => { setError(""); setValues(current => ({ ...current, [field.name]: value })) }} />)}</div>
+        <div className="grid gap-5 sm:grid-cols-2">{visibleFields.map(field => <Field key={field.name} field={field} value={values[field.name]} choices={options[field.name]} loading={loadingOptions || (field.name === "sessionSlotId" && loadingSlots)} lockedLabel={lockedReferenceLabels?.[field.name]} referenceQuery={referenceQueries[field.name] ?? ""} onReferenceSearch={query => setReferenceQueries(current => ({ ...current, [field.name]: query }))} onChange={value => {
+          setError("")
+          if (isManualAttendance && field.name === "memberId") {
+            const memberId = String(value ?? "")
+            setAttendanceResult(undefined)
+            setAttendanceSubscriptionsState({ key: memberId, loading: Boolean(memberId), items: [] })
+            setValues(current => ({ ...current, memberId: value }))
+            return
+          }
+          if (operationId !== "createManualReservation" || field.name !== "resourceId") { setValues(current => ({ ...current, [field.name]: value })); return }
+          const resource = options.resourceId?.find(choice => choice.value === value)?.meta
+          const resourceType = String(resource?.type ?? resource?.resourceType ?? "")
+          setSlotError(""); setLoadingSlots(resourceType === "CLASS" || resourceType === "PERSONAL_TRAINING"); setOptions(current => ({ ...current, sessionSlotId: [] }))
+          setValues(current => ({ ...current, resourceId: value, resourceType, serviceId: String(resource?.serviceId ?? ""), sessionSlotId: "", seats: resourceType === "COURT" || resourceType === "PERSONAL_TRAINING" ? "1" : current.seats }))
+        }} />)}</div>
+        {slotError && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{slotError}</p>}
         {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={quoteError} />}
+        {isManualAttendance && selectedMemberId && <AttendanceMemberPreview member={selectedMember} lockedMemberLabel={lockedReferenceLabels?.memberId} subscriptions={attendanceSubscriptions} loading={attendanceSubscriptionsLoading} error={attendanceSubscriptionsError} branchId={effectiveBranchId} branches={appContext.branches} />}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
-        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions || (isSubscriptionSale && Boolean(selectedPackageId) && (quoteLoading || !subscriptionQuote))}>{saving && <Loader2 className="animate-spin" />}{workflow.submitLabel}</Button></footer>
+        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions || loadingSlots || attendanceSubscriptionsLoading || (isSubscriptionSale && Boolean(selectedPackageId) && (quoteLoading || !subscriptionQuote))}>{saving && <Loader2 className="animate-spin" />}{workflow.submitLabel}</Button></footer>
       </form>}
     </section>
   </div>
+}
+
+function AttendanceMemberPreview({ member, lockedMemberLabel, subscriptions, loading, error, branchId, branches }: {
+  member?: DataRow
+  lockedMemberLabel?: string
+  subscriptions: DataRow[]
+  loading: boolean
+  error: string
+  branchId: string
+  branches: Array<{ id: string; nameAr?: string; name?: string }>
+}) {
+  const memberName = String(member?.name ?? member?.fullNameAr ?? member?.memberName ?? lockedMemberLabel ?? "العضو المحدد")
+  const memberNumber = String(member?.memberNumber ?? member?.legacyMemberNumber ?? subscriptions[0]?.memberNumber ?? "")
+  const memberStatus = String(member?.status ?? "")
+  const blocked = member?.isBlocked === true || subscriptions.some(subscription => subscription.memberIsBlocked === true)
+  const blockedReason = String(member?.blockedReason ?? "")
+
+  return <section className="mt-5 overflow-hidden rounded-2xl border bg-secondary/20" aria-live="polite">
+    <div className="flex flex-wrap items-start gap-3 border-b bg-card/70 p-4">
+      <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${blocked || (memberStatus && memberStatus !== "ACTIVE") ? "bg-red-500/10 text-red-600" : "bg-primary/10 text-primary"}`}><UserRound className="size-5" /></span>
+      <div className="min-w-0 flex-1"><p className="font-black">{memberName}</p>{memberNumber && <p className="mt-1 text-xs text-muted-foreground">رقم العضوية: <span dir="ltr">{memberNumber}</span></p>}</div>
+      <div className="flex flex-wrap gap-2">{memberStatus && <StatusBadge status={memberStatus}/>} {blocked && <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2.5 py-1 text-[11px] font-bold text-red-600"><ShieldAlert className="size-3.5"/>محظور</span>}</div>
+      {blocked && <p className="w-full rounded-xl border border-red-500/20 bg-red-500/8 p-3 text-xs font-semibold leading-6 text-red-600">هذا العضو محظور ولن يُسمح له بالدخول.{blockedReason ? ` السبب: ${blockedReason}` : ""}</p>}
+    </div>
+    <div className="p-4">
+      <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-black">اشتراكات العضو</h3><p className="mt-1 text-[11px] text-muted-foreground">تُعرض جميع الاشتراكات المتاحة لصلاحياتك، والقرار النهائي يصدر عند التحقق.</p></div>{!loading && !error && <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold">{subscriptions.length}</span>}</div>
+      {loading ? <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed p-6 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin"/>جارٍ تحميل تفاصيل الاشتراكات...</div>
+        : error ? <p role="alert" className="rounded-xl border border-red-500/20 bg-red-500/8 p-3 text-xs font-semibold leading-6 text-red-600">{error}</p>
+          : subscriptions.length === 0 ? <p className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">لا توجد اشتراكات مسجلة لهذا العضو ضمن نطاق صلاحياتك؛ من المتوقع رفض الدخول.</p>
+            : <div className="max-h-[42vh] space-y-3 overflow-y-auto pl-1">{subscriptions.map(subscription => <AttendanceSubscriptionCard key={String(subscription.id)} subscription={subscription} branchId={branchId} branches={branches}/>)}</div>}
+    </div>
+  </section>
+}
+
+function AttendanceSubscriptionCard({ subscription, branchId, branches }: { subscription: DataRow; branchId: string; branches: Array<{ id: string; nameAr?: string; name?: string }> }) {
+  const snapshot = isDataRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
+  const entitlements = Array.isArray(subscription.entitlements) ? subscription.entitlements.filter(isDataRow) : []
+  const packageName = String(snapshot.packageName ?? subscription.packageName ?? "باقة العضو")
+  const allowance = finiteNumber(subscription.visitAllowance)
+  const used = finiteNumber(subscription.visitsUsed) ?? 0
+  const remaining = allowance === undefined ? undefined : Math.max(0, allowance - used)
+  const eligibility = attendanceSubscriptionEligibility(subscription, branchId)
+  const accessLabel = subscription.branchAccessPolicy === "ALL_ORGANIZATION_BRANCHES"
+    ? "جميع فروع المؤسسة"
+    : (Array.isArray(subscription.allowedBranchIds) ? subscription.allowedBranchIds : []).map(id => attendanceBranchName(String(id), branches)).join("، ") || attendanceBranchName(String(subscription.sellingBranchId ?? ""), branches)
+
+  return <article className={`rounded-2xl border p-4 ${eligibility.eligible ? "border-emerald-500/30 bg-emerald-500/[.04]" : "bg-card"}`}>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><p className="font-black">{packageName}</p><p className="mt-1 text-[11px] text-muted-foreground">اشتراك <span dir="ltr">{String(subscription.subscriptionNumber ?? "—")}</span></p></div>
+      <div className="flex flex-wrap items-center gap-2"><StatusBadge status={String(subscription.status ?? "غير محدد")}/><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${eligibility.eligible ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" : "bg-red-500/10 text-red-600"}`}>{eligibility.label}</span></div>
+    </div>
+    <dl className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+      <AttendanceDetail icon={CalendarDays} label="مدة الاشتراك" value={`${attendanceDate(subscription.termStart)} — ${attendanceDate(subscription.termEnd)}`}/>
+      <AttendanceDetail icon={CreditCard} label="الزيارات" value={allowance === undefined ? "غير محدودة" : `${remaining} متبقية من ${allowance} · المستخدم ${used}`}/>
+      <AttendanceDetail icon={MapPin} label="صلاحية الفروع" value={accessLabel}/>
+      <AttendanceDetail icon={CheckCircle2} label="الاستخدام في الفرع الحالي" value={eligibility.eligible ? "متاح مبدئيًا" : eligibility.label}/>
+    </dl>
+    {entitlements.length > 0 && <div className="mt-4 border-t pt-3"><p className="text-[11px] font-black">الخدمات المشمولة</p><div className="mt-2 flex flex-wrap gap-2">{entitlements.map((entitlement, index) => {
+      const serviceAllowance = finiteNumber(entitlement.visitAllowance)
+      const serviceUsed = finiteNumber(entitlement.visitsUsed) ?? 0
+      const serviceRemaining = serviceAllowance === undefined ? "غير محدودة" : `${Math.max(0, serviceAllowance - serviceUsed)} من ${serviceAllowance} متبقية`
+      return <span key={String(entitlement.id ?? index)} className="rounded-lg bg-secondary px-2.5 py-1.5 text-[10px] font-semibold">{String(entitlement.serviceNameSnapshot ?? entitlement.serviceCodeSnapshot ?? "خدمة")} · {serviceRemaining}</span>
+    })}</div></div>}
+  </article>
+}
+
+function AttendanceDetail({ icon: Icon, label, value }: { icon: typeof CalendarDays; label: string; value: string }) {
+  return <div className="rounded-xl bg-background/70 p-3"><dt className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground"><Icon className="size-3.5"/>{label}</dt><dd className="mt-1.5 font-bold leading-5">{value}</dd></div>
+}
+
+function AttendanceDecisionResult({ result, member, subscriptions, branchName, onAgain, onClose }: { result: DataRow; member?: DataRow; subscriptions: DataRow[]; branchName: string; onAgain: () => void; onClose: () => void }) {
+  const accepted = result.decision === "ACCEPTED"
+  const subscription = subscriptions.find(item => String(item.id) === String(result.subscriptionId ?? ""))
+  const snapshot = subscription && isDataRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
+  const memberName = String(member?.name ?? member?.fullNameAr ?? member?.memberName ?? subscription?.memberName ?? "العضو المحدد")
+  const memberNumber = String(member?.memberNumber ?? member?.legacyMemberNumber ?? subscription?.memberNumber ?? "")
+  const rejection = attendanceRejectionLabel(String(result.rejectionReason ?? ""))
+
+  return <section className="p-5 sm:p-6" aria-live="assertive">
+    <div className={`rounded-3xl border p-6 text-center ${accepted ? "border-emerald-500/35 bg-emerald-500/[.07]" : "border-red-500/35 bg-red-500/[.07]"}`}>
+      {accepted ? <CheckCircle2 className="mx-auto size-14 text-emerald-600"/> : <XCircle className="mx-auto size-14 text-red-600"/>}
+      <p className={`mt-4 text-xs font-black ${accepted ? "text-emerald-700 dark:text-emerald-300" : "text-red-600"}`}>{accepted ? "موافقة" : "رفض"}</p>
+      <h3 className="mt-1 text-2xl font-black">{accepted ? "تم السماح بالدخول" : "تم رفض الدخول"}</h3>
+      <p className="mt-2 text-sm text-muted-foreground">{memberName}{memberNumber ? ` · رقم العضوية ${memberNumber}` : ""}</p>
+      {!accepted && <p className="mx-auto mt-5 max-w-md rounded-2xl border border-red-500/20 bg-background/70 p-4 text-sm font-bold leading-7 text-red-700 dark:text-red-300">{rejection}</p>}
+      {accepted && subscription && <p className="mx-auto mt-5 max-w-md rounded-2xl border border-emerald-500/20 bg-background/70 p-4 text-sm font-bold leading-7">تم الاعتماد على {String(snapshot.packageName ?? "اشتراك العضو")} · <span dir="ltr">{String(subscription.subscriptionNumber ?? "")}</span></p>}
+      <dl className="mx-auto mt-5 grid max-w-md gap-2 text-xs sm:grid-cols-2">
+        <AttendanceDetail icon={MapPin} label="الفرع" value={branchName}/>
+        <AttendanceDetail icon={CalendarDays} label="وقت المحاولة" value={attendanceDateTime(result.attemptedAt)}/>
+      </dl>
+      <p className="mt-4 text-[11px] text-muted-foreground">تم حفظ محاولة الدخول في سجل الحضور.</p>
+      <div className="mt-6 flex flex-col-reverse justify-center gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>إغلاق</Button><Button type="button" onClick={onAgain}>تسجيل دخول عضو آخر</Button></div>
+    </div>
+  </section>
+}
+
+function attendanceSubscriptionEligibility(subscription: DataRow, branchId: string) {
+  const status = String(subscription.status ?? "")
+  if (status !== "ACTIVE" && status !== "ACTIVE_PROVISIONAL") return { eligible: false, label: "الاشتراك غير نشط" }
+  if (subscription.fulfillmentKind !== "FACILITY_ACCESS") return { eligible: false, label: "لا يشمل دخول النادي" }
+  const now = Date.now()
+  const schedules = Array.isArray(subscription.freezeSchedules) ? subscription.freezeSchedules.filter(isDataRow) : []
+  if (schedules.some(schedule => schedule.status === "PENDING" && new Date(String(schedule.scheduledStartAt ?? "")).getTime() <= now)) return { eligible: false, label: "التجميد بدأ" }
+  const accessPeriods = Array.isArray(subscription.accessPeriods) ? subscription.accessPeriods.filter(isDataRow) : []
+  if (accessPeriods.length > 0 && !accessPeriods.some(period => new Date(String(period.startsAt ?? "")).getTime() <= now && now < new Date(String(period.endsAt ?? "")).getTime())) return { eligible: false, label: "خارج فترة الصلاحية" }
+  if (subscription.branchAccessPolicy !== "ALL_ORGANIZATION_BRANCHES" && !(Array.isArray(subscription.allowedBranchIds) && subscription.allowedBranchIds.some(id => String(id) === branchId))) return { eligible: false, label: "غير صالح لهذا الفرع" }
+  const allowance = finiteNumber(subscription.visitAllowance)
+  if (allowance !== undefined && (finiteNumber(subscription.visitsUsed) ?? 0) >= allowance) return { eligible: false, label: "الزيارات منتهية" }
+  return { eligible: true, label: "مؤهل مبدئيًا" }
+}
+
+function attendanceRejectionLabel(reason: string) {
+  return ({
+    MEMBER_INACTIVE: "حساب العضو غير نشط.",
+    MEMBER_BLOCKED: "العضو محظور من الدخول.",
+    BRANCH_INACTIVE: "الفرع غير نشط حاليًا.",
+    NOT_ACTIVE: "لا يوجد اشتراك نشط صالح للدخول.",
+    OUTSIDE_ACCESS_PERIOD: "الاشتراك خارج فترة السماح بالدخول.",
+    BRANCH_NOT_ALLOWED: "اشتراك العضو غير صالح في هذا الفرع.",
+    VISITS_EXHAUSTED: "استهلك العضو جميع الزيارات المتاحة.",
+    SERVICE_NOT_INCLUDED: "الخدمة المطلوبة غير مشمولة في الاشتراك.",
+    SERVICE_VISITS_EXHAUSTED: "استهلك العضو جميع زيارات الخدمة المتاحة.",
+    FULFILLMENT_NOT_ACCESS: "نوع الاشتراك لا يمنح صلاحية دخول النادي.",
+    CONCURRENT_ACCESS_CONFLICT: "تغيّرت بيانات الاشتراك أثناء التحقق. أعد المحاولة.",
+  } as Record<string, string>)[reason] ?? "لم تتحقق شروط السماح بالدخول."
+}
+
+function attendanceBranchName(branchId: string, branches: Array<{ id: string; nameAr?: string; name?: string }>) {
+  const branch = branches.find(item => item.id === branchId)
+  return branch?.nameAr ?? branch?.name ?? "فرع غير متاح"
+}
+
+function attendanceDate(value: unknown) {
+  const date = new Date(String(value ?? ""))
+  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium" }).format(date)
+}
+
+function attendanceDateTime(value: unknown) {
+  const date = new Date(String(value ?? ""))
+  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short" }).format(date)
+}
+
+function finiteNumber(value: unknown) {
+  const number = Number(value)
+  return value === null || value === undefined || value === "" || !Number.isFinite(number) ? undefined : number
+}
+
+function isDataRow(value: unknown): value is DataRow {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+function dataRows(value: unknown): DataRow[] {
+  if (Array.isArray(value)) return value.filter(isDataRow)
+  if (isDataRow(value) && Array.isArray(value.items)) return value.items.filter(isDataRow)
+  return []
+}
+
+async function loadAllAttendanceSubscriptions(organizationId: string, memberId: string) {
+  const items: DataRow[] = []
+  const seenCursors = new Set<string>()
+  let cursor = ""
+  do {
+    const query = new URLSearchParams({ memberId, limit: "100" })
+    if (cursor) query.set("cursor", cursor)
+    const response = await apiRequest<unknown>(`/organizations/${organizationId}/subscriptions?${query}`)
+    items.push(...dataRows(response.data))
+    const nextCursor = isDataRow(response.data) ? String(response.data.nextCursor ?? "") : ""
+    if (!nextCursor || seenCursors.has(nextCursor)) break
+    seenCursors.add(nextCursor)
+    cursor = nextCursor
+  } while (cursor)
+  return items
 }
 
 function SubscriptionPricePreview({ quote, loading, error }: { quote?: SubscriptionQuote; loading: boolean; error: string }) {
@@ -257,6 +512,7 @@ function Field({ field, value, choices = [], loading, lockedLabel, referenceQuer
   const className = field.type === "textarea" ? "sm:col-span-2" : ""
   return <label className={`text-xs font-bold ${className}`}><span>{field.label}{field.required && <span className="mr-1 text-red-500">*</span>}</span>
     {field.type === "reference" && lockedLabel ? <span className="mt-2 flex min-h-11 items-center gap-2 rounded-xl border border-primary/20 bg-primary/[.06] px-3 text-sm"><LockKeyhole className="size-4 shrink-0 text-primary"/><span className="font-bold">{lockedLabel}</span></span> : field.type === "file" ? <span className="mt-2 flex min-h-24 cursor-pointer items-center gap-3 rounded-xl border border-dashed bg-background px-4 py-3 transition hover:border-primary hover:bg-primary/5"><input className="sr-only" type="file" required={field.required} accept={field.name === "profileImage" ? "image/jpeg,image/png,image/webp" : "image/jpeg,image/png,application/pdf"} onChange={event => onChange(event.target.files?.[0])} /><span className={`grid size-10 shrink-0 place-items-center rounded-xl ${value instanceof File ? "bg-emerald-500/10 text-emerald-600" : "bg-secondary text-muted-foreground"}`}>{value instanceof File ? <FileCheck2 className="size-5" /> : <UploadCloud className="size-5" />}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{value instanceof File ? value.name : "اختر ملفًا من الجهاز"}</span><span className="mt-1 block text-[10px] font-normal text-muted-foreground">{value instanceof File ? `${(value.size / 1024 / 1024).toFixed(2)} ميجابايت · اضغط للاستبدال` : "اضغط هنا للاستعراض والاختيار"}</span></span></span> : field.type === "select" || field.type === "reference" ? <div className="mt-2 space-y-2">{field.type === "reference" && field.source?.searchParam && <div className="relative"><Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/><Input value={referenceQuery} onChange={event => onReferenceSearch(event.target.value)} className="h-10 pr-10" placeholder="ابحث بالاسم أو رقم العضوية أو الجوال أو الهوية..."/></div>}<select required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} className="h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"><option value="">{loading ? "جارٍ تجهيز الخيارات..." : field.placeholder ?? "اختر من القائمة"}</option>{(field.options ?? choices).map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select>{field.name === "packageId" && !loading && choices.length === 0 && <span className="block text-[10px] font-normal leading-5 text-amber-600">لا توجد باقات منشورة ومُسعّرة للفرع الحالي. راجع أسعار الباقات في إعداد النظام.</span>}{field.name === "positionId" && !loading && choices.some(choice => choice.disabled) && <span className="block text-[10px] font-normal leading-5 text-amber-600">المسميات التي لم تُحدد لها صلاحيات تظهر للتوضيح فقط ولا يمكن إنشاء حساب دخول عليها. اضبطها أولًا من إعداد النظام ← المسميات الوظيفية والصلاحيات.</span>}</div> : field.type === "textarea" ? <textarea required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} rows={4} className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15" /> : field.type === "password" ? <span className="relative mt-2 block"><Input className="h-11 pl-11" type={showPassword ? "text" : "password"} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} autoComplete="new-password" dir="ltr" /><button type="button" onClick={() => setShowPassword(current => !current)} className="absolute left-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></span> : field.type === "date" || field.type === "datetime-local" || field.type === "time" ? <DateTimeInput className="mt-2 h-11" type={field.type} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} /> : <Input className="mt-2 h-11" type={field.type ?? "text"} min={field.min} required={field.required} value={String(value ?? "")} onChange={event => onChange(event.target.value)} placeholder={field.placeholder} dir={field.type === "tel" || field.type === "email" || field.type === "number" ? "ltr" : undefined} />}
+    {field.name === "sessionSlotId" && !loading && choices.length === 0 && <span className="mt-2 block text-[10px] font-normal leading-5 text-amber-600">لا توجد مواعيد مفتوحة خلال الثلاثين يومًا القادمة. أضف موعدًا من إعداد النظام ← موارد الحجز ← الإتاحة.</span>}
     {field.hint && <span className="mt-2 block text-[10px] font-normal leading-5 text-muted-foreground">{field.hint}</span>}
   </label>
 }
@@ -266,6 +522,8 @@ function isVisibleField(operationId: string, fieldName: string, values: FormValu
   const visitor = values.customerType === "VISITOR"
   if (fieldName === "memberId") return !visitor
   if (["guestName", "guestPhoneE164", "guestEmail"].includes(fieldName)) return visitor
+  if (fieldName === "sessionSlotId") return values.resourceType === "CLASS" || values.resourceType === "PERSONAL_TRAINING"
+  if (["startsAt", "endsAt"].includes(fieldName)) return !values.resourceType || values.resourceType === "COURT"
   return true
 }
 
@@ -283,6 +541,17 @@ async function validateValues(operationId: string, values: FormValues): Promise<
     }
   }
   if (operationId === "createCrmLead" && !String(values.phoneE164 ?? "").trim() && !String(values.email ?? "").trim()) return "أدخل رقم جوال أو بريدًا إلكترونيًا واحدًا على الأقل حتى يمكن متابعة العميل."
+  if (operationId === "createManualReservation") {
+    if (!values.resourceType || !values.serviceId) return "اختر مورد حجز صالحًا مرتبطًا بخدمة قبل المتابعة."
+    const seats = Number(values.seats)
+    if (!Number.isInteger(seats) || seats < 1) return "أدخل عدد مقاعد صحيحًا لا يقل عن مقعد واحد."
+    if ((values.resourceType === "COURT" || values.resourceType === "PERSONAL_TRAINING") && seats !== 1) return "الحجز لهذا النوع يقبل مقعدًا واحدًا فقط."
+    if (values.resourceType === "COURT") {
+      const startsAt = new Date(String(values.startsAt)); const endsAt = new Date(String(values.endsAt))
+      if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) return "وقت نهاية الحجز يجب أن يكون بعد وقت البداية."
+      if (startsAt <= new Date()) return "اختر موعد حجز في المستقبل."
+    }
+  }
   if (operationId === "createEmployee") {
     const password = String(values.password ?? "")
     const passwordError = passwordLengthError(password)
@@ -316,7 +585,19 @@ function toChoice(item: unknown, labelKeys: string[], subtitleKeys: string[] = [
   const subtitle = (subtitleKeys ?? []).map(key => record[key]).find(Boolean)
   const disabled = flagEmptyPermissions && Array.isArray(record.permissions) && record.permissions.length === 0
   const baseLabel = [label, subtitle].filter(Boolean).join(" — ") || "سجل متاح"
-  return [{ value: id, label: disabled ? `${baseLabel} — بدون صلاحيات` : baseLabel, disabled }]
+  return [{ value: id, label: disabled ? `${baseLabel} — بدون صلاحيات` : baseLabel, disabled, meta: record }]
+}
+
+function sessionSlotChoice(item: unknown): Choice[] {
+  if (!item || typeof item !== "object") return []
+  const slot = item as Record<string, unknown>
+  const id = String(slot.id ?? slot.sessionSlotId ?? "")
+  const startsAt = new Date(String(slot.startsAt ?? "")); const endsAt = new Date(String(slot.endsAt ?? ""))
+  if (!id || Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) return []
+  const date = new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short" }).format(startsAt)
+  const end = new Intl.DateTimeFormat("ar-SA", { timeStyle: "short" }).format(endsAt)
+  const remaining = Math.max(0, Number(slot.capacity ?? 0) - Number(slot.bookedCount ?? 0))
+  return [{ value: id, label: `${date} — ${end} — المتاح ${remaining}`, disabled: remaining < 1, meta: slot }]
 }
 
 async function sellablePackages(items: unknown[], organizationId: string, branchId: string): Promise<unknown[]> {

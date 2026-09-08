@@ -1,6 +1,6 @@
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy"
 
-export type Choice = { value: string; label: string; disabled?: boolean }
+export type Choice = { value: string; label: string; disabled?: boolean; meta?: Record<string, unknown> }
 export type FormValues = Record<string, string | boolean | File | undefined>
 export type ReferenceSource = {
   path: (context: WorkflowContext) => string
@@ -43,7 +43,6 @@ const normalizedOptionalPhone = (value: FormValues[string]) => {
 const members: ReferenceSource = { path: c => `/organizations/${c.organizationId}/members?branchId=${encodeURIComponent(c.branchId)}&limit=25`, labelKeys: ["name", "fullNameAr", "memberName", "fullName", "displayName"], subtitleKeys: ["memberNumber", "legacyMemberNumber", "phoneE164", "nationalId"], searchParam: "search" }
 const packages: ReferenceSource = { path: c => `/organizations/${c.organizationId}/packages?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "packageName", "name"], subtitleKeys: ["code"] }
 const resources: ReferenceSource = { path: c => `/organizations/${c.organizationId}/bookable-resources?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "resourceName", "name"], subtitleKeys: ["type"] }
-const services: ReferenceSource = { path: c => `/organizations/${c.organizationId}/services?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "serviceName", "name"], subtitleKeys: ["code"] }
 const invoices: ReferenceSource = { path: c => `/organizations/${c.organizationId}/invoices?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["invoiceNumber", "number"], subtitleKeys: ["buyerName", "outstandingMinor"] }
 const positions: ReferenceSource = { path: c => `/organizations/${c.organizationId}/positions?limit=100`, labelKeys: ["nameAr", "positionName", "name"], subtitleKeys: ["code"] }
 const meals: ReferenceSource = { path: c => `/organizations/${c.organizationId}/restaurant/meals?branchId=${encodeURIComponent(c.branchId)}&limit=100`, labelKeys: ["nameAr", "mealName", "name"], subtitleKeys: ["categoryName"] }
@@ -106,20 +105,26 @@ export const workflows: Record<string, Workflow> = {
     initial: () => ({ memberId: "" }), body: (v, c) => ({ branchId: c.branchId, memberId: v.memberId }),
   },
   createManualReservation: {
-    title: "حجز جديد", description: "اختر العضو والمرفق المناسب، وسيتم التحقق من التوفر قبل تأكيد الحجز.", submitLabel: "تأكيد الحجز", successMessage: "تم إنشاء الحجز بنجاح.",
+    title: "حجز جديد", description: "اختر العميل والمورد؛ يربط النظام الخدمة ونوع الحجز تلقائيًا ويعرض الموعد المناسب.", submitLabel: "تأكيد الحجز", successMessage: "تم إنشاء الحجز بنجاح.",
     fields: [
       { name: "customerType", label: "نوع العميل", type: "select", required: true, options: [{ value: "MEMBER", label: "عضو" }, { value: "VISITOR", label: "زائر" }] },
       { name: "memberId", label: "العضو", type: "reference", source: members, required: true },
       { name: "guestName", label: "اسم الزائر", required: true, placeholder: "الاسم الكامل" },
       { name: "guestPhoneE164", label: "جوال الزائر", type: "tel", required: true, placeholder: "+966 5X XXX XXXX" },
       { name: "guestEmail", label: "البريد الإلكتروني للزائر (اختياري)", type: "email", placeholder: "name@example.com" },
-      { name: "serviceId", label: "الخدمة", type: "reference", source: services, required: true },
       { name: "resourceId", label: "الحصة أو المرفق", type: "reference", source: resources, required: true },
+      { name: "sessionSlotId", label: "الموعد المتاح", type: "select", required: true },
       { name: "startsAt", label: "بداية الحجز", type: "datetime-local", required: true },
       { name: "endsAt", label: "نهاية الحجز", type: "datetime-local", required: true },
       { name: "seats", label: "عدد المقاعد", type: "number", min: "1", required: true },
-    ], initial: () => { const startsAt=nowLocal(); const ends=new Date(new Date(startsAt).getTime()+60*60_000); return { customerType: "MEMBER", memberId: "", guestName: "", guestPhoneE164: "", guestEmail: "", serviceId: "", resourceId: "", startsAt, endsAt: new Date(ends.getTime()-ends.getTimezoneOffset()*60_000).toISOString().slice(0,16), seats: "1" } },
-    body: (v, c) => ({ branchId: c.branchId, ...(v.customerType === "VISITOR" ? { guestName: v.guestName, guestPhoneE164: normalizedOptionalPhone(v.guestPhoneE164), guestEmail: v.guestEmail || undefined } : { memberId: v.memberId }), serviceId: v.serviceId, resourceId: v.resourceId, type: "COURT", startsAt: new Date(String(v.startsAt)).toISOString(), endsAt: new Date(String(v.endsAt)).toISOString(), seats: Number(v.seats) }),
+    ], initial: () => { const now = new Date(); now.setMinutes(0, 0, 0); const start = new Date(now.getTime() + 60 * 60_000); const end = new Date(start.getTime() + 60 * 60_000); const local = (value: Date) => new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); return { customerType: "MEMBER", memberId: "", guestName: "", guestPhoneE164: "", guestEmail: "", serviceId: "", resourceType: "", resourceId: "", sessionSlotId: "", startsAt: local(start), endsAt: local(end), seats: "1" } },
+    body: (v, c) => {
+      const type = String(v.resourceType) as "COURT" | "CLASS" | "PERSONAL_TRAINING"
+      const schedule = type === "COURT"
+        ? { startsAt: new Date(String(v.startsAt)).toISOString(), endsAt: new Date(String(v.endsAt)).toISOString() }
+        : { sessionSlotId: v.sessionSlotId }
+      return { branchId: c.branchId, ...(v.customerType === "VISITOR" ? { guestName: v.guestName, guestPhoneE164: normalizedOptionalPhone(v.guestPhoneE164), guestEmail: v.guestEmail || undefined } : { memberId: v.memberId }), serviceId: v.serviceId, resourceId: v.resourceId, type, ...schedule, seats: Number(v.seats) }
+    },
   },
   recordPayment: {
     title: "تسجيل دفعة غير نقدية", description: "للتحويل أو البطاقة. أما النقد فيُسجل من نقطة البيع لربطه بالصندوق والوردية.", submitLabel: "تسجيل الدفعة", successMessage: "تم تسجيل الدفعة بنجاح.", confirm: "راجع المبلغ وطريقة الدفع قبل التأكيد؛ سيُضاف التحصيل إلى السجل المالي.",

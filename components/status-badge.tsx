@@ -9,6 +9,7 @@ type StatusItem = {
 
 const statuses: Record<string, StatusItem> = {
   ACTIVE: { label: "نشط", variant: "success", icon: CircleCheck },
+  ACTIVE_PROVISIONAL: { label: "نشط مؤقتًا", variant: "warning", icon: Clock3 },
   CONFIRMED: { label: "مؤكد", variant: "success", icon: CircleCheck },
   COMPLETED: { label: "مكتمل", variant: "success", icon: CircleCheck },
   PAID: { label: "مدفوع", variant: "success", icon: CircleCheck },
