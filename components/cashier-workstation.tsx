@@ -36,6 +36,7 @@ type Menu = {
 };
 type Shift = { id: string; cashPointId: string; status: "OPEN" | "CLOSED" };
 type CashPoint = { id: string; name?: string; code?: string };
+type PaymentMethodCode = "CASH" | "CARD" | "BANK_TRANSFER";
 type Invoice = {
   id: string;
   invoiceNumber?: string;
@@ -85,9 +86,14 @@ export function CashierWorkstation() {
   const [saleKind, setSaleKind] = useState<"MEAL" | "RETAIL">("MEAL");
   const [quantity, setQuantity] = useState("1");
   const [paymentInvoiceId, setPaymentInvoiceId] = useState("");
-  const [method, setMethod] = useState<"CASH" | "CARD" | "BANK_TRANSFER">(
-    "CASH",
-  );
+  const [method, setMethod] = useState<PaymentMethodCode>("CASH");
+  const [invoicePaymentMode, setInvoicePaymentMode] = useState<"SINGLE" | "SPLIT">("SINGLE");
+  const [splitFirstMethod, setSplitFirstMethod] = useState<PaymentMethodCode>("CASH");
+  const [splitSecondMethod, setSplitSecondMethod] = useState<PaymentMethodCode>("CARD");
+  const [splitFirstAmount, setSplitFirstAmount] = useState("");
+  const [splitFirstReference, setSplitFirstReference] = useState("");
+  const [splitSecondReference, setSplitSecondReference] = useState("");
+  const [collectionSuccess, setCollectionSuccess] = useState("");
   const [shiftId, setShiftId] = useState("");
   const [openingBalance, setOpeningBalance] = useState("0");
   const [closingBalance, setClosingBalance] = useState("0");
@@ -108,6 +114,12 @@ export function CashierWorkstation() {
     [shifts],
   );
   const selectedShift = openShifts.find((shift) => shift.id === shiftId);
+  const selectedPaymentInvoice = invoices.find((invoice) => invoice.id === paymentInvoiceId);
+  const selectedInvoiceOutstanding = selectedPaymentInvoice ? outstanding(selectedPaymentInvoice) : 0;
+  const splitFirstMinor = Number(minor(splitFirstAmount));
+  const splitSecondMinor = Math.max(0, selectedInvoiceOutstanding - splitFirstMinor);
+  const splitUsesCash = splitFirstMethod === "CASH" || splitSecondMethod === "CASH";
+  const splitIsValid = selectedInvoiceOutstanding > 0 && splitFirstMinor > 0 && splitFirstMinor < selectedInvoiceOutstanding && splitFirstMethod !== splitSecondMethod && (!splitUsesCash || selectedShift !== undefined);
   const selectedMember = memberSelection.organizationId === context.organizationId && memberSelection.branchId === context.branchId ? memberSelection.member : undefined;
   const publishedMeals = useMemo(() => {
     const allowed = new Set(
@@ -382,6 +394,48 @@ export function CashierWorkstation() {
     });
   }
 
+  async function recordSplitInvoicePayment(invoiceId: string) {
+    if (!context.organizationId || !context.branchId) return;
+    const invoice = (
+      await apiRequest<Invoice>(
+        `/organizations/${context.organizationId}/invoices/${invoiceId}`,
+      )
+    ).data;
+    const amountDueMinor = outstanding(invoice);
+    if (selectedInvoiceOutstanding > 0 && amountDueMinor !== selectedInvoiceOutstanding)
+      throw new Error("تغيّر الرصيد المستحق للفاتورة. حدّث البيانات ثم أعد توزيع المبلغ.");
+    const firstAmountMinor = Number(minor(splitFirstAmount));
+    const secondAmountMinor = amountDueMinor - firstAmountMinor;
+    if (amountDueMinor <= 0) throw new Error("لا يوجد رصيد مستحق لهذه الفاتورة.");
+    if (firstAmountMinor <= 0 || secondAmountMinor <= 0)
+      throw new Error("يجب أن يكون مبلغ كل جزء أكبر من صفر وأقل من الرصيد المستحق.");
+    if (splitFirstMethod === splitSecondMethod)
+      throw new Error("اختر وسيلتي دفع مختلفتين لتقسيم التحصيل.");
+    if ((splitFirstMethod === "CASH" || splitSecondMethod === "CASH") && selectedShift === undefined)
+      throw new Error("افتح وردية صندوق أو اختر وردية مفتوحة قبل تحصيل الجزء النقدي.");
+
+    const part = (paymentMethod: PaymentMethodCode, amountMinor: number, externalReference: string) => ({
+      method: paymentMethod,
+      amountMinor: String(amountMinor),
+      allocations: [{ invoiceId, amountMinor: String(amountMinor) }],
+      ...(paymentMethod === "CASH"
+        ? { cashierShiftId: selectedShift!.id, cashPointId: selectedShift!.cashPointId }
+        : externalReference.trim() ? { externalReference: externalReference.trim() } : {}),
+    });
+
+    await apiRequest(`/organizations/${context.organizationId}/payments`, {
+      method: "POST",
+      idempotencyKey: createIdempotencyKey(),
+      body: JSON.stringify({
+        collectionBranchId: context.branchId,
+        parts: [
+          part(splitFirstMethod, firstAmountMinor, splitFirstReference),
+          part(splitSecondMethod, secondAmountMinor, splitSecondReference),
+        ],
+      }),
+    });
+  }
+
   async function collectExistingInvoice() {
     if (!paymentInvoiceId) {
       setError("اختر فاتورة أولًا.");
@@ -389,10 +443,23 @@ export function CashierWorkstation() {
     }
     setSaving(true);
     setError("");
+    setCollectionSuccess("");
     try {
-      await recordPayment(paymentInvoiceId);
-      toast.success("تم تسجيل الدفعة وتحديث حالة الفاتورة والطلب المرتبط بها.");
+      const invoiceNumber = selectedPaymentInvoice?.invoiceNumber ?? "الفاتورة";
+      if (invoicePaymentMode === "SPLIT") {
+        await recordSplitInvoicePayment(paymentInvoiceId);
+        setCollectionSuccess(`تم تحصيل ${invoiceNumber} على دفعتين وتحديث حالة الفاتورة.`);
+        toast.success("تم تسجيل جزأي الدفع معًا وتحديث حالة الفاتورة.");
+      } else {
+        await recordPayment(paymentInvoiceId);
+        setCollectionSuccess(`تم تحصيل ${invoiceNumber} بالكامل وتحديث حالتها.`);
+        toast.success("تم تسجيل الدفعة وتحديث حالة الفاتورة والطلب المرتبط بها.");
+      }
       await load();
+      setPaymentInvoiceId("");
+      setSplitFirstAmount("");
+      setSplitFirstReference("");
+      setSplitSecondReference("");
     } catch (reason) {
       setError(humanError(reason, "تعذر تسجيل الدفعة."));
     } finally {
@@ -555,11 +622,17 @@ export function CashierWorkstation() {
                   </div>
                 </div>
                 <div className="mt-4 grid gap-3">
+                  {collectionSuccess && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/8 p-3 text-xs font-bold leading-6 text-emerald-700 dark:text-emerald-300"><Check className="mt-0.5 size-4 shrink-0"/>{collectionSuccess}</div>}
                   <select
                     value={paymentInvoiceId}
-                    onChange={(event) =>
-                      setPaymentInvoiceId(event.target.value)
-                    }
+                    onChange={(event) => {
+                      const invoiceId = event.target.value;
+                      const invoice = invoices.find((item) => item.id === invoiceId);
+                      setPaymentInvoiceId(invoiceId);
+                      setSplitFirstAmount(invoice ? (outstanding(invoice) / 200).toFixed(2) : "");
+                      setCollectionSuccess("");
+                      setError("");
+                    }}
                     className="h-11 rounded-xl border bg-background px-3 text-sm"
                   >
                     <option value="">اختر فاتورة مستحقة</option>
@@ -575,14 +648,41 @@ export function CashierWorkstation() {
                         </option>
                       ))}
                   </select>
-                  <PaymentMethod value={method} onChange={setMethod} />
+                  {selectedPaymentInvoice && <div className="grid grid-cols-3 gap-2 rounded-2xl border bg-secondary/35 p-3 text-center text-xs">
+                    <PaymentMetric label="إجمالي الفاتورة" value={`${money(Number(selectedPaymentInvoice.grossMinor ?? 0))} ر.س`}/>
+                    <PaymentMetric label="المدفوع سابقًا" value={`${money(Number(selectedPaymentInvoice.paidMinor ?? 0))} ر.س`}/>
+                    <PaymentMetric label="المطلوب الآن" value={`${money(selectedInvoiceOutstanding)} ر.س`} highlight/>
+                  </div>}
+                  <div className="grid grid-cols-2 gap-2 rounded-xl bg-secondary/40 p-1">
+                    <Button type="button" size="sm" variant={invoicePaymentMode === "SINGLE" ? "default" : "ghost"} onClick={() => { setInvoicePaymentMode("SINGLE"); setError(""); }}>وسيلة دفع واحدة</Button>
+                    <Button type="button" size="sm" variant={invoicePaymentMode === "SPLIT" ? "default" : "ghost"} onClick={() => { setInvoicePaymentMode("SPLIT"); if (!splitFirstAmount && selectedInvoiceOutstanding > 0) setSplitFirstAmount((selectedInvoiceOutstanding / 200).toFixed(2)); setError(""); }}>تقسيم على وسيلتين</Button>
+                  </div>
+                  {invoicePaymentMode === "SINGLE" ? <div className="grid gap-2">
+                    <label className="text-xs font-bold">طريقة دفع كامل الرصيد<PaymentMethod className="mt-2 w-full" value={method} onChange={setMethod} /></label>
+                    {method === "CASH" && !selectedShift && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">افتح وردية صندوق أولًا لتحصيل المبلغ نقدًا.</p>}
+                  </div> : <div className="space-y-3 rounded-2xl border border-primary/20 bg-primary/[.035] p-4">
+                    <div><h3 className="text-sm font-black">توزيع المبلغ</h3><p className="mt-1 text-[11px] leading-5 text-muted-foreground">أدخل قيمة الجزء الأول، وسيحسب النظام الجزء الثاني تلقائيًا حتى يطابق الرصيد دون فروق.</p></div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <PaymentPartEditor title="الجزء الأول" method={splitFirstMethod} onMethodChange={setSplitFirstMethod} amount={splitFirstAmount} onAmountChange={setSplitFirstAmount} reference={splitFirstReference} onReferenceChange={setSplitFirstReference}/>
+                      <PaymentPartEditor title="الجزء الثاني · المتبقي تلقائيًا" method={splitSecondMethod} onMethodChange={setSplitSecondMethod} amount={(splitSecondMinor / 100).toFixed(2)} reference={splitSecondReference} onReferenceChange={setSplitSecondReference} readOnlyAmount/>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 rounded-xl bg-background/80 p-3 text-center text-xs">
+                      <PaymentMetric label={paymentMethodLabel(splitFirstMethod)} value={`${money(splitFirstMinor)} ر.س`}/>
+                      <PaymentMetric label={paymentMethodLabel(splitSecondMethod)} value={`${money(splitSecondMinor)} ر.س`}/>
+                      <PaymentMetric label="الإجمالي" value={`${money(splitFirstMinor + splitSecondMinor)} ر.س`} highlight={splitIsValid}/>
+                    </div>
+                    {splitFirstMethod === splitSecondMethod && <p className="rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">اختر وسيلتي دفع مختلفتين.</p>}
+                    {(splitFirstMinor <= 0 || splitFirstMinor >= selectedInvoiceOutstanding) && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">أدخل للجزء الأول مبلغًا أكبر من صفر وأقل من الرصيد المطلوب.</p>}
+                    {splitUsesCash && !selectedShift && <p className="rounded-xl bg-red-500/10 p-3 text-xs font-semibold leading-6 text-red-600">الجزء النقدي يحتاج إلى وردية صندوق مفتوحة.</p>}
+                    {splitUsesCash && selectedShift && <p className="rounded-xl bg-emerald-500/8 p-3 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">سيُربط الجزء النقدي تلقائيًا بالوردية المفتوحة ونقطة التحصيل الحالية.</p>}
+                  </div>}
                   <Button
                     variant="outline"
                     onClick={() => void collectExistingInvoice()}
-                    disabled={saving || !paymentInvoiceId}
+                    disabled={saving || !paymentInvoiceId || (invoicePaymentMode === "SINGLE" ? method === "CASH" && !selectedShift : !splitIsValid)}
                   >
-                    <CreditCard />
-                    تسجيل الدفعة
+                    {saving ? <Loader2 className="animate-spin"/> : <CreditCard />}
+                    {invoicePaymentMode === "SPLIT" ? "تأكيد وتسجيل الدفعتين" : "تحصيل كامل الرصيد"}
                   </Button>
                 </div>
               </CardContent>
@@ -783,26 +883,55 @@ function CustomerSelector({
   );
 }
 
+function PaymentPartEditor({ title, method, onMethodChange, amount, onAmountChange, reference, onReferenceChange, readOnlyAmount = false }: {
+  title: string;
+  method: PaymentMethodCode;
+  onMethodChange: (value: PaymentMethodCode) => void;
+  amount: string;
+  onAmountChange?: (value: string) => void;
+  reference: string;
+  onReferenceChange: (value: string) => void;
+  readOnlyAmount?: boolean;
+}) {
+  return <div className="rounded-xl border bg-background p-3">
+    <p className="mb-3 text-xs font-black">{title}</p>
+    <div className="grid gap-3">
+      <label className="text-[11px] font-bold">طريقة الدفع<PaymentMethod className="mt-2 w-full" value={method} onChange={onMethodChange}/></label>
+      <label className="text-[11px] font-bold">المبلغ (ر.س)<Input className="mt-2" type="number" min="0.01" step="0.01" value={amount} readOnly={readOnlyAmount} onChange={event => onAmountChange?.(event.target.value)} /></label>
+      {method !== "CASH" && <label className="text-[11px] font-bold">مرجع العملية (اختياري)<Input className="mt-2" value={reference} onChange={event => onReferenceChange(event.target.value)} placeholder={method === "CARD" ? "رقم إيصال جهاز الدفع" : "رقم التحويل"} /></label>}
+    </div>
+  </div>;
+}
+
+function PaymentMetric({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+  return <div className={`rounded-lg px-2 py-2 ${highlight ? "bg-emerald-500/10" : "bg-background/70"}`}><p className="text-[10px] text-muted-foreground">{label}</p><p className={`mt-1 font-black ${highlight ? "text-emerald-700 dark:text-emerald-300" : ""}`}>{value}</p></div>;
+}
+
 function PaymentMethod({
   value,
   onChange,
+  className = "",
 }: {
-  value: "CASH" | "CARD" | "BANK_TRANSFER";
-  onChange: (value: "CASH" | "CARD" | "BANK_TRANSFER") => void;
+  value: PaymentMethodCode;
+  onChange: (value: PaymentMethodCode) => void;
+  className?: string;
 }) {
   return (
     <select
       value={value}
       onChange={(event) =>
-        onChange(event.target.value as "CASH" | "CARD" | "BANK_TRANSFER")
+        onChange(event.target.value as PaymentMethodCode)
       }
-      className="h-11 rounded-xl border bg-background px-3 text-sm"
+      className={`h-11 rounded-xl border bg-background px-3 text-sm ${className}`}
     >
       <option value="CASH">نقدًا</option>
       <option value="CARD">بطاقة بنكية</option>
       <option value="BANK_TRANSFER">تحويل بنكي</option>
     </select>
   );
+}
+function paymentMethodLabel(method: PaymentMethodCode) {
+  return method === "CASH" ? "نقدًا" : method === "CARD" ? "بطاقة بنكية" : "تحويل بنكي";
 }
 function list<T>(value: unknown): T[] {
   return Array.isArray(value)
