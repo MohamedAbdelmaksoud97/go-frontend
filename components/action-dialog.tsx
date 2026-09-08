@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, CalendarDays, CheckCircle2, Copy, CreditCard, Eye, EyeOff, FileCheck2, Loader2, LockKeyhole, MapPin, Search, ShieldAlert, UploadCloud, UserRound, X, XCircle } from "lucide-react"
+import { AlertTriangle, CalendarDays, Check, CheckCircle2, Copy, CreditCard, Eye, EyeOff, FileCheck2, Loader2, LockKeyhole, MapPin, Search, ShieldAlert, TicketPercent, UploadCloud, UserRound, X, XCircle } from "lucide-react"
 import { endpoints } from "@/lib/endpoint-catalog"
 import { apiRequest, createIdempotencyKey, executeOperation, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
@@ -74,6 +74,8 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const [error, setError] = useState("")
   const [createdEmployee, setCreatedEmployee] = useState<{ id: string; number: string; name: string }>()
   const [quoteState, setQuoteState] = useState<{ key: string; loading: boolean; quote?: SubscriptionQuote; error?: string }>({ key: "", loading: false })
+  const [appliedPromoCode, setAppliedPromoCode] = useState("")
+  const [promoApplyVersion, setPromoApplyVersion] = useState(0)
   const isManualAttendance = operationId === "recordManualAttendance"
   const initialAttendanceMemberId = isManualAttendance ? String(initialValues?.memberId ?? "") : ""
   const [attendanceSubscriptionsState, setAttendanceSubscriptionsState] = useState<AttendanceSubscriptionState>(() => ({ key: initialAttendanceMemberId, loading: Boolean(initialAttendanceMemberId), items: [] }))
@@ -85,7 +87,8 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const attendanceSubscriptionsError = attendanceSubscriptionsState.key === selectedMemberId ? attendanceSubscriptionsState.error ?? "" : ""
   const attendanceSubscriptionsLoading = Boolean(selectedMemberId && (attendanceSubscriptionsState.key !== selectedMemberId || attendanceSubscriptionsState.loading))
   const selectedPackageId = String(values.packageId ?? "")
-  const quoteKey = `${effectiveBranchId}:${selectedPackageId}`
+  const normalizedPromoCode = appliedPromoCode.trim().toUpperCase()
+  const quoteKey = `${effectiveBranchId}:${selectedPackageId}:${normalizedPromoCode}:${promoApplyVersion}`
   const subscriptionQuote = quoteState.key === quoteKey ? quoteState.quote : undefined
   const quoteError = quoteState.key === quoteKey ? quoteState.error ?? "" : ""
   const quoteLoading = Boolean(selectedPackageId && (quoteState.key !== quoteKey || quoteState.loading))
@@ -156,7 +159,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       if (!cancelled) setQuoteState({ key: quoteKey, loading: true })
       void apiRequest<SubscriptionQuote>(`/organizations/${effectiveOrganizationId}/quotes`, {
         method: "POST",
-        body: JSON.stringify({ branchId: effectiveBranchId, targetType: "PACKAGE", targetId: selectedPackageId, quantity: 1, memberSegment: "OTHER" }),
+        body: JSON.stringify({ branchId: effectiveBranchId, targetType: "PACKAGE", targetId: selectedPackageId, quantity: 1, memberSegment: "OTHER", ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}) }),
       }).then(response => {
         if (!cancelled) setQuoteState({ key: quoteKey, loading: false, quote: response.data })
       }).catch(reason => {
@@ -164,7 +167,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       })
     }, 180)
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [effectiveBranchId, effectiveOrganizationId, isSubscriptionSale, quoteKey, selectedPackageId])
+  }, [effectiveBranchId, effectiveOrganizationId, isSubscriptionSale, normalizedPromoCode, quoteKey, selectedPackageId])
 
   if (!workflow) return null
   const operation = endpoints.find(item => item.operationId === operationId)
@@ -186,7 +189,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         sellingBranchId: effectiveBranchId,
         memberId: values.memberId,
         memberSegment: "OTHER",
-        lines: [{ type: "MEMBERSHIP", targetId: values.packageId, quantity: 1, accessBranchId: effectiveBranchId, startAt: new Date(String(values.startAt)).toISOString() }],
+        lines: [{ type: "MEMBERSHIP", targetId: values.packageId, quantity: 1, accessBranchId: effectiveBranchId, startAt: new Date(String(values.startAt)).toISOString(), ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}) }],
       } : workflow.body(values, context)
       const response = hasRuntimeApi() ? await executeOperation<Record<string, unknown>>(path, isSubscriptionSale ? "post" : operation!.method, {}, body, isSubscriptionSale || operation!.idempotent ? createIdempotencyKey() : undefined) : undefined
       if (isManualAttendance && response?.data.decision) {
@@ -269,6 +272,28 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
           setValues(current => ({ ...current, resourceId: value, resourceType, serviceId: String(resource?.serviceId ?? ""), sessionSlotId: "", seats: resourceType === "COURT" || resourceType === "PERSONAL_TRAINING" ? "1" : current.seats }))
         }} />)}</div>
         {slotError && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{slotError}</p>}
+        {isSubscriptionSale && selectedPackageId && <PromoCodeControl
+          value={String(values.promoCode ?? "")}
+          appliedCode={normalizedPromoCode}
+          quote={subscriptionQuote}
+          loading={quoteLoading}
+          error={quoteError}
+          onChange={value => { setError(""); setValues(current => ({ ...current, promoCode: value.toUpperCase() })) }}
+          onApply={() => {
+            const code = String(values.promoCode ?? "").trim().toUpperCase()
+            if (!code) { setError("أدخل كود الخصم أولًا ثم اضغط «تطبيق الكود»."); return }
+            setError("")
+            setValues(current => ({ ...current, promoCode: code }))
+            setAppliedPromoCode(code)
+            setPromoApplyVersion(current => current + 1)
+          }}
+          onRemove={() => {
+            setError("")
+            setValues(current => ({ ...current, promoCode: "" }))
+            setAppliedPromoCode("")
+            setPromoApplyVersion(current => current + 1)
+          }}
+        />}
         {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={quoteError} />}
         {isManualAttendance && selectedMemberId && <AttendanceMemberPreview member={selectedMember} lockedMemberLabel={lockedReferenceLabels?.memberId} subscriptions={attendanceSubscriptions} loading={attendanceSubscriptionsLoading} error={attendanceSubscriptionsError} branchId={effectiveBranchId} branches={appContext.branches} />}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
@@ -448,6 +473,49 @@ async function loadAllAttendanceSubscriptions(organizationId: string, memberId: 
     cursor = nextCursor
   } while (cursor)
   return items
+}
+
+function PromoCodeControl({ value, appliedCode, quote, loading, error, onChange, onApply, onRemove }: {
+  value: string
+  appliedCode: string
+  quote?: SubscriptionQuote
+  loading: boolean
+  error: string
+  onChange: (value: string) => void
+  onApply: () => void
+  onRemove: () => void
+}) {
+  const enteredCode = value.trim().toUpperCase()
+  const hasUnappliedChange = enteredCode !== appliedCode
+  const appliedSuccessfully = Boolean(appliedCode && !loading && !error && quote?.promotion?.code.toUpperCase() === appliedCode)
+  return <section className="mt-5 rounded-2xl border bg-secondary/25 p-4" aria-label="كود الخصم">
+    <div className="flex items-start gap-3">
+      <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><TicketPercent className="size-4" /></div>
+      <div><h3 className="text-xs font-black">هل لدى العضو كود خصم؟</h3><p className="mt-1 text-[11px] leading-5 text-muted-foreground">أدخل الكود ثم طبّقه لمراجعة صلاحيته وتحديث السعر قبل إنشاء الفاتورة.</p></div>
+    </div>
+    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+      <Input
+        dir="ltr"
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); onApply() } }}
+        placeholder="SUMMER25"
+        aria-label="كود الخصم"
+        className="h-11 font-mono uppercase tracking-wider"
+        autoComplete="off"
+      />
+      <Button type="button" variant="outline" className="h-11 shrink-0" disabled={!enteredCode || loading || (!hasUnappliedChange && appliedSuccessfully)} onClick={onApply}>
+        {loading && appliedCode ? <Loader2 className="animate-spin" /> : appliedSuccessfully && !hasUnappliedChange ? <Check /> : <TicketPercent />}
+        {appliedSuccessfully && !hasUnappliedChange ? "تم التطبيق" : "تطبيق الكود"}
+      </Button>
+      {appliedCode && <Button type="button" variant="ghost" className="h-11 shrink-0 text-muted-foreground" disabled={loading} onClick={onRemove}><X />إزالة</Button>}
+    </div>
+    <div aria-live="polite">
+      {hasUnappliedChange && appliedCode && <p className="mt-3 text-[11px] font-semibold text-amber-700 dark:text-amber-300">تم تعديل الكود. اضغط «تطبيق الكود» لتحديث السعر.</p>}
+      {!hasUnappliedChange && appliedSuccessfully && <p className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="size-4" />تم قبول الكود {appliedCode} وتحديث إجمالي الاشتراك.</p>}
+      {!hasUnappliedChange && appliedCode && !loading && error && <p className="mt-3 text-[11px] font-bold text-red-600">لم يُطبّق الكود. راجع صلاحيته أو الباقات والفروع المحددة له.</p>}
+    </div>
+  </section>
 }
 
 function SubscriptionPricePreview({ quote, loading, error }: { quote?: SubscriptionQuote; loading: boolean; error: string }) {
