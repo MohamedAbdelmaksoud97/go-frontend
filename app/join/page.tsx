@@ -7,7 +7,7 @@ import { BrandLogo } from "@/components/brand-logo"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { executeOperation, hasRuntimeApi } from "@/lib/api-client"
-import { humanError } from "@/lib/human-errors"
+import { humanError, UserInputError } from "@/lib/human-errors"
 import { MIN_PASSWORD_LENGTH, passwordLengthError } from "@/lib/password-policy"
 
 export default function JoinPage() {
@@ -21,21 +21,22 @@ export default function JoinPage() {
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     setError("")
+    if (form.memberNumber.trim().length < 3) { setError("أدخل رقم العضوية كما هو ظاهر في ملفك."); return }
+    if (!/^\d{8}$/u.test(form.activationCode)) { setError("رمز التفعيل يجب أن يتكون من 8 أرقام."); return }
     const passwordError = passwordLengthError(form.password)
     if (passwordError) { setError(passwordError); return }
     if (form.password !== form.confirmPassword) { setError("كلمتا المرور غير متطابقتين."); return }
     setLoading(true)
     try {
-      if (!organizationId) throw new Error("صفحة تفعيل الحساب غير مهيأة حاليًا. تواصل مع استقبال النادي.")
-      if (hasRuntimeApi()) {
-        await executeOperation("/api/v1/auth/member/account-activations", "post", {}, {
-          organizationId,
-          memberNumber: form.memberNumber,
-          phone: form.phone,
-          activationCode: form.activationCode,
-          password: form.password,
-        })
-      }
+      if (!organizationId) throw new UserInputError("صفحة تفعيل الحساب غير مهيأة للنادي حاليًا. تواصل مع الاستقبال.")
+      if (!hasRuntimeApi()) throw new UserInputError("خدمة تفعيل الحساب غير متاحة في هذه البيئة. تواصل مع مسؤول النظام.")
+      await executeOperation("/api/v1/auth/member/account-activations", "post", {}, {
+        organizationId,
+        memberNumber: form.memberNumber.trim().toUpperCase(),
+        phone: form.phone.trim(),
+        activationCode: form.activationCode,
+        password: form.password,
+      })
       setDone(true)
     } catch (reason) {
       setError(humanError(reason, "تعذر تفعيل الحساب. راجع البيانات أو اطلب رمزًا جديدًا من الاستقبال."))
@@ -67,7 +68,7 @@ export default function JoinPage() {
             <form onSubmit={submit} className="mt-7 grid gap-4">
               <label className="text-xs font-bold">رقم العضوية<Input dir="ltr" autoComplete="username" className="mt-2 border-white/10 bg-white/5 text-white" required value={form.memberNumber} onChange={event => setForm(current => ({ ...current, memberNumber: event.target.value.toUpperCase() }))} placeholder="GO000001" /></label>
               <label className="text-xs font-bold">رقم الجوال المسجل<Input dir="ltr" type="tel" className="mt-2 border-white/10 bg-white/5 text-white" required value={form.phone} onChange={event => setForm(current => ({ ...current, phone: event.target.value }))} placeholder="+9665XXXXXXXX" /></label>
-              <label className="text-xs font-bold">رمز التفعيل<Input dir="ltr" inputMode="numeric" maxLength={8} className="mt-2 border-white/10 bg-white/5 text-center text-lg tracking-[.35em] text-white" required value={form.activationCode} onChange={event => setForm(current => ({ ...current, activationCode: event.target.value.replace(/\D/g, "") }))} placeholder="00000000" /></label>
+              <label className="text-xs font-bold">رمز التفعيل<Input dir="ltr" inputMode="numeric" pattern="[0-9]{8}" minLength={8} maxLength={8} className="mt-2 border-white/10 bg-white/5 text-center text-lg tracking-[.35em] text-white" required value={form.activationCode} onChange={event => setForm(current => ({ ...current, activationCode: event.target.value.replace(/\D/g, "") }))} placeholder="00000000" /></label>
               <label className="text-xs font-bold">كلمة المرور الجديدة
                 <span className="relative mt-2 block">
                   <Input dir="ltr" type={showPassword ? "text" : "password"} autoComplete="new-password" minLength={MIN_PASSWORD_LENGTH} className="border-white/10 bg-white/5 pl-12 text-white" required value={form.password} onChange={event => setForm(current => ({ ...current, password: event.target.value }))} />

@@ -615,10 +615,10 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
     permission: "members.accounts.manage",
     path: `/organizations/${organizationId}/members/${id}/account-activation-codes`,
     requiresConfirmation: true,
-    description: "سيُلغى أي رمز سابق ويُصدر رمز جديد صالح لمدة 15 دقيقة. سلّمه للعضو ليحدد كلمة مروره بنفسه من صفحة تفعيل الحساب.",
+    description: "يتطلب الإجراء جوالًا أساسيًا صالحًا في ملف العضو. سيُلغى أي رمز سابق ويصدر رمز جديد صالح لمدة 15 دقيقة ولمرة واحدة؛ سلّمه للعضو عبر قناة آمنة ليحدد كلمة مروره من صفحة تفعيل الحساب.",
     confirmLabel: "إصدار الرمز",
     body: () => ({}),
-    responseMessage: data => `رمز التفعيل: ${String(data.activationCode ?? "")}\nرقم العضوية: ${String(data.memberNumber ?? "")}\nالجوال: ${String(data.phoneE164 ?? "")}\nصالح لمدة 15 دقيقة فقط.`,
+    responseMessage: data => `رمز التفعيل: ${String(data.activationCode ?? "")}\nرقم العضوية: ${String(data.memberNumber ?? "")}\nالجوال: ${String(data.phoneE164 ?? "")}\nصالح حتى: ${new Date(String(data.expiresAt ?? "")).toLocaleString("ar-EG")}`,
   })
 
   if (operationId === "listMembers" && id && String(record.accountStatus ?? "NOT_LINKED") === "LINKED") actions.push({
