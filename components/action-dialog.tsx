@@ -268,8 +268,8 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
           if (operationId !== "createManualReservation" || field.name !== "resourceId") { setValues(current => ({ ...current, [field.name]: value })); return }
           const resource = options.resourceId?.find(choice => choice.value === value)?.meta
           const resourceType = String(resource?.type ?? resource?.resourceType ?? "")
-          setSlotError(""); setLoadingSlots(resourceType === "CLASS" || resourceType === "PERSONAL_TRAINING"); setOptions(current => ({ ...current, sessionSlotId: [] }))
-          setValues(current => ({ ...current, resourceId: value, resourceType, serviceId: String(resource?.serviceId ?? ""), sessionSlotId: "", seats: resourceType === "COURT" || resourceType === "PERSONAL_TRAINING" ? "1" : current.seats }))
+          setSlotError(""); setLoadingSlots(resourceType !== "COURT"); setOptions(current => ({ ...current, sessionSlotId: [] }))
+          setValues(current => ({ ...current, resourceId: value, resourceType, serviceId: String(resource?.serviceId ?? ""), sessionSlotId: "", seats: resourceType === "CLASS" ? current.seats : "1", participantCount: resourceType === "COURT" ? current.participantCount || "1" : "1" }))
         }} />)}</div>
         {slotError && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{slotError}</p>}
         {isSubscriptionSale && selectedPackageId && <PromoCodeControl
@@ -590,8 +590,10 @@ function isVisibleField(operationId: string, fieldName: string, values: FormValu
   const visitor = values.customerType === "VISITOR"
   if (fieldName === "memberId") return !visitor
   if (["guestName", "guestPhoneE164", "guestEmail"].includes(fieldName)) return visitor
-  if (fieldName === "sessionSlotId") return values.resourceType === "CLASS" || values.resourceType === "PERSONAL_TRAINING"
+  if (fieldName === "sessionSlotId") return values.resourceType === "CLASS" || values.resourceType === "PERSONAL_TRAINING" || values.resourceType === "APPOINTMENT"
   if (["startsAt", "endsAt"].includes(fieldName)) return !values.resourceType || values.resourceType === "COURT"
+  if (fieldName === "seats") return values.resourceType === "CLASS"
+  if (fieldName === "participantCount") return values.resourceType === "COURT"
   return true
 }
 
@@ -611,10 +613,13 @@ async function validateValues(operationId: string, values: FormValues): Promise<
   if (operationId === "createCrmLead" && !String(values.phoneE164 ?? "").trim() && !String(values.email ?? "").trim()) return "أدخل رقم جوال أو بريدًا إلكترونيًا واحدًا على الأقل حتى يمكن متابعة العميل."
   if (operationId === "createManualReservation") {
     if (!values.resourceType || !values.serviceId) return "اختر مورد حجز صالحًا مرتبطًا بخدمة قبل المتابعة."
-    const seats = Number(values.seats)
-    if (!Number.isInteger(seats) || seats < 1) return "أدخل عدد مقاعد صحيحًا لا يقل عن مقعد واحد."
-    if ((values.resourceType === "COURT" || values.resourceType === "PERSONAL_TRAINING") && seats !== 1) return "الحجز لهذا النوع يقبل مقعدًا واحدًا فقط."
+    if (values.resourceType === "CLASS") {
+      const seats = Number(values.seats)
+      if (!Number.isInteger(seats) || seats < 1) return "أدخل عدد مقاعد صحيحًا لا يقل عن مقعد واحد."
+    }
     if (values.resourceType === "COURT") {
+      const participantCount = Number(values.participantCount)
+      if (!Number.isInteger(participantCount) || participantCount < 1 || participantCount > 100) return "أدخل عدد مشاركين صحيحًا من 1 إلى 100."
       const startsAt = new Date(String(values.startsAt)); const endsAt = new Date(String(values.endsAt))
       if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) return "وقت نهاية الحجز يجب أن يكون بعد وقت البداية."
       if (startsAt <= new Date()) return "اختر موعد حجز في المستقبل."

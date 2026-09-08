@@ -189,10 +189,10 @@ const configs: MasterConfig[] = [
     editBody: values => ({ name: values.name, type: values.type, activityId: values.activityId || null, status: values.status }),
   },
   {
-    id: "bookable-resources", label: "موارد الحجز", description: "الملاعب والحصص والتدريب الشخصي المتاح للحجز في الفرع المحدد.", permission: "bookings.read", managePermission: "bookings.facilities.manage", path: "/organizations/{organizationId}/bookable-resources", createPath: "/organizations/{organizationId}/bookable-resources", updatePath: id => `/organizations/{organizationId}/bookable-resources/${id}`, branchScoped: true,
-    columns: [{ label: "الرمز", key: "code" }, { label: "المورد", key: "name" }, { label: "النوع", key: "type" }, { label: "السعة", key: "capacity" }, { label: "الحالة", key: "status" }],
-    createFields: [{ name: "facilityId", label: "المرفق", type: "select", source: "facilities", required: true }, { name: "serviceId", label: "الخدمة المرتبطة", type: "select", source: "services", required: true }, { name: "cancellationPolicyVersionId", label: "سياسة إلغاء الحجز", type: "select", source: "policies", sourceFilter: { key: "policyType", value: "BOOKING_CANCELLATION" }, required: true, hint: "تُلتقط هذه السياسة مع كل حجز حتى لا تتغير شروطه لاحقًا." }, { name: "code", label: "رمز المورد", required: true }, { name: "name", label: "اسم المورد", required: true }, { name: "type", label: "نوع الحجز", type: "select", required: true, options: [{ value: "COURT", label: "ملعب" }, { value: "CLASS", label: "حصة جماعية" }, { value: "PERSONAL_TRAINING", label: "تدريب شخصي" }] }, { name: "capacity", label: "السعة", type: "number", required: true }],
-    editFields: [{ name: "facilityId", label: "المرفق", type: "select", source: "facilities", required: true }, { name: "serviceId", label: "الخدمة المرتبطة", type: "select", source: "services", required: true }, { name: "cancellationPolicyVersionId", label: "سياسة إلغاء الحجز", type: "select", source: "policies", sourceFilter: { key: "policyType", value: "BOOKING_CANCELLATION" }, required: true }, { name: "name", label: "اسم المورد", required: true }, { name: "type", label: "نوع الحجز", type: "select", required: true, options: [{ value: "COURT", label: "ملعب" }, { value: "CLASS", label: "حصة جماعية" }, { value: "PERSONAL_TRAINING", label: "تدريب شخصي" }] }, { name: "capacity", label: "السعة", type: "number", required: true }, { name: "status", label: "الحالة", type: "select", required: true, options: [{ value: "ACTIVE", label: "نشط" }, { value: "MAINTENANCE", label: "صيانة" }, { value: "INACTIVE", label: "محذوف / مؤرشف" }] }],
+    id: "bookable-resources", label: "موارد الحجز", description: "الملاعب والحصص والتدريب الشخصي والمواعيد الفردية مثل InBody في الفرع المحدد.", permission: "bookings.read", managePermission: "bookings.facilities.manage", path: "/organizations/{organizationId}/bookable-resources", createPath: "/organizations/{organizationId}/bookable-resources", updatePath: id => `/organizations/{organizationId}/bookable-resources/${id}`, branchScoped: true,
+    columns: [{ label: "الرمز", key: "code" }, { label: "المورد", key: "name" }, { label: "النوع", key: "type" }, { label: "سعة الحجوزات", key: "capacity" }, { label: "الحالة", key: "status" }],
+    createFields: [{ name: "facilityId", label: "المرفق", type: "select", source: "facilities", required: true }, { name: "serviceId", label: "الخدمة المرتبطة", type: "select", source: "services", required: true }, { name: "cancellationPolicyVersionId", label: "سياسة إلغاء الحجز", type: "select", source: "policies", sourceFilter: { key: "policyType", value: "BOOKING_CANCELLATION" }, required: true, hint: "تُلتقط هذه السياسة مع كل حجز حتى لا تتغير شروطه لاحقًا." }, { name: "code", label: "رمز المورد", required: true }, { name: "name", label: "اسم المورد", required: true }, { name: "type", label: "نوع الحجز", type: "select", required: true, options: [{ value: "COURT", label: "ملعب" }, { value: "CLASS", label: "حصة جماعية" }, { value: "PERSONAL_TRAINING", label: "تدريب شخصي" }, { value: "APPOINTMENT", label: "موعد خدمة فردية (InBody ونحوه)" }] }, { name: "capacity", label: "سعة الحجوزات المتزامنة", type: "number", required: true, hint: "ليست عدد اللاعبين؛ المورد الحصري يحجزه عميل واحد في الموعد، ويُدخل عدد المشاركين عند إنشاء حجز الملعب." }],
+    editFields: [{ name: "facilityId", label: "المرفق", type: "select", source: "facilities", required: true }, { name: "serviceId", label: "الخدمة المرتبطة", type: "select", source: "services", required: true }, { name: "cancellationPolicyVersionId", label: "سياسة إلغاء الحجز", type: "select", source: "policies", sourceFilter: { key: "policyType", value: "BOOKING_CANCELLATION" }, required: true }, { name: "name", label: "اسم المورد", required: true }, { name: "type", label: "نوع الحجز", type: "select", required: true, options: [{ value: "COURT", label: "ملعب" }, { value: "CLASS", label: "حصة جماعية" }, { value: "PERSONAL_TRAINING", label: "تدريب شخصي" }, { value: "APPOINTMENT", label: "موعد خدمة فردية (InBody ونحوه)" }] }, { name: "capacity", label: "سعة الحجوزات المتزامنة", type: "number", required: true, hint: "ليست عدد اللاعبين؛ المورد الحصري يحجزه عميل واحد في الموعد، ويُدخل عدد المشاركين عند إنشاء حجز الملعب." }, { name: "status", label: "الحالة", type: "select", required: true, options: [{ value: "ACTIVE", label: "نشط" }, { value: "MAINTENANCE", label: "صيانة" }, { value: "INACTIVE", label: "محذوف / مؤرشف" }] }],
     initial: { type: "COURT", capacity: "1" },
     createBody: values => ({ facilityId: values.facilityId, serviceId: values.serviceId, cancellationPolicyVersionId: values.cancellationPolicyVersionId, code: values.code, name: values.name, type: values.type, capacity: number(values.capacity) }),
     editBody: (values, item) => ({ facilityId: values.facilityId, serviceId: values.serviceId, cancellationPolicyVersionId: values.cancellationPolicyVersionId, name: values.name, type: values.type, capacity: number(values.capacity), status: values.status, expectedVersion: Number(item.version ?? 1) }),
@@ -278,7 +278,7 @@ function text(value: unknown, key?: string) {
   if (key === "scopeType") return ({ ORGANIZATION: "كل النادي", SELECTED_BRANCHES: "فروع محددة" } as Record<string, string>)[String(value)] ?? String(value)
   if (key === "eligibility") return ({ EVERYONE: "الجميع", NEW_MEMBER: "أعضاء جدد", FORMER_MEMBER: "أعضاء سابقون", PROMO_CODE: "بكود العرض" } as Record<string, string>)[String(value)] ?? String(value)
   if (key === "policyType") return ({ FREEZE: "تجميد الاشتراك", CANCELLATION: "إلغاء الاشتراك", RENEWAL: "تجديد الاشتراك", BOOKING_CANCELLATION: "إلغاء الحجز" } as Record<string, string>)[String(value)] ?? String(value)
-  if (key === "type") return ({ COURT: "ملعب", CLASS: "حصة جماعية", PERSONAL_TRAINING: "تدريب شخصي" } as Record<string, string>)[String(value)] ?? String(value)
+  if (key === "type") return ({ COURT: "ملعب", CLASS: "حصة جماعية", PERSONAL_TRAINING: "تدريب شخصي", APPOINTMENT: "موعد خدمة فردية" } as Record<string, string>)[String(value)] ?? String(value)
   if (key === "validFrom" || key === "validUntil") { const date = new Date(String(value)); return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(date) }
   if (Array.isArray(value)) return key === "branchNames" ? (value.length ? value.join("، ") : "كل فروع النادي") : key === "branchIds" ? (value.length ? `${value.length} فروع` : "كل الفروع") : key === "targets" ? `${value.length} خدمات / باقات` : key === "allowedVariables" ? `${value.length} متغيرات` : `${value.length} صلاحية`
   if (typeof value === "object") return "بيانات مرتبطة"
@@ -432,7 +432,7 @@ const weekdayNames = ["الأحد", "الاثنين", "الثلاثاء", "ال�
 function ResourceAvailabilityDialog({ resource, organizationId, branchId, onClose }: { resource: RecordItem; organizationId: string; branchId: string; onClose: () => void }) {
   const resourceId = itemId(resource)
   const resourceType = String(resource.type ?? resource.resourceType ?? "COURT")
-  const usesSessionSlots = resourceType === "CLASS" || resourceType === "PERSONAL_TRAINING"
+  const usesSessionSlots = resourceType === "CLASS" || resourceType === "PERSONAL_TRAINING" || resourceType === "APPOINTMENT"
   const [rules, setRules] = useState<RecordItem[]>([])
   const [slots, setSlots] = useState<RecordItem[]>([])
   const [trainers, setTrainers] = useState<RecordItem[]>([])
@@ -446,7 +446,7 @@ function ResourceAvailabilityDialog({ resource, organizationId, branchId, onClos
   const [slotValues, setSlotValues] = useState(() => {
     const now = new Date(); now.setMinutes(0, 0, 0)
     const startsAt = new Date(now.getTime() + 60 * 60_000); const endsAt = new Date(startsAt.getTime() + 60 * 60_000)
-    return { startsAt: dateTimeLocal(startsAt), endsAt: dateTimeLocal(endsAt), capacity: resourceType === "PERSONAL_TRAINING" ? "1" : String(resource.capacity ?? 1), trainerProfileId: "" }
+    return { startsAt: dateTimeLocal(startsAt), endsAt: dateTimeLocal(endsAt), capacity: resourceType === "CLASS" ? String(resource.capacity ?? 1) : "1", trainerProfileId: "" }
   })
   const path = `/organizations/${organizationId}/bookable-resources/${resourceId}/availability-rules`
   const slotsPath = `/organizations/${organizationId}/bookable-resources/${resourceId}/session-slots`
@@ -504,6 +504,7 @@ function MasterForm({ config, mode, item, organizationId, branchId, references, 
   const fields = useMemo(() => { const configured = mode === "create" ? config.createFields ?? [] : config.editFields ?? []; return config.id === "packages" ? [...configured, ...packageContractFields] : configured }, [config, mode])
   const [values, setValues] = useState<Values>(() => ({ ...config.initial, ...(item?.policyType ? { policyType: String(item.policyType) } : {}), ...Object.fromEntries(fields.map(field => [field.name, item ? formValueFrom(config.id, item, field.name) : config.initial?.[field.name] ?? (field.type === "checkbox" ? false : field.type === "multi" ? [] : "")])) }))
   const visibleFields = useMemo(() => fields.filter(field => {
+    if (config.id === "bookable-resources" && field.name === "capacity" && values.type !== "CLASS") return false
     if (config.id === "packages" && values.fulfillmentKind === "MEAL_PLAN" && ["accessFrequency", "visitAllowance", "visitsPerPeriod"].includes(field.name)) return false
     if (config.id === "promotions" && ["packageIds", "serviceIds"].includes(field.name) && values.eligibility === "PROMO_CODE" && values.targetScope === "ALL_PACKAGES") return false
     return !field.visibleWhen || field.visibleWhen.values.includes(String(values[field.visibleWhen.field] ?? ""))
@@ -537,15 +538,16 @@ function MasterForm({ config, mode, item, organizationId, branchId, references, 
     if (config.id === "promotions" && promotionTargets(values).length === 0 && !(values.eligibility === "PROMO_CODE" && values.targetScope === "ALL_PACKAGES")) { setError("اختر باقة واحدة أو خدمة واحدة على الأقل، أو اجعل كود الخصم عامًا لجميع الباقات."); return }
     if (config.id === "role-assignments" && values.scopeType === "SELECTED_BRANCHES" && asArray(values.branchIds).length === 0) { setError("اختر فرع عمل واحدًا على الأقل للموظف."); return }
     if (config.id === "bookable-resources") {
-      const capacity = number(values.capacity)
+      const capacity = values.type === "CLASS" ? number(values.capacity) : 1
       if (!Number.isInteger(capacity) || capacity < 1) { setError("أدخل سعة صحيحة لا تقل عن واحد."); return }
-      if ((values.type === "COURT" || values.type === "PERSONAL_TRAINING") && capacity !== 1) { setError("سعة الملعب أو التدريب الشخصي يجب أن تكون واحدًا."); return }
+      if ((values.type === "COURT" || values.type === "PERSONAL_TRAINING" || values.type === "APPOINTMENT") && capacity !== 1) { setError("سعة الحجز المتزامن للملعب أو الموعد الفردي يجب أن تكون واحدًا. أدخل عدد لاعبي الملعب عند إنشاء الحجز نفسه."); return }
     }
     setSaving(true); setError("")
     try {
       let body: Record<string, unknown>
       if (mode === "create") body = config.createBody ? config.createBody(values) : Object.fromEntries(Object.entries(values).filter(([, value]) => value !== ""))
       else body = config.editBody ? config.editBody(values, item ?? {}) : { ...Object.fromEntries(Object.entries(values).filter(([, value]) => value !== "")), expectedVersion: Number(item?.version ?? 1) }
+      if (config.id === "bookable-resources" && values.type !== "CLASS") body.capacity = 1
       if (config.id === "packages") { const contract = packageContractBody(values); if (mode === "edit" || contract !== null) body.contract = contract }
       if (config.branchScoped) body = { ...body, branchId }
       const path = (mode === "create" ? config.createPath : config.updatePath?.(itemId(item ?? {})))?.replace("{organizationId}", organizationId)

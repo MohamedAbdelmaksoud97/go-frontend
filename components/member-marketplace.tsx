@@ -5,6 +5,7 @@ import { CalendarDays, CalendarPlus, CheckCircle2, CreditCard, FileText, Loader2
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { DateTimeInput } from "@/components/date-time-input"
 import { useToast } from "@/components/toast-provider"
 import { apiRequest, createIdempotencyKey } from "@/lib/api-client"
@@ -25,6 +26,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
   const [services, setServices] = useState<Row[]>([])
   const [resource, setResource] = useState<Row>()
   const [courtSchedule, setCourtSchedule] = useState(() => futureCourtSchedule())
+  const [courtParticipants, setCourtParticipants] = useState("1")
   const [pending, setPending] = useState<PendingCheckout>()
   const [printable, setPrintable] = useState<ContractSnapshot>()
   const [loading, setLoading] = useState(true)
@@ -79,7 +81,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
   async function chooseResource(item: Row) {
     const id = String(item.id ?? ""); if (!id) return
     setResource(item); setSlots([]); setError("")
-    if (bookingType(item.resourceType) === "COURT") { setCourtSchedule(futureCourtSchedule()); return }
+    if (bookingType(item.resourceType) === "COURT") { setCourtSchedule(futureCourtSchedule()); setCourtParticipants("1"); return }
     setBusy(id)
     try {
       const from = new Date(); const to = new Date(); to.setDate(to.getDate() + 30)
@@ -95,7 +97,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
     if (!id || !serviceId) return
     setBusy(id); setError("")
     try {
-      const order = await checkout({ type: "BOOKING", targetId: serviceId, quantity: 1, booking: { resourceId: String(resource.id), type: bookingType(resource.resourceType), sessionSlotId: id, seats: 1 } })
+      const order = await checkout({ type: "BOOKING", targetId: serviceId, quantity: 1, booking: { resourceId: String(resource.id), type: bookingType(resource.resourceType), sessionSlotId: id, seats: 1, participantCount: 1 } })
       toast.success(invoiceSuccess(order, "تم تسجيل الحجز بنجاح. برجاء السداد في استقبال النادي لتأكيد الموعد."))
       await chooseResource(resource)
     } catch (reason) { setError(humanError(reason, "تعذر إنشاء الحجز والفاتورة.")) }
@@ -109,11 +111,14 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
     if (!serviceId) { setError("هذا المورد غير مرتبط بخدمة صالحة للحجز."); return }
     if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) { setError("وقت نهاية الحجز يجب أن يكون بعد وقت البداية."); return }
     if (startsAt <= new Date()) { setError("اختر موعد حجز في المستقبل."); return }
+    const participantCount = Number(courtParticipants)
+    if (!Number.isInteger(participantCount) || participantCount < 1 || participantCount > 100) { setError("أدخل عدد مشاركين صحيحًا من 1 إلى 100."); return }
     const id = String(resource.id ?? ""); setBusy(id); setError("")
     try {
-      const order = await checkout({ type: "BOOKING", targetId: serviceId, quantity: 1, booking: { resourceId: id, type: "COURT", startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), seats: 1 } })
+      const order = await checkout({ type: "BOOKING", targetId: serviceId, quantity: 1, booking: { resourceId: id, type: "COURT", startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), seats: 1, participantCount } })
       toast.success(invoiceSuccess(order, "تم تسجيل الحجز بنجاح. برجاء السداد في استقبال النادي لتأكيد الموعد."))
       setCourtSchedule(futureCourtSchedule())
+      setCourtParticipants("1")
     } catch (reason) { setError(humanError(reason, "تعذر إنشاء الحجز والفاتورة.")) }
     finally { setBusy("") }
   }
@@ -160,7 +165,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
             {!items.length && <div className="rounded-2xl border border-dashed p-10 text-center lg:col-span-2"><CalendarDays className="mx-auto size-9 text-muted-foreground/50" /><p className="mt-3 text-sm font-bold">لا توجد خيارات منشورة في هذا الفرع حاليًا</p><p className="mt-1 text-xs text-muted-foreground">يمكنك اختيار فرع آخر من القائمة بالأعلى.</p></div>}
           </div>
         )}
-        {resource && bookingType(resource.resourceType) === "COURT" && <form onSubmit={bookCourt} className="mt-5 border-t pt-5"><h3 className="text-sm font-black">وقت الحجز — {String(resource.name ?? "")}</h3><p className="mt-1 text-xs text-muted-foreground">اختر فترة تقع داخل ساعات إتاحة الملعب.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold">بداية الحجز<DateTimeInput required type="datetime-local" value={courtSchedule.startsAt} onChange={event => setCourtSchedule(current => ({ ...current, startsAt: event.target.value }))} className="mt-2 h-11" /></label><label className="text-xs font-bold">نهاية الحجز<DateTimeInput required type="datetime-local" value={courtSchedule.endsAt} onChange={event => setCourtSchedule(current => ({ ...current, endsAt: event.target.value }))} className="mt-2 h-11" /></label><Button type="submit" className="sm:col-span-2" disabled={Boolean(busy)}>{busy === String(resource.id) ? <Loader2 className="animate-spin" /> : <CalendarPlus />}تأكيد الحجز وإصدار الفاتورة</Button></div></form>}
+        {resource && bookingType(resource.resourceType) === "COURT" && <form onSubmit={bookCourt} className="mt-5 border-t pt-5"><h3 className="text-sm font-black">وقت الحجز — {String(resource.name ?? "")}</h3><p className="mt-1 text-xs text-muted-foreground">اختر فترة تقع داخل ساعات إتاحة الملعب. يحجز النظام الملعب كوحدة واحدة، وعدد المشاركين للتشغيل والتقارير فقط.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold">بداية الحجز<DateTimeInput required type="datetime-local" value={courtSchedule.startsAt} onChange={event => setCourtSchedule(current => ({ ...current, startsAt: event.target.value }))} className="mt-2 h-11" /></label><label className="text-xs font-bold">نهاية الحجز<DateTimeInput required type="datetime-local" value={courtSchedule.endsAt} onChange={event => setCourtSchedule(current => ({ ...current, endsAt: event.target.value }))} className="mt-2 h-11" /></label><label className="text-xs font-bold sm:col-span-2">عدد المشاركين<Input required type="number" min="1" max="100" value={courtParticipants} onChange={event => setCourtParticipants(event.target.value)} className="mt-2 h-11" /></label><Button type="submit" className="sm:col-span-2" disabled={Boolean(busy)}>{busy === String(resource.id) ? <Loader2 className="animate-spin" /> : <CalendarPlus />}تأكيد الحجز وإصدار الفاتورة</Button></div></form>}
         {resource && bookingType(resource.resourceType) !== "COURT" && <div className="mt-5 border-t pt-5"><h3 className="text-sm font-black">المواعيد المتاحة — {String(resource.name ?? "")}</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{slots.map((slot, index) => <Button key={String(slot.id ?? index)} variant="outline" className="h-auto justify-between py-3" disabled={Boolean(busy)} onClick={() => void book(slot)}><span>{date(slot.startsAt)}</span><span className="text-[10px] text-muted-foreground">متاح {String(slot.availableCount ?? "")}</span>{busy === String(slot.id) && <Loader2 className="animate-spin" />}</Button>)}{!slots.length && <p className="text-xs text-muted-foreground">لا توجد مواعيد شاغرة خلال الثلاثين يومًا القادمة.</p>}</div></div>}
       </CardContent>
     </Card>
@@ -186,7 +191,7 @@ function PackageDetails({ item }: { item: Row }) { const entitlements = Array.is
 function list(value: unknown): Row[] { return Array.isArray(value) ? value as Row[] : value && typeof value === "object" && Array.isArray((value as { items?: Row[] }).items) ? (value as { items: Row[] }).items : [] }
 function money(value: unknown) { return new Intl.NumberFormat("ar-SA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format((Number(value) || 0) / 100) }
 function date(value: unknown) { const parsed = new Date(String(value)); return Number.isNaN(parsed.getTime()) ? "موعد" : new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(parsed) }
-function bookingType(value: unknown): "COURT" | "CLASS" | "PERSONAL_TRAINING" { const type = String(value); return type === "CLASS" || type === "PERSONAL_TRAINING" ? type : "COURT" }
+function bookingType(value: unknown): "COURT" | "CLASS" | "PERSONAL_TRAINING" | "APPOINTMENT" { const type = String(value); return type === "CLASS" || type === "PERSONAL_TRAINING" || type === "APPOINTMENT" ? type : "COURT" }
 function futureCourtSchedule() { const now = new Date(); now.setMinutes(0, 0, 0); const startsAt = new Date(now.getTime() + 60 * 60_000); const endsAt = new Date(startsAt.getTime() + 60 * 60_000); const local = (value: Date) => new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); return { startsAt: local(startsAt), endsAt: local(endsAt) } }
 function invoiceSuccess(order: Row, message: string) { const invoiceNumber = String(order.invoiceNumber ?? ""); return invoiceNumber ? `${message} رقم الفاتورة: ${invoiceNumber}.` : message }
 function contractsFor(item: Row, type: "PACKAGE" | "SERVICE", services: Row[]) {

@@ -117,13 +117,16 @@ export const workflows: Record<string, Workflow> = {
       { name: "startsAt", label: "بداية الحجز", type: "datetime-local", required: true },
       { name: "endsAt", label: "نهاية الحجز", type: "datetime-local", required: true },
       { name: "seats", label: "عدد المقاعد", type: "number", min: "1", required: true },
-    ], initial: () => { const now = new Date(); now.setMinutes(0, 0, 0); const start = new Date(now.getTime() + 60 * 60_000); const end = new Date(start.getTime() + 60 * 60_000); const local = (value: Date) => new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); return { customerType: "MEMBER", memberId: "", guestName: "", guestPhoneE164: "", guestEmail: "", serviceId: "", resourceType: "", resourceId: "", sessionSlotId: "", startsAt: local(start), endsAt: local(end), seats: "1" } },
+      { name: "participantCount", label: "عدد المشاركين", type: "number", min: "1", required: true, hint: "عدد الأشخاص الذين سيحضرون فعليًا؛ لا يغيّر حصرية حجز الملعب." },
+    ], initial: () => { const now = new Date(); now.setMinutes(0, 0, 0); const start = new Date(now.getTime() + 60 * 60_000); const end = new Date(start.getTime() + 60 * 60_000); const local = (value: Date) => new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); return { customerType: "MEMBER", memberId: "", guestName: "", guestPhoneE164: "", guestEmail: "", serviceId: "", resourceType: "", resourceId: "", sessionSlotId: "", startsAt: local(start), endsAt: local(end), seats: "1", participantCount: "1" } },
     body: (v, c) => {
-      const type = String(v.resourceType) as "COURT" | "CLASS" | "PERSONAL_TRAINING"
+      const type = String(v.resourceType) as "COURT" | "CLASS" | "PERSONAL_TRAINING" | "APPOINTMENT"
       const schedule = type === "COURT"
         ? { startsAt: new Date(String(v.startsAt)).toISOString(), endsAt: new Date(String(v.endsAt)).toISOString() }
         : { sessionSlotId: v.sessionSlotId }
-      return { branchId: c.branchId, ...(v.customerType === "VISITOR" ? { guestName: v.guestName, guestPhoneE164: normalizedOptionalPhone(v.guestPhoneE164), guestEmail: v.guestEmail || undefined } : { memberId: v.memberId }), serviceId: v.serviceId, resourceId: v.resourceId, type, ...schedule, seats: Number(v.seats) }
+      const seats = type === "CLASS" ? Number(v.seats) : 1
+      const participantCount = type === "COURT" ? Number(v.participantCount) : type === "CLASS" ? seats : 1
+      return { branchId: c.branchId, ...(v.customerType === "VISITOR" ? { guestName: v.guestName, guestPhoneE164: normalizedOptionalPhone(v.guestPhoneE164), guestEmail: v.guestEmail || undefined } : { memberId: v.memberId }), serviceId: v.serviceId, resourceId: v.resourceId, type, ...schedule, seats, participantCount }
     },
   },
   recordPayment: {
