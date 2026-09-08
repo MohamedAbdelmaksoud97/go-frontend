@@ -553,18 +553,18 @@ function MemberDisciplinaryDialog({ organizationId, record, onClose, onSaved }: 
   const blocked = Boolean(record.isBlocked)
   const memberId = String(record.id ?? "")
   const memberName = String(record.fullNameAr ?? record.fullName ?? record.memberNumber ?? "العضو")
-  const [reason, setReason] = useState(String(record.blockedReason ?? ""))
+  const [reason, setReason] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (!blocked && reason.trim().length < 3) { setError("اكتب سببًا واضحًا للحظر ليظهر في سجل العضو."); return }
+    if (reason.trim().length < 3) { setError(blocked ? "اكتب سببًا واضحًا لرفع الحظر ليظهر في سجل العضو." : "اكتب سببًا واضحًا للحظر ليظهر في سجل العضو."); return }
     setSaving(true); setError("")
     try {
       const suffix = blocked ? "block-lifts" : "blocks"
-      await apiRequest(`/organizations/${organizationId}/members/${memberId}/${suffix}`, { method: "POST", body: JSON.stringify(blocked ? { expectedVersion: Number(record.version ?? 1) } : { expectedVersion: Number(record.version ?? 1), reason: reason.trim() }) })
-      toast.success(blocked ? "تم رفع الحظر وإعادة إتاحة الخدمات للعضو." : "تم حظر العضو وإيقاف استخدام اشتراكاته وخدماته مؤقتًا.")
+      await apiRequest(`/organizations/${organizationId}/members/${memberId}/${suffix}`, { method: "POST", body: JSON.stringify({ expectedVersion: Number(record.version ?? 1), reason: reason.trim() }) })
+      toast.success(blocked ? "تم رفع الحظر وإعادة إتاحة الخدمات للعضو، وحُفظ السبب في سجل الحظر." : "تم حظر العضو وإيقاف استخدام اشتراكاته وخدماته مؤقتًا.")
       onSaved()
     } catch (reason) { setError(humanError(reason, blocked ? "تعذر رفع الحظر." : "تعذر حظر العضو.")) }
     finally { setSaving(false) }
@@ -573,9 +573,9 @@ function MemberDisciplinaryDialog({ organizationId, record, onClose, onSaved }: 
   return <div className="fixed inset-0 z-[90] grid place-items-center bg-black/65 p-4 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
     <form onSubmit={submit} className="w-full max-w-lg rounded-[28px] border bg-card p-6 shadow-2xl" dir="rtl">
       <div className="flex items-start gap-4"><span className={`grid size-12 place-items-center rounded-2xl ${blocked ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-600"}`}>{blocked ? <UserRoundCheck /> : <UserRoundX />}</span><div><h2 className="text-xl font-black">{blocked ? "رفع حظر العضو" : "حظر العضو مؤقتًا"}</h2><p className="mt-1 text-sm text-muted-foreground">{memberName}</p></div><Button type="button" variant="ghost" size="icon" className="mr-auto" onClick={onClose} aria-label="إغلاق"><X /></Button></div>
-      <p className="mt-5 rounded-2xl bg-secondary/60 p-4 text-xs leading-6">{blocked ? "سيعود العضو إلى الحالة النشطة ويمكنه استخدام اشتراكاته السارية وحجز الخدمات من جديد." : "يمنع الحظر دخول العضو وحجز الخدمات واستخدام اشتراكاته دون إلغاء الاشتراك أو تغيير سجله المالي. يمكن رفعه لاحقًا من نفس المكان."}</p>
-      {!blocked && <label className="mt-5 block text-xs font-bold">سبب الحظر<span className="mr-1 text-red-500">*</span><textarea value={reason} onChange={event => setReason(event.target.value)} rows={4} placeholder="مثال: مخالفة موثقة لسياسات النادي" className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>}
+      <p className="mt-5 rounded-2xl bg-secondary/60 p-4 text-xs leading-6">{blocked ? "سيعود العضو إلى الحالة النشطة ويمكنه استخدام اشتراكاته السارية وحجز الخدمات من جديد، وسيُحفظ سبب رفع الحظر في سجله." : "يمنع الحظر دخول العضو وحجز الخدمات واستخدام اشتراكاته دون إلغاء الاشتراك أو تغيير سجله المالي. يمكن رفعه لاحقًا من نفس المكان."}</p>
       {blocked && Boolean(record.blockedReason) && <p className="mt-4 text-xs text-muted-foreground">سبب الحظر المسجل: <strong className="text-foreground">{String(record.blockedReason)}</strong></p>}
+      <label className="mt-5 block text-xs font-bold">{blocked ? "سبب رفع الحظر" : "سبب الحظر"}<span className="mr-1 text-red-500">*</span><textarea required minLength={3} maxLength={500} value={reason} onChange={event => { setReason(event.target.value); setError("") }} rows={4} placeholder={blocked ? "مثال: تمت مراجعة المخالفة واستيفاء شروط إعادة التفعيل" : "مثال: مخالفة موثقة لسياسات النادي"} className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
       <div className="mt-6 flex gap-2 border-t pt-5"><Button type="button" variant="outline" onClick={onClose}>إلغاء</Button><Button type="submit" className={`mr-auto ${blocked ? "" : "bg-red-600 text-white hover:bg-red-700"}`} disabled={saving}>{saving ? "جارٍ الحفظ..." : blocked ? "رفع الحظر" : "تأكيد الحظر"}</Button></div>
     </form>

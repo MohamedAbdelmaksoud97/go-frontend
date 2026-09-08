@@ -204,6 +204,8 @@ const messages: Record<string, string> = {
     "العضو محظور بالفعل. حدّث ملفه لمراجعة سبب الحظر وتاريخه.",
   member_not_blocked:
     "لا يوجد حظر نشط على هذا العضو يمكن رفعه.",
+  invalid_member_block_reason:
+    "اكتب سببًا واضحًا من 3 إلى 500 حرف للحظر أو لرفع الحظر.",
   member_cannot_be_blocked:
     "لا يمكن حظر هذا العضو لأن حالته غير نشطة بالفعل.",
   freeze_days_exceeded:
