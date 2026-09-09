@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Building2, Check, ChevronLeft, CircleAlert, CircleCheckBig, Lightbulb, Loader2, Pencil, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Trash2, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Building2, Check, ChevronLeft, CircleAlert, CircleCheckBig, Lightbulb, ListPlus, Loader2, Pencil, Plus, RefreshCw, Search, Settings2, ShieldAlert, ShieldCheck, Trash2, X } from "lucide-react"
 import { apiRequest, createIdempotencyKey, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { useAppContext } from "@/components/app-context"
@@ -18,6 +18,7 @@ import { permissionActions, permissionPresentation } from "@/lib/permission-disp
 type Value = string | boolean | string[]
 type Values = Record<string, Value>
 type RecordItem = Record<string, unknown>
+type ContractSectionDraft = { title: string; style: "NUMBERED" | "CHECKLIST"; clauses: string[] }
 type BranchLookup = { id: string; nameAr?: string; name?: string }
 type Field = {
   name: string
@@ -59,14 +60,66 @@ type MasterConfig = {
 const packageContractFields: Field[] = [
   { name: "contractType", label: "هل تتطلب الباقة عقدًا؟", type: "select", required: true, options: [{ value: "NONE", label: "لا، بدون عقد" }, { value: "GENERAL_ACTIVITY", label: "نعم، عقد مشترك بالغ" }, { value: "CHILD_ACADEMY", label: "نعم، عقد طفل / ولي أمر" }], hint: "العقد يتبع هذه الباقة تحديدًا، حتى يمكن للنشاط الواحد أن يضم باقات للكبار وأخرى للأطفال." },
   { name: "contractTitle", label: "عنوان العقد", required: true, visibleWhen: { field: "contractType", values: ["GENERAL_ACTIVITY", "CHILD_ACADEMY"] }, hint: "عنوان مختصر يظهر أعلى العقد المطبوع." },
-  { name: "contractContent", label: "بنود العقد", type: "textarea", required: true, maxLength: 100000, rows: 16, visibleWhen: { field: "contractType", values: ["GENERAL_ACTIVITY", "CHILD_ACADEMY"] }, hint: "أدخل البنود فقط، وكل بند في سطر مستقل. يضيف النظام بيانات النادي والعضو والباقة والإقرار والتوقيعات تلقائيًا، ويثبت نسخة وقت البيع." },
 ]
 
 const isoNow = () => new Date().toISOString()
 const dateTimeLocal = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 const number = (value: Value | undefined) => Number(value || 0)
 const asArray = (value: Value | undefined) => Array.isArray(value) ? value : []
-const packageContractBody = (values: Values) => values.contractType === "GENERAL_ACTIVITY" || values.contractType === "CHILD_ACADEMY" ? { type: values.contractType, title: values.contractTitle, content: values.contractContent } : null
+const packageContractBody = (values: Values, drafts: ContractSectionDraft[]) => {
+  if (values.contractType !== "GENERAL_ACTIVITY" && values.contractType !== "CHILD_ACADEMY") return null
+  const sections = cleanContractSections(drafts)
+  const content = sections.map(section => `${section.title}\n${section.clauses.map((clause, index) => `${index + 1}. ${clause}`).join("\n")}`).join("\n\n")
+  return { type: values.contractType, title: values.contractTitle, content, sections }
+}
+
+const suggestedContractSections = (): ContractSectionDraft[] => [
+  { title: "أولاً: بنود عامة", style: "NUMBERED", clauses: [""] },
+  { title: "ثانياً: المسؤولية والسلامة", style: "NUMBERED", clauses: [""] },
+  { title: "ثالثاً: التواصل والعروض", style: "NUMBERED", clauses: [""] },
+  { title: "رابعاً: حالات إلغاء الاشتراك", style: "NUMBERED", clauses: [""] },
+  { title: "خامساً: الممنوعات", style: "NUMBERED", clauses: [""] },
+  { title: "سادساً: أحكام إضافية", style: "NUMBERED", clauses: [""] },
+  { title: "الإقرارات الصحية", style: "CHECKLIST", clauses: [""] },
+]
+
+function applySuggestedContractSections(current: ContractSectionDraft[]) {
+  const hasContent = current.some(section => section.title.trim() && section.clauses.some(clause => clause.trim()))
+  if (!hasContent) return suggestedContractSections()
+  const existing = new Set(current.map(section => section.title.trim()))
+  return [...current, ...suggestedContractSections().filter(section => !existing.has(section.title))].slice(0, 12)
+}
+
+function cleanContractSections(values: ContractSectionDraft[]) {
+  return values.map(section => ({ title: section.title.trim(), style: section.style, clauses: section.clauses.map(clause => clause.trim()).filter(Boolean) })).filter(section => section.title && section.clauses.length)
+}
+
+function contractSectionsFrom(item?: RecordItem): ContractSectionDraft[] {
+  const contract = item?.contract && typeof item.contract === "object" ? item.contract as RecordItem : undefined
+  if (Array.isArray(contract?.sections)) {
+    const sections = contract.sections.flatMap(value => {
+      if (!value || typeof value !== "object") return []
+      const section = value as RecordItem
+      const clauses = Array.isArray(section.clauses) ? section.clauses.map(String) : []
+      return [{ title: String(section.title ?? ""), style: section.style === "CHECKLIST" ? "CHECKLIST" as const : "NUMBERED" as const, clauses: clauses.length ? clauses : [""] }]
+    })
+    if (sections.length) return sections
+  }
+  const legacy = String(contract?.content ?? "").split(/\r?\n/u).map(value => value.replace(/^\s*\d+[.)-]?\s*/u, "").trim()).filter(Boolean)
+  return [{ title: "الشروط والأحكام", style: "NUMBERED", clauses: legacy.length ? legacy : [""] }]
+}
+
+function contractSectionsError(values: ContractSectionDraft[]): string | undefined {
+  const sections = cleanContractSections(values)
+  if (!sections.length) return "أضف تصنيفًا واحدًا على الأقل وبندًا واحدًا داخله."
+  if (values.some(section => !section.title.trim() && section.clauses.some(clause => clause.trim()))) return "أدخل عنوانًا لكل تصنيف يحتوي على بنود."
+  if (values.some(section => section.title.trim() && !section.clauses.some(clause => clause.trim()))) return "أدخل بندًا واحدًا على الأقل داخل كل تصنيف."
+  const shortClause = sections.flatMap(section => section.clauses).find(clause => clause.length < 2)
+  if (shortClause !== undefined) return "كل بند في العقد يجب أن يحتوي على حرفين على الأقل."
+  const contentLength = sections.map(section => `${section.title}\n${section.clauses.join("\n")}`).join("\n\n").length
+  if (contentLength < 20) return "أدخل بنودًا أوضح؛ محتوى العقد قصير جدًا."
+  return undefined
+}
 const promotionTargets = (values: Values) => values.eligibility === "PROMO_CODE" && values.targetScope === "ALL_PACKAGES"
   ? []
   : [...asArray(values.packageIds).map(id => ({ type: "PACKAGE", id })), ...asArray(values.serviceIds).map(id => ({ type: "SERVICE", id }))]
@@ -500,9 +553,32 @@ function ResourceAvailabilityDialog({ resource, organizationId, branchId, onClos
     {!usesSessionSlots && <p className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 text-xs leading-6 text-muted-foreground">حجوزات الملاعب تختار وقت البداية والنهاية مباشرة، لذلك لا تحتاج إلى إنشاء مواعيد منفصلة.</p>}</div></section></div>
 }
 
+function ContractSectionsEditor({ sections, onChange }: { sections: ContractSectionDraft[]; onChange: (value: ContractSectionDraft[]) => void }) {
+  const update = (index: number, value: ContractSectionDraft) => onChange(sections.map((section, current) => current === index ? value : section))
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= sections.length) return
+    const next = [...sections]; [next[index], next[target]] = [next[target]!, next[index]!]; onChange(next)
+  }
+  return <section className="mt-6 rounded-2xl border border-primary/20 bg-primary/[0.035] p-4 sm:p-5">
+    <div className="flex flex-wrap items-start gap-3"><div><p className="text-sm font-black">تصنيفات وبنود العقد</p><p className="mt-1 text-xs leading-6 text-muted-foreground">قسّم الشروط إلى أقسام واضحة. سيُرقّم النظام البنود ويملأ بيانات النادي والعضو والباقة والفاتورة تلقائيًا في النسخة المطبوعة.</p></div><Button type="button" variant="outline" size="sm" className="mr-auto" onClick={() => onChange(applySuggestedContractSections(sections))}><ListPlus />التصنيفات المقترحة</Button></div>
+    <div className="mt-4 space-y-4">{sections.map((section, sectionIndex) => <article key={sectionIndex} className="rounded-2xl border bg-card p-4 shadow-sm">
+      <div className="grid gap-3 sm:grid-cols-[1fr_170px_auto]">
+        <label className="space-y-2"><span className="text-xs font-bold">عنوان التصنيف <span className="text-destructive">*</span></span><Input value={section.title} maxLength={120} placeholder="مثال: المسؤولية والسلامة" onChange={event => update(sectionIndex, { ...section, title: event.target.value })} /></label>
+        <label className="space-y-2"><span className="text-xs font-bold">طريقة العرض</span><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={section.style} onChange={event => update(sectionIndex, { ...section, style: event.target.value as ContractSectionDraft["style"] })}><option value="NUMBERED">بنود مرقمة</option><option value="CHECKLIST">إقرارات بعلامات</option></select></label>
+        <div className="flex items-end gap-1"><Button type="button" variant="ghost" size="icon" aria-label="نقل التصنيف لأعلى" disabled={sectionIndex === 0} onClick={() => move(sectionIndex, -1)}><ArrowUp /></Button><Button type="button" variant="ghost" size="icon" aria-label="نقل التصنيف لأسفل" disabled={sectionIndex === sections.length - 1} onClick={() => move(sectionIndex, 1)}><ArrowDown /></Button><Button type="button" variant="ghost" size="icon" className="text-destructive" aria-label="حذف التصنيف" onClick={() => onChange(sections.filter((_, index) => index !== sectionIndex))}><Trash2 /></Button></div>
+      </div>
+      <div className="mt-4 space-y-3">{section.clauses.map((clause, clauseIndex) => <div key={clauseIndex} className="flex items-start gap-2"><span className="mt-2 grid size-6 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-black">{clauseIndex + 1}</span><textarea className="min-h-20 flex-1 resize-y rounded-xl border bg-background px-3 py-2 text-sm leading-6" maxLength={1000} value={clause} placeholder="اكتب البند بصياغة واضحة ومباشرة" onChange={event => update(sectionIndex, { ...section, clauses: section.clauses.map((value, index) => index === clauseIndex ? event.target.value : value) })} /><Button type="button" variant="ghost" size="icon" className="mt-1 text-muted-foreground hover:text-destructive" aria-label="حذف البند" disabled={section.clauses.length === 1} onClick={() => update(sectionIndex, { ...section, clauses: section.clauses.filter((_, index) => index !== clauseIndex) })}><X /></Button></div>)}</div>
+      <Button type="button" variant="ghost" size="sm" className="mt-3" disabled={section.clauses.length >= 40} onClick={() => update(sectionIndex, { ...section, clauses: [...section.clauses, ""] })}><Plus />إضافة بند</Button>
+    </article>)}</div>
+    <Button type="button" variant="outline" className="mt-4" disabled={sections.length >= 12} onClick={() => onChange([...sections, { title: "", style: "NUMBERED", clauses: [""] }])}><Plus />إضافة تصنيف</Button>
+  </section>
+}
+
 function MasterForm({ config, mode, item, organizationId, branchId, references, setReferences, onClose, onSaved }: { config: MasterConfig; mode: "create" | "edit"; item?: RecordItem; organizationId: string; branchId: string; references: Record<string, RecordItem[]>; setReferences: React.Dispatch<React.SetStateAction<Record<string, RecordItem[]>>>; onClose: () => void; onSaved: () => void }) {
   const fields = useMemo(() => { const configured = mode === "create" ? config.createFields ?? [] : config.editFields ?? []; return config.id === "packages" ? [...configured, ...packageContractFields] : configured }, [config, mode])
   const [values, setValues] = useState<Values>(() => ({ ...config.initial, ...(item?.policyType ? { policyType: String(item.policyType) } : {}), ...Object.fromEntries(fields.map(field => [field.name, item ? formValueFrom(config.id, item, field.name) : config.initial?.[field.name] ?? (field.type === "checkbox" ? false : field.type === "multi" ? [] : "")])) }))
+  const [contractSections, setContractSections] = useState<ContractSectionDraft[]>(() => contractSectionsFrom(item))
   const visibleFields = useMemo(() => fields.filter(field => {
     if (config.id === "bookable-resources" && field.name === "capacity" && values.type !== "CLASS") return false
     if (config.id === "packages" && values.fulfillmentKind === "MEAL_PLAN" && ["accessFrequency", "visitAllowance", "visitsPerPeriod"].includes(field.name)) return false
@@ -536,6 +612,7 @@ function MasterForm({ config, mode, item, organizationId, branchId, references, 
     const missingRequired = visibleFields.find(field => field.required && (Array.isArray(values[field.name]) ? asArray(values[field.name]).length === 0 : String(values[field.name] ?? "").trim().length === 0))
     if (missingRequired) { setError(`أكمل الحقل المطلوب: ${missingRequired.label}.`); return }
     if (config.id === "promotions" && promotionTargets(values).length === 0 && !(values.eligibility === "PROMO_CODE" && values.targetScope === "ALL_PACKAGES")) { setError("اختر باقة واحدة أو خدمة واحدة على الأقل، أو اجعل كود الخصم عامًا لجميع الباقات."); return }
+    if (config.id === "packages" && values.contractType !== "NONE") { const issue = contractSectionsError(contractSections); if (issue) { setError(issue); return } }
     if (config.id === "role-assignments" && values.scopeType === "SELECTED_BRANCHES" && asArray(values.branchIds).length === 0) { setError("اختر فرع عمل واحدًا على الأقل للموظف."); return }
     if (config.id === "bookable-resources") {
       const capacity = values.type === "CLASS" ? number(values.capacity) : 1
@@ -548,7 +625,7 @@ function MasterForm({ config, mode, item, organizationId, branchId, references, 
       if (mode === "create") body = config.createBody ? config.createBody(values) : Object.fromEntries(Object.entries(values).filter(([, value]) => value !== ""))
       else body = config.editBody ? config.editBody(values, item ?? {}) : { ...Object.fromEntries(Object.entries(values).filter(([, value]) => value !== "")), expectedVersion: Number(item?.version ?? 1) }
       if (config.id === "bookable-resources" && values.type !== "CLASS") body.capacity = 1
-      if (config.id === "packages") { const contract = packageContractBody(values); if (mode === "edit" || contract !== null) body.contract = contract }
+      if (config.id === "packages") { const contract = packageContractBody(values, contractSections); if (mode === "edit" || contract !== null) body.contract = contract }
       if (config.branchScoped) body = { ...body, branchId }
       const path = (mode === "create" ? config.createPath : config.updatePath?.(itemId(item ?? {})))?.replace("{organizationId}", organizationId)
       if (!path) throw new Error("مسار الحفظ غير متاح")
@@ -557,7 +634,7 @@ function MasterForm({ config, mode, item, organizationId, branchId, references, 
     } catch (reason) { setError(humanError(reason, "تعذر حفظ التغييرات.")) }
     finally { setSaving(false) }
   }
-  return <div className="fixed inset-0 z-[80] grid place-items-end bg-black/60 backdrop-blur-sm sm:place-items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section role="dialog" aria-modal="true" aria-labelledby="master-form-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:max-w-2xl sm:rounded-[28px]"><header className="sticky top-0 z-10 flex items-start border-b bg-card/95 p-5 backdrop-blur"><div><p className="text-[11px] font-bold text-amber-700">البيانات الرئيسية</p><h2 id="master-form-title" className="mt-1 text-xl font-black">{mode === "create" ? `إضافة ${config.label}` : `تعديل ${config.label}`}</h2></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} aria-label="إغلاق"><X /></Button></header><form onSubmit={submit} className="p-5 sm:p-6"><div className="grid gap-5 sm:grid-cols-2">{visibleFields.map(field => { const source = config.id === "prices" && field.name === "targetId" ? values.targetType === "SERVICE" ? "services" : "packages" : field.source; const referenceKey = source === "facilities" || (source === "services" && config.id === "bookable-resources") ? `${source}:${branchId}` : source; const choices = (referenceKey ? references[referenceKey] ?? [] : []).filter(choice => !field.sourceFilter || choice[field.sourceFilter.key] === field.sourceFilter.value).filter(choice => config.id !== "bookable-resources" || !["facilities", "services", "policies"].includes(String(field.source)) || choice.status === "ACTIVE").filter(choice => config.id !== "packages" || field.name !== "serviceIds" || !values.fulfillmentKind || choice.fulfillmentKind === values.fulfillmentKind); return <MasterField key={field.name} field={field} value={values[field.name]} choices={choices} onChange={value => setValues(current => config.id === "packages" && field.name === "fulfillmentKind" ? { ...current, fulfillmentKind: value, serviceIds: [], accessFrequency: "UNLIMITED", mealAllowance: "" } : config.id === "bookable-resources" && field.name === "type" ? { ...current, type: value, capacity: value === "CLASS" ? current.capacity || "1" : "1" } : { ...current, [field.name]: value })} /> })}</div>{error && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}<footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>إلغاء</Button><Button type="submit" className="sm:mr-auto" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Check />}حفظ التغييرات</Button></footer></form></section></div>
+  return <div className="fixed inset-0 z-[80] grid place-items-end bg-black/60 backdrop-blur-sm sm:place-items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section role="dialog" aria-modal="true" aria-labelledby="master-form-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:max-w-4xl sm:rounded-[28px]"><header className="sticky top-0 z-10 flex items-start border-b bg-card/95 p-5 backdrop-blur"><div><p className="text-[11px] font-bold text-amber-700">البيانات الرئيسية</p><h2 id="master-form-title" className="mt-1 text-xl font-black">{mode === "create" ? `إضافة ${config.label}` : `تعديل ${config.label}`}</h2></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} aria-label="إغلاق"><X /></Button></header><form onSubmit={submit} className="p-5 sm:p-6"><div className="grid gap-5 sm:grid-cols-2">{visibleFields.map(field => { const source = config.id === "prices" && field.name === "targetId" ? values.targetType === "SERVICE" ? "services" : "packages" : field.source; const referenceKey = source === "facilities" || (source === "services" && config.id === "bookable-resources") ? `${source}:${branchId}` : source; const choices = (referenceKey ? references[referenceKey] ?? [] : []).filter(choice => !field.sourceFilter || choice[field.sourceFilter.key] === field.sourceFilter.value).filter(choice => config.id !== "bookable-resources" || !["facilities", "services", "policies"].includes(String(field.source)) || choice.status === "ACTIVE").filter(choice => config.id !== "packages" || field.name !== "serviceIds" || !values.fulfillmentKind || choice.fulfillmentKind === values.fulfillmentKind); return <MasterField key={field.name} field={field} value={values[field.name]} choices={choices} onChange={value => setValues(current => config.id === "packages" && field.name === "fulfillmentKind" ? { ...current, fulfillmentKind: value, serviceIds: [], accessFrequency: "UNLIMITED", mealAllowance: "" } : config.id === "bookable-resources" && field.name === "type" ? { ...current, type: value, capacity: value === "CLASS" ? current.capacity || "1" : "1" } : { ...current, [field.name]: value })} /> })}</div>{config.id === "packages" && values.contractType !== "NONE" && <ContractSectionsEditor sections={contractSections} onChange={setContractSections} />}{error && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}<footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>إلغاء</Button><Button type="submit" className="sm:mr-auto" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Check />}حفظ التغييرات</Button></footer></form></section></div>
 }
 
 type PermissionGuidance = {

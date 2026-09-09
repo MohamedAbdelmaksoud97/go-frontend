@@ -200,7 +200,7 @@ function contractsFor(item: Row, type: "PACKAGE" | "SERVICE", services: Row[]) {
     if (!contract?.content || !contract.title) return []
     const entitlementIds = new Set((Array.isArray(item.entitlements) ? item.entitlements as Row[] : []).map(entry => String(entry.serviceId ?? "")))
     const activityNames = [...new Set(services.filter(service => entitlementIds.has(String(service.id ?? ""))).flatMap(service => (Array.isArray(service.activities) ? service.activities as Row[] : []).map(activity => String(activity.name ?? "")).filter(Boolean)))]
-    return [{ id: item.id, packageId: item.id, packageCode: item.code, packageName: item.name, activityNames, contractType: contract.type, contractTitle: contract.title, contractContent: contract.content, source: "SALE" }]
+    return [{ id: item.id, packageId: item.id, packageCode: item.code, packageName: item.name, activityNames, contractType: contract.type, contractTitle: contract.title, contractContent: contract.content, contractSections: contract.sections, source: "SALE" }]
   }
   return []
 }

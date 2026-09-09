@@ -222,7 +222,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     <nav className="flex gap-2 overflow-x-auto rounded-2xl border bg-card p-2" aria-label="أقسام ملف العضو">{tabs.map(tab => { const Icon = tab.icon; return <button key={tab.key} type="button" onClick={() => setActive(tab.key)} className={cn("inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-xs font-bold transition", active === tab.key ? "bg-primary text-primary-foreground" : "hover:bg-secondary")}><Icon className="size-4"/>{tab.label}</button> })}</nav>
 
     {active === "profile" && <ProfileSection member={member} contacts={contacts} branchName={branchName} identity={identity} identityUrl={identity ? data.fileUrls[text(identity.id)] : ""} showSensitiveNotes={context.canAccess(["members.sensitive.read"])} />} 
-    {active === "subscriptions" && <SubscriptionSection rows={data.subscriptions} branches={context.branches} activities={data.activities} services={data.services} asOf={loadedAt} error={data.errors.subscriptions}/>}
+    {active === "subscriptions" && <SubscriptionSection rows={data.subscriptions} branches={context.branches} activities={data.activities} services={data.services} member={data.member} employeeName={context.account?.displayName ?? undefined} asOf={loadedAt} error={data.errors.subscriptions}/>}
     {active === "freezes" && <FreezeHistorySection subscriptions={data.subscriptions} branches={context.branches} asOf={loadedAt} error={data.errors.subscriptions}/>}
     {active === "renewals" && <RenewalHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
     {active === "cancellations" && <CancellationHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
@@ -350,7 +350,7 @@ function ProfileSection({ member, contacts, branchName, identity, identityUrl, s
   </div>
 }
 
-function SubscriptionSection({ rows: items, branches, activities, services, asOf, error }: ListProps & { activities: Row[]; services: Row[]; asOf: number }) {
+function SubscriptionSection({ rows: items, branches, activities, services, member, employeeName, asOf, error }: ListProps & { activities: Row[]; services: Row[]; member?: Row; employeeName?: string; asOf: number }) {
   return <SectionShell title="الاشتراكات والباقات" count={items.length} error={error}>{items.length ? <div className="grid gap-3 lg:grid-cols-2">{items.map(row => {
     const snapshot = isRow(row.commercialSnapshot) ? row.commercialSnapshot : {}
     const freezes = Array.isArray(row.freezePeriods) ? row.freezePeriods.filter(isRow) : []
@@ -361,7 +361,7 @@ function SubscriptionSection({ rows: items, branches, activities, services, asOf
       <div className="mt-5 grid grid-cols-2 gap-3 text-xs"><Small label={frozen ? "المدة · النهاية بعد التجميد" : "مدة الاشتراك"} value={`${date(row.termStart)} — ${date(row.termEnd)}`}/><Small label="الأيام المتبقية لانتهاء الاشتراك" value={remainingSubscriptionDaysLabel(row, asOf)}/><Small label="الفرع" value={branchLabel(text(row.sellingBranchId), branches)}/><Small label="القيمة" value={money(minor(snapshot.grossMinor))}/><Small label="الاستخدام" value={row.visitAllowance == null ? "حسب صلاحيات الباقة" : `${minor(row.visitsUsed)} من ${minor(row.visitAllowance)} زيارة`}/></div>
       {frozen && <p className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/8 p-3 text-xs leading-6 text-sky-800 dark:text-sky-200">تاريخ النهاية المعروض يشمل مدة التجميد المعتمدة، وسيُعدّل تلقائيًا إذا استؤنف الاشتراك مبكرًا.</p>}
       {freezes.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black"><Snowflake className="size-4 text-sky-500"/>سجل التجميدات</p><div className="space-y-2">{freezes.map((freeze, index) => <div key={text(freeze.id, String(index))} className="rounded-xl bg-sky-500/8 p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{date(freeze.startedAt)} — {date(freeze.plannedEndAt)}</strong><StatusBadge status={freeze.resumedAt ? "COMPLETED" : "FROZEN"}/></div>{Boolean(freeze.reason) && <p className="mt-1 text-muted-foreground">{text(freeze.reason)}</p>}<FreezeUsageMetrics period={freeze} asOf={asOf}/></div>)}</div></div>}
-      {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printContract(contract, row)}><Printer/>طباعة العقد</Button></div>)}</div></div>}
+      {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printContract(contract, row, member, branchLabel(text(row.sellingBranchId), branches), employeeName)}><Printer/>طباعة العقد</Button></div>)}</div></div>}
     </article>
   })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}</SectionShell>
 }
@@ -515,15 +515,26 @@ function subscriptionContracts(subscription: Row, services: Row[], activities: R
   const activityIds = new Set(services.filter(service => serviceIds.has(text(service.id))).flatMap(service => Array.isArray(service.activityIds) ? service.activityIds.map(String) : []))
   return activities.filter(activity => activityIds.has(text(activity.id)) && Boolean(activity.contractContent))
 }
-function printContract(contract: Row, subscription: Row) {
+function printContract(contract: Row, subscription: Row, member: Row | undefined, branchName: string, employeeName?: string) {
   const activityName = text(contract.name, "النشاط")
   const title = text(contract.contractTitle, `عقد ${activityName}`)
   const details = subscriptionContractPrintRows(subscription)
+  const contacts = member && Array.isArray(member.contacts) ? member.contacts.filter(isRow) : []
+  const phone = contacts.find(contact => text(contact.type, "") === "PHONE")
+  const email = contacts.find(contact => text(contact.type, "") === "EMAIL")
+  const memberRows: Array<[string, string]> = [["الاسم الكامل", text(member?.name)], ["رقم العضوية", text(member?.memberNumber)], ["رقم الهوية / الإقامة", text(member?.nationalId)], ["تاريخ الميلاد", date(member?.birthDate)], ["الجنسية", text(member?.nationalityCode)], ["رقم الجوال", text(phone?.value)], ["البريد الإلكتروني", text(email?.value)]]
+  const terms = contractSectionsPrintHtml(contract)
+  const contractDate = date(subscription.createdAt ?? subscription.termStart)
   openBrandedPrintWindow({
     title,
     subtitle: "نسخة بنود عقد النشاط",
-    body: `<section class="document-heading"><p class="eyebrow">عقد ممارسة نشاط</p><h1>${escapePrintHtml(title)}</h1></section><section class="document-subject"><span>النشاط</span><strong>${escapePrintHtml(activityName)}</strong><small>تطبق هذه البنود على الاشتراك الموضح أدناه.</small></section><section class="document-section"><h2>بيانات الاشتراك والقيمة وسياسة التجميد</h2><table><tbody>${details.map(([label, value]) => `<tr><th>${escapePrintHtml(label)}</th><td>${escapePrintHtml(value)}</td></tr>`).join("")}</tbody></table></section><p class="document-preamble">تم إعداد هذه الوثيقة لممارسة نشاط <strong>${escapePrintHtml(activityName)}</strong> وفق بيانات الاشتراك والسياسة المحفوظة وقت البيع.</p><section class="document-section"><h2>بنود ممارسة النشاط</h2><div class="document-terms">${escapePrintHtml(text(contract.contractContent, ""))}</div></section><section class="document-signatures"><div>توقيع المشترك</div><div>توقيع الموظف المختص</div><div>التاريخ</div></section>`,
+    body: `<section class="document-heading"><p class="eyebrow">عقد ممارسة نشاط</p><h1>${escapePrintHtml(title)}</h1></section><section class="document-subject"><span>الباقة والنشاط</span><strong>${escapePrintHtml(text(contract.packageName, activityName))}</strong><small>${escapePrintHtml(activityName)} · ${escapePrintHtml(branchName)} · تاريخ العقد ${escapePrintHtml(contractDate)}</small></section><div class="document-grid"><section class="document-section"><h2>الطرف الأول: العضو</h2><table><tbody>${memberRows.map(([label, value]) => `<tr><th>${escapePrintHtml(label)}</th><td>${escapePrintHtml(value)}</td></tr>`).join("")}</tbody></table></section><section class="document-section"><h2>الطرف الثاني: النادي</h2><table><tbody><tr><th>اسم النادي</th><td>GO Fitness</td></tr><tr><th>الفرع</th><td>${escapePrintHtml(branchName)}</td></tr><tr><th>النشاط</th><td>${escapePrintHtml(activityName)}</td></tr><tr><th>الباقة</th><td>${escapePrintHtml(text(contract.packageName, activityName))}</td></tr></tbody></table></section></div><section class="document-section"><h2>بيانات الاشتراك والقيمة وسياسة التجميد</h2><table><tbody>${details.map(([label, value]) => `<tr><th>${escapePrintHtml(label)}</th><td>${escapePrintHtml(value)}</td></tr>`).join("")}</tbody></table></section><p class="document-preamble">تم إعداد هذه الوثيقة تلقائيًا وفق بيانات العضو والاشتراك والسياسة المحفوظة وقت البيع.</p>${terms}<section class="document-section"><h2>إقرار العضو</h2><p>أقر بصحة البيانات الموضحة وقراءتي لجميع بنود العقد وفهمها والموافقة عليها.</p></section><section class="document-signatures"><div><strong>${escapePrintHtml(text(member?.name))}</strong><br/>توقيع العضو</div><div><strong>${escapePrintHtml(employeeName ?? "موظف مخول")}</strong><br/>توقيع موظف النادي</div></section>`,
   })
+}
+function contractSectionsPrintHtml(contract: Row) {
+  const raw = Array.isArray(contract.contractSections) ? contract.contractSections.filter(isRow) : Array.isArray(contract.sections) ? contract.sections.filter(isRow) : []
+  if (!raw.length) return `<section class="document-section"><h2>الشروط والأحكام</h2><div class="document-terms">${escapePrintHtml(text(contract.contractContent, ""))}</div></section>`
+  return raw.map(section => { const clauses = Array.isArray(section.clauses) ? section.clauses.map(value => text(value, "")).filter(Boolean) : []; const checklist = text(section.style, "") === "CHECKLIST"; return `<section class="document-section"><h2>${escapePrintHtml(text(section.title, "الشروط والأحكام"))}</h2><ol>${clauses.map(clause => `<li>${checklist ? "✓ " : ""}${escapePrintHtml(clause)}</li>`).join("")}</ol></section>` }).join("")
 }
 function subscriptionContractPrintRows(subscription: Row): Array<[string, string]> {
   const commercial = isRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}

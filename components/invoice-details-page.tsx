@@ -25,14 +25,17 @@ type InvoiceLine = {
 }
 type FreezePolicyPrint = { name?: string; maxDaysPerFreeze?: number; maxFreezesPerTerm?: number; minimumActiveDaysBeforeFreeze?: number; freezesUsed: number; freezeDaysUsed: number }
 type MembershipPrintDetails = { lineId: string; packageName: string; subscriptionNumber?: string; status?: string; termStart?: string; termEnd?: string; promotionName?: string; priceBeforeOfferMinor?: string; subscriptionValueMinor: string; currency: string; freezePolicy?: FreezePolicyPrint }
-export type ContractSnapshot = { activityId: string; activityCode: string; activityName: string; packageId?: string; packageCode?: string; activityNames?: string[]; contractType: "GENERAL_ACTIVITY" | "CHILD_ACADEMY"; contractTitle: string; contractContent: string; packageName?: string; source: "SALE" | "LEGACY_BACKFILL"; membership?: MembershipPrintDetails }
+export type ContractSection = { title: string; style: "NUMBERED" | "CHECKLIST"; clauses: string[] }
+export type ContractSnapshot = { activityId: string; activityCode: string; activityName: string; packageId?: string; packageCode?: string; activityNames?: string[]; contractType: "GENERAL_ACTIVITY" | "CHILD_ACADEMY"; contractTitle: string; contractContent: string; contractSections: ContractSection[]; packageName?: string; source: "SALE" | "LEGACY_BACKFILL"; membership?: MembershipPrintDetails }
 export type ContractPrintContext = {
+  organizationName?: string
   branchName: string
+  branchAddress?: string
   invoiceNumber?: string
   issuedAt?: string
   employeeName?: string
   preview?: boolean
-  member?: { name: string; memberNumber: string; phone?: string; email?: string }
+  member?: { name: string; memberNumber: string; phone?: string; email?: string; birthDate?: string; nationalityCode?: string; nationalId?: string; guardian?: { name: string; phone?: string; relationship: string } }
 }
 type InvoicePayment = {
   allocationId: string; allocationAmountMinor: string; allocatedAt: string; id: string; method: string; status: string
@@ -46,8 +49,9 @@ type InvoiceDetails = {
   id: string; invoiceNumber: string; orderId?: string; memberId?: string; sellingBranchId: string; status: string
   netMinor: string; discountMinor: string; taxMinor: string; grossMinor: string; paidMinor: string; balanceMinor: string; currency: string
   taxSnapshot: Record<string, unknown>; issuedAt: string; voidedAt?: string; voidReason?: string; version: number; createdAt: string; updatedAt: string
-  member?: { id: string; memberNumber: string; legacyMemberNumber?: string; name: string; phone?: string; email?: string }
-  branch: { id: string; code: string; name: string }
+  member?: { id: string; memberNumber: string; legacyMemberNumber?: string; name: string; phone?: string; email?: string; birthDate?: string; nationalityCode?: string; nationalId?: string; guardian?: { name: string; phone?: string; relationship: string } }
+  organization?: { id: string; code: string; name: string }
+  branch: { id: string; code: string; name: string; address?: string }
   order?: { id: string; orderNumber: string; buyerType: string; status: string; createdByName?: string; createdAt: string; updatedAt: string }
   lines: InvoiceLine[]; payments: InvoicePayment[]; refunds: InvoiceRefund[]; creditNotes?: InvoiceCreditNote[]
 }
@@ -143,7 +147,7 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Hash className="text-primary"/>البيانات المرجعية</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Info label="معرّف الفاتورة" value={invoice.id} mono/><Info label="معرّف طلب البيع" value={invoice.orderId} mono/><Info label="إصدار السجل" value={String(invoice.version)}/><Info label="صافي البنود" value={money(invoice.netMinor, invoice.currency)}/><Info label="وقت الإنشاء" value={dateTime(invoice.createdAt)}/><Info label="عملة الفاتورة" value={invoice.currency}/></div>{Object.keys(invoice.taxSnapshot??{}).length>0&&<details className="mt-5 rounded-xl border bg-secondary/20 p-4"><summary className="cursor-pointer font-bold">مرجع الضريبة المحفوظ وقت الإصدار</summary><SnapshotGrid value={invoice.taxSnapshot}/></details>}</CardContent></Card>
   </div>
   <InvoicePrintSheet invoice={invoice} invoiceType={invoiceType} memberships={memberships}/>
-  <ContractPrintSheets context={{ branchName: invoice.branch.name, invoiceNumber: invoice.invoiceNumber, issuedAt: invoice.issuedAt, employeeName: invoice.order?.createdByName, member: invoice.member }} contracts={contracts}/>
+  <ContractPrintSheets context={{ organizationName: invoice.organization?.name, branchName: invoice.branch.name, branchAddress: invoice.branch.address, invoiceNumber: invoice.invoiceNumber, issuedAt: invoice.issuedAt, employeeName: invoice.order?.createdByName, member: invoice.member }} contracts={contracts}/>
   </>
 }
 
@@ -222,7 +226,7 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
   return <div data-contract-print className="contract-print-root" dir="rtl" aria-label="نسخة طباعة العقود">
     {contracts.map((contract, index) => <article className="contract-print-sheet" key={`${contract.activityId}-${index}`}>
       <header className="contract-print-header">
-        <div className="contract-print-brand"><div className="print-logo-plate"><Image src="/go-fitness-logo.png" alt="شعار GO Fitness" width={104} height={58}/></div><div className="contract-print-brand-copy"><strong>GO Fitness</strong><span>{context.branchName}</span></div></div>
+        <div className="contract-print-brand"><div className="print-logo-plate"><Image src="/go-fitness-logo.png" alt="شعار GO Fitness" width={104} height={58}/></div><div className="contract-print-brand-copy"><strong>{context.organizationName ?? "GO Fitness"}</strong><span>{context.branchName}</span></div></div>
         <div className="contract-print-heading"><p>{contract.contractType === "CHILD_ACADEMY" ? "استمارة اشتراك أكاديمية" : "عقد ممارسة نشاط"}</p><h1>{contract.contractTitle}</h1><span>{context.invoiceNumber ? `وثيقة مرتبطة بالفاتورة ${context.invoiceNumber}` : "نسخة معاينة قبل الشراء"}</span></div>
       </header>
 
@@ -230,41 +234,41 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
         <span>{contract.packageId ? "الباقة محل العقد" : "النشاط محل العقد"}</span><strong>{contract.packageId ? contract.packageName : contract.activityName}</strong><small>{contract.packageId && contract.activityNames?.length ? `الأنشطة المرتبطة: ${contract.activityNames.join("، ")}` : contract.packageName ? `ضمن باقة ${contract.packageName}` : "وفق الخدمة والاشتراك الموضحين في الفاتورة"}</small>
       </section>
 
-      <section className="contract-print-reference" aria-label="بيانات مرجعية">
-        <PrintDatum label={context.invoiceNumber ? "رقم الفاتورة" : "حالة الوثيقة"} value={context.invoiceNumber ?? "معاينة قبل الشراء"}/><PrintDatum label="الباقة أو الخدمة" value={contract.packageName ?? "—"}/><PrintDatum label="الفرع" value={context.branchName}/><PrintDatum label={context.preview ? "تاريخ المعاينة" : "تاريخ العقد"} value={dateOnly(context.issuedAt ?? new Date().toISOString())}/>
-      </section>
+      <div className="contract-print-parties">
+        {contract.contractType === "CHILD_ACADEMY" ? <AcademyContractParty member={context.member}/> : <GeneralContractParty member={context.member}/>}
+        <ClubContractParty context={context} contract={contract}/>
+      </div>
 
-      {contract.contractType === "CHILD_ACADEMY" ? <AcademyContractParty member={context.member}/> : <GeneralContractParty member={context.member}/>}
+      <section className="contract-print-reference" aria-label="بيانات مرجعية">
+        <PrintDatum label={context.invoiceNumber ? "رقم الفاتورة" : "حالة الوثيقة"} value={context.invoiceNumber ?? "معاينة قبل الشراء"}/><PrintDatum label="رمز الباقة" value={contract.packageCode ?? contract.activityCode}/><PrintDatum label={context.preview ? "تاريخ المعاينة" : "تاريخ العقد"} value={dateOnly(context.issuedAt ?? new Date().toISOString())}/><PrintDatum label="موظف الإصدار" value={context.employeeName ?? (context.preview ? "يحدد عند البيع" : "موظف مخول")}/>
+      </section>
 
       {contract.membership && <MembershipContractSection membership={contract.membership} />}
 
-      <p className="contract-print-preamble">تم الاتفاق بين GO Fitness و{contract.contractType === "CHILD_ACADEMY" ? "ولي أمر المشترك الموضحة بياناته أدناه" : "المشترك الموضحة بياناته أعلاه"} على الاشتراك في {contract.packageId ? <>باقة <strong>{contract.packageName}</strong></> : <>نشاط <strong>{contract.activityName}</strong>{contract.packageName ? <> ضمن باقة <strong>{contract.packageName}</strong></> : null}</>}، وذلك وفق البنود والإقرارات الواردة في هذه الوثيقة.</p>
+      <p className="contract-print-preamble">تم الاتفاق بين <strong>{context.organizationName ?? "GO Fitness"}</strong> و{contract.contractType === "CHILD_ACADEMY" ? "ولي أمر العضو الموضحة بياناته أعلاه" : "العضو الموضحة بياناته أعلاه"} على الاشتراك في {contract.packageId ? <>باقة <strong>{contract.packageName}</strong></> : <>نشاط <strong>{contract.activityName}</strong>{contract.packageName ? <> ضمن باقة <strong>{contract.packageName}</strong></> : null}</>}، وتسري التصنيفات والبنود التالية على هذا الاشتراك.</p>
 
-      <section className="contract-print-terms">
-        <h2>بنود ممارسة النشاط</h2>
-        <div>{contract.contractContent}</div>
+      <section className="contract-print-terms-grid" aria-label="شروط وأحكام العقد">
+        {contract.contractSections.map((section, sectionIndex) => <section className={`contract-print-term-card ${section.style === "CHECKLIST" ? "is-checklist" : ""}`} key={`${section.title}-${sectionIndex}`}><h2>{section.title}</h2><ol start={clauseStart(contract.contractSections, sectionIndex)}>{section.clauses.map((clause, clauseIndex) => <li key={clauseIndex}>{section.style === "CHECKLIST" && <span className="contract-print-check" aria-hidden="true">✓</span>}<span>{clause}</span></li>)}</ol></section>)}
       </section>
 
-      {contract.contractType === "CHILD_ACADEMY" ? <section className="contract-print-declarations">
-        <h2>إقرار ولي الأمر</h2>
-        <p>أقر بصفتي ولي أمر المشترك بأن البيانات الموضحة صحيحة، وأنني قرأت بنود العقد والتعليمات وفهمتها وأوافق عليها، وأتحمل مسؤولية إبلاغ الأكاديمية كتابيًا بأي حالة صحية أو دواء أو تغيير قد يؤثر في سلامة الطفل.</p>
-        <div className="contract-print-checks"><span>هل يجيد الطفل السباحة؟ ☐ نعم ☐ لا</span><span>هل توجد حالة صحية أو حساسية؟ ☐ نعم ☐ لا</span></div>
-        <div className="contract-print-notes"><span>تفاصيل صحية أو تعليمات خاصة:</span></div>
-      </section> : <section className="contract-print-declarations"><h2>إقرار المشترك</h2><p>أقر بأن البيانات الموضحة صحيحة، وأنني قرأت بنود هذا العقد وفهمتها وأوافق عليها، وأتحمل مسؤولية الإفصاح عن أي حالة صحية قد تؤثر في قدرتي على ممارسة النشاط.</p><div className="contract-print-notes"><span>ملاحظات صحية أو تعليمات خاصة:</span></div></section>}
+      <section className="contract-print-declarations"><h2>{contract.contractType === "CHILD_ACADEMY" ? "إقرار ولي الأمر" : "إقرار العضو"}</h2><p>{contract.contractType === "CHILD_ACADEMY" ? "أقر بصفتي ولي أمر العضو بأن بيانات النظام الموضحة في هذه الوثيقة صحيحة، وأنني قرأت شروط العقد والتعليمات وفهمتها وأوافق عليها، وأتحمل مسؤولية تحديث النادي بأي تغيير جوهري." : "أقر بأن بيانات النظام الموضحة في هذه الوثيقة صحيحة، وأنني قرأت شروط هذا العقد وفهمتها وأوافق عليها، وأتحمل مسؤولية تحديث النادي بأي تغيير جوهري."}</p></section>
 
       <section className="contract-print-signatures" aria-label="التوقيعات">
-        <Signature label={contract.contractType === "CHILD_ACADEMY" ? "اسم وتوقيع ولي الأمر" : "اسم وتوقيع المشترك"}/><Signature label="اسم وتوقيع الموظف المختص" value={context.employeeName}/><Signature label="التاريخ"/>
+        <Signature label={contract.contractType === "CHILD_ACADEMY" ? "توقيع ولي الأمر" : "توقيع العضو"} value={contract.contractType === "CHILD_ACADEMY" ? context.member?.guardian?.name : context.member?.name}/><Signature label="توقيع موظف النادي" value={context.employeeName}/>
       </section>
       <footer className="contract-print-footer"><span>{context.invoiceNumber ? `مرتبط بالفاتورة: ${context.invoiceNumber}` : "نسخة معاينة قبل الشراء"}</span><span>{context.invoiceNumber ? "تم تثبيت البنود عند إصدار الفاتورة حفاظًا على سلامة السجل." : "تُثبت البنود وتُربط بالفاتورة عند إتمام الشراء."}</span><span>صفحة {index + 1} من {contracts.length}</span></footer>
     </article>)}
   </div>
 }
 
-function GeneralContractParty({ member }: { member?: ContractPrintContext["member"] }) { return <section className="contract-print-party"><h2>بيانات المشترك</h2><div className="contract-print-fields"><ContractField label="الاسم" value={member?.name}/><ContractField label="رقم العضوية" value={member?.memberNumber}/><ContractField label="رقم الجوال" value={member?.phone}/><ContractField label="البريد الإلكتروني" value={member?.email}/></div></section> }
-function AcademyContractParty({ member }: { member?: ContractPrintContext["member"] }) { return <><section className="contract-print-party"><h2>بيانات الطفل</h2><div className="contract-print-fields"><ContractField label="اسم الطفل" value={member?.name}/><ContractField label="رقم العضوية" value={member?.memberNumber}/><ContractField label="تاريخ الميلاد"/><ContractField label="الجنسية"/><ContractField label="الصف الدراسي"/><ContractField label="رقم الهوية / الإقامة"/></div></section><section className="contract-print-party"><h2>بيانات ولي الأمر</h2><div className="contract-print-fields"><ContractField label="اسم ولي الأمر"/><ContractField label="صلة القرابة"/><ContractField label="رقم الجوال" value={member?.phone}/><ContractField label="رقم جوال بديل"/></div></section></> }
+function GeneralContractParty({ member }: { member?: ContractPrintContext["member"] }) { return <section className="contract-print-party"><h2>الطرف الأول: العضو</h2><div className="contract-print-fields"><ContractField label="الاسم الكامل" value={member?.name}/><ContractField label="رقم العضوية" value={member?.memberNumber}/><ContractField label="رقم الهوية / الإقامة" value={member?.nationalId}/><ContractField label="تاريخ الميلاد" value={member?.birthDate ? dateOnly(member.birthDate) : undefined}/><ContractField label="الجنسية" value={member?.nationalityCode}/><ContractField label="رقم الجوال" value={member?.phone}/><ContractField label="البريد الإلكتروني" value={member?.email}/></div></section> }
+function AcademyContractParty({ member }: { member?: ContractPrintContext["member"] }) { return <section className="contract-print-party"><h2>الطرف الأول: العضو وولي الأمر</h2><div className="contract-print-fields"><ContractField label="اسم العضو" value={member?.name}/><ContractField label="رقم العضوية" value={member?.memberNumber}/><ContractField label="تاريخ الميلاد" value={member?.birthDate ? dateOnly(member.birthDate) : undefined}/><ContractField label="الجنسية" value={member?.nationalityCode}/><ContractField label="رقم الهوية / الإقامة" value={member?.nationalId}/><ContractField label="اسم ولي الأمر" value={member?.guardian?.name}/><ContractField label="صلة القرابة" value={guardianRelationship(member?.guardian?.relationship)}/><ContractField label="جوال ولي الأمر" value={member?.guardian?.phone ?? member?.phone}/></div></section> }
+function ClubContractParty({ context, contract }: { context: ContractPrintContext; contract: ContractSnapshot }) { return <section className="contract-print-party"><h2>الطرف الثاني: النادي</h2><div className="contract-print-fields"><ContractField label="اسم النادي" value={context.organizationName ?? "GO Fitness"}/><ContractField label="الفرع" value={context.branchName}/><ContractField label="العنوان" value={context.branchAddress}/><ContractField label="الباقة" value={contract.packageName}/><ContractField label="النشاط" value={contract.activityNames?.join("، ") ?? contract.activityName}/><ContractField label="تاريخ العقد" value={dateOnly(context.issuedAt ?? new Date().toISOString())}/></div></section> }
 function MembershipContractSection({ membership }: { membership: MembershipPrintDetails }) { return <section className="contract-print-party contract-print-membership"><h2>بيانات الاشتراك والقيمة وسياسة التجميد</h2><div className="contract-print-fields">{membershipRows(membership).map(([label, value]) => <ContractField key={label} label={label} value={value}/>)}</div></section> }
-function ContractField({ label, value }: { label: string; value?: string }) { return <div><span>{label}</span><strong>{value || " "}</strong></div> }
-function Signature({ label, value }: { label: string; value?: string }) { return <div><span>{value ? `${label}: ${value}` : label}</span><i/></div> }
+function ContractField({ label, value }: { label: string; value?: string }) { return <div><span>{label}</span><strong>{value || "غير مسجل"}</strong></div> }
+function Signature({ label, value }: { label: string; value?: string }) { return <div><span>{label}</span><b>{value || "الاسم مثبت ببيانات النظام"}</b><i/></div> }
+function clauseStart(sections: ContractSection[], sectionIndex: number) { return sections.slice(0, sectionIndex).reduce((total, section) => total + (section.style === "NUMBERED" ? section.clauses.length : 0), 1) }
+function guardianRelationship(value?: string) { return ({ FATHER: "الأب", MOTHER: "الأم", LEGAL_GUARDIAN: "ولي أمر قانوني", OTHER: "صلة أخرى" } as Record<string, string>)[value ?? ""] ?? value }
 
 function invoiceMemberships(lines: InvoiceLine[], currency: string): MembershipPrintDetails[] {
   return lines.map(line => membershipPrintDetails(line, currency)).filter((value): value is MembershipPrintDetails => value !== undefined)
@@ -339,7 +343,18 @@ function normalizeContract(value: Record<string, unknown>, fallbackPackageName: 
   const packageName = asText(value.packageName) ?? fallbackPackageName
   const activityNames = Array.isArray(value.activityNames) ? value.activityNames.map(asText).filter((name): name is string => Boolean(name)) : []
   const activityName = asText(value.activityName) ?? (activityNames.length ? activityNames.join("، ") : undefined) ?? packageName ?? "الباقة"
-  return { activityId, activityCode: asText(value.activityCode) ?? asText(value.packageCode) ?? asText(value.code) ?? "—", activityName, ...(packageId ? { packageId, packageCode: asText(value.packageCode) ?? "—" } : {}), ...(activityNames.length ? { activityNames } : {}), contractType: asText(value.contractType) === "CHILD_ACADEMY" ? "CHILD_ACADEMY" : "GENERAL_ACTIVITY", contractTitle, contractContent, ...(packageName ? { packageName } : {}), source: asText(value.source) === "LEGACY_BACKFILL" ? "LEGACY_BACKFILL" : "SALE" }
+  const contractSections = normalizeContractSections(value.contractSections, contractContent)
+  return { activityId, activityCode: asText(value.activityCode) ?? asText(value.packageCode) ?? asText(value.code) ?? "—", activityName, ...(packageId ? { packageId, packageCode: asText(value.packageCode) ?? "—" } : {}), ...(activityNames.length ? { activityNames } : {}), contractType: asText(value.contractType) === "CHILD_ACADEMY" ? "CHILD_ACADEMY" : "GENERAL_ACTIVITY", contractTitle, contractContent, contractSections, ...(packageName ? { packageName } : {}), source: asText(value.source) === "LEGACY_BACKFILL" ? "LEGACY_BACKFILL" : "SALE" }
+}
+function normalizeContractSections(value: unknown, fallbackContent: string): ContractSection[] {
+  const sections = asArray(value).flatMap(item => {
+    const section = asRecord(item); const title = asText(section.title); const clauses = asArray(section.clauses).map(asText).filter((clause): clause is string => Boolean(clause))
+    if (!title || !clauses.length) return []
+    return [{ title, style: asText(section.style) === "CHECKLIST" ? "CHECKLIST" as const : "NUMBERED" as const, clauses }]
+  })
+  if (sections.length) return sections
+  const clauses = fallbackContent.split(/\r?\n/u).map(clause => clause.replace(/^\s*\d+[.)-]?\s*/u, "").trim()).filter(Boolean)
+  return [{ title: "الشروط والأحكام", style: "NUMBERED", clauses: clauses.length ? clauses : [fallbackContent] }]
 }
 export function printableContract(value: Record<string, unknown>, fallbackPackageName?: string) { return normalizeContract(value, fallbackPackageName) }
 export async function printContractDocument() {
