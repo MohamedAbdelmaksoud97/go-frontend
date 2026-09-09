@@ -405,7 +405,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
             setPromoApplyVersion(current => current + 1)
           }}
         />}
-        {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={quoteError} />}
+        {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={normalizedPromoCode ? "" : quoteError} />}
         {isManualAttendance && selectedMemberId && <AttendanceMemberPreview member={selectedMember} lockedMemberLabel={lockedReferenceLabels?.memberId} subscriptions={attendanceSubscriptions} loading={attendanceSubscriptionsLoading} error={attendanceSubscriptionsError} branchId={effectiveBranchId} branches={appContext.branches} />}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
         <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving}>{saving && <Loader2 className="animate-spin" />}{isPaidBooking ? "إنشاء الحجز والفاتورة" : isManualReservation ? "تأكيد الحجز بلا مقابل" : workflow.submitLabel}</Button></footer>
@@ -624,7 +624,7 @@ function PromoCodeControl({ value, appliedCode, quote, loading, error, onChange,
     <div aria-live="polite">
       {hasUnappliedChange && appliedCode && <p className="mt-3 text-[11px] font-semibold text-amber-700 dark:text-amber-300">تم تعديل الكود. اضغط «تطبيق الكود» لتحديث السعر.</p>}
       {!hasUnappliedChange && appliedSuccessfully && <p className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="size-4" />تم قبول الكود {appliedCode} وتحديث إجمالي الاشتراك.</p>}
-      {!hasUnappliedChange && appliedCode && !loading && error && <p className="mt-3 text-[11px] font-bold text-red-600">لم يُطبّق الكود. راجع صلاحيته أو الباقات والفروع المحددة له.</p>}
+      {!hasUnappliedChange && appliedCode && !loading && error && <p className="mt-3 text-[11px] font-bold leading-5 text-red-600">{error}</p>}
     </div>
   </section>
 }
