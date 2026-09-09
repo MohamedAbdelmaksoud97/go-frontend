@@ -203,6 +203,7 @@
 .contract-print-term-card { display: inline-block; width: 100%; margin: 0 0 8px; overflow: hidden; break-inside: avoid; border: 1px solid #b7b7b7; border-radius: 7px; }
 .contract-print-term-card h2 { margin: 0; padding: 5px 8px; color: #3f2c0b; background: linear-gradient(90deg, #e8d5a2, #f5ecd7); font-size: 10.5px; font-weight: 900; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 .contract-print-term-card ol { margin: 0; padding: 5px 29px 6px 8px; }
+.contract-print-term-card:not(.is-checklist) ol { list-style: decimal outside !important; }
 .contract-print-term-card li { padding: 2px 1px; color: #111827; font-size: 10px; line-height: 1.6; }
 .contract-print-terms-grid.is-single .contract-print-term-card li { font-size: 11px; line-height: 1.65; }
 .contract-print-term-card li::marker { color: #8b651f; font-weight: 900; }
