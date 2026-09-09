@@ -60,7 +60,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
     try {
       const quote = (await apiRequest<Quote>(`/self/organizations/${member.organizationId}/quotes`, {
         method: "POST",
-        body: JSON.stringify({ branchId, targetType: type, targetId: id, quantity: 1, memberSegment: "OTHER" }),
+        body: JSON.stringify({ branchId, targetType: type, targetId: id, quantity: 1, memberId: member.memberId }),
       })).data
       setPending({ item, type, quote, contracts: contractsFor(item, type, services) })
     } catch (reason) { setError(humanError(reason, "تعذر حساب السعر النهائي لهذا الطلب.")) }
@@ -127,7 +127,7 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
     return (await apiRequest<Row>(`/self/organizations/${member.organizationId}/members/${member.memberId}/orders`, {
       method: "POST",
       idempotencyKey: createIdempotencyKey(),
-      body: JSON.stringify({ sellingBranchId: branchId, memberSegment: "OTHER", lines: [line] }),
+      body: JSON.stringify({ sellingBranchId: branchId, lines: [line] }),
     })).data
   }
 

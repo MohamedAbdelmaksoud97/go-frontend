@@ -131,7 +131,7 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
     if (!packageId || !sellingBranchId) { setError("تعذر تحديد الباقة أو فرع الاشتراك المطلوب تجديده."); return }
     setBusy(String(row.id ?? "")); setError("")
     try {
-      const quote = (await apiRequest<Row>(`/self/organizations/${member.organizationId}/quotes`, { method: "POST", body: JSON.stringify({ branchId: sellingBranchId, targetType: "PACKAGE", targetId: packageId, quantity: 1, memberSegment: "OTHER" }) })).data
+      const quote = (await apiRequest<Row>(`/self/organizations/${member.organizationId}/quotes`, { method: "POST", body: JSON.stringify({ branchId: sellingBranchId, targetType: "PACKAGE", targetId: packageId, quantity: 1, memberId: member.memberId }) })).data
       setRenewal({ row, quote })
     } catch (cause) { setError(humanError(cause, "تعذر حساب سعر تجديد الاشتراك.")) }
     finally { setBusy("") }
@@ -143,7 +143,7 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
     if (!subscriptionId || !packageId || !sellingBranchId) return
     setBusy(subscriptionId); setError("")
     try {
-      const order = (await apiRequest<Row>(`/self/organizations/${member.organizationId}/members/${member.memberId}/orders`, { method: "POST", idempotencyKey: createIdempotencyKey(), body: JSON.stringify({ sellingBranchId, memberSegment: "OTHER", lines: [{ type: "MEMBERSHIP", targetId: packageId, quantity: 1, renewal: { subscriptionId, expectedVersion: Number(row.version ?? 1) } }] }) })).data
+      const order = (await apiRequest<Row>(`/self/organizations/${member.organizationId}/members/${member.memberId}/orders`, { method: "POST", idempotencyKey: createIdempotencyKey(), body: JSON.stringify({ sellingBranchId, lines: [{ type: "MEMBERSHIP", targetId: packageId, quantity: 1, renewal: { subscriptionId, expectedVersion: Number(row.version ?? 1) } }] }) })).data
       setRenewal(undefined)
       toast.success(`تم إنشاء طلب التجديد${order.invoiceNumber ? ` وفاتورة ${String(order.invoiceNumber)}` : ""}. يبدأ الاشتراك الجديد بعد انتهاء المدة الحالية، ويُفعّل بعد السداد.`)
       await load()

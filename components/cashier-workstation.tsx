@@ -341,7 +341,6 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
           body: JSON.stringify({
             sellingBranchId: context.branchId,
             ...(customerMode === "MEMBER" && selectedMember ? { memberId: selectedMember.id } : {}),
-            memberSegment: "OTHER",
             lines: [
               {
                 type: saleKind === "MEAL" ? "RESTAURANT" : "RETAIL",

@@ -502,7 +502,6 @@ function SubscriptionPolicyActionDialog({
         body: JSON.stringify(renewing ? {
           sellingBranchId,
           memberId,
-          memberSegment: "OTHER",
           lines: [{ type: "MEMBERSHIP", targetId: packageId, quantity: 1, ...(promoCode.trim() ? { promoCode: promoCode.trim() } : {}), renewal: { subscriptionId, expectedVersion: Number(record.version ?? 1) } }],
         } : { expectedVersion: Number(record.version ?? 1), reason: reason.trim() }),
       })

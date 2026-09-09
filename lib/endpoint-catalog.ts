@@ -27,7 +27,7 @@ export const bodyPresets:Record<string,Record<string,unknown>>={
  requestPhoneOtp:{phone:"+9665XXXXXXXX"},verifyPhoneOtp:{phone:"+9665XXXXXXXX",code:"000000"},verifyMfaChallenge:{factorId:"",challengeId:"",code:"000000"},
  updateOwnAccountProfile:{displayName:"",preferredLocale:"ar",preferredTimezone:"Asia/Riyadh",smsNotificationsEnabled:true,whatsappNotificationsEnabled:true,expectedVersion:1},changeOwnPassword:{currentPassword:"",newPassword:""},
  registerMember:{branchId:"",fullNameAr:"",gender:"MALE",birthDate:"2000-01-01",nationality:"SA",registeredOn:"2026-08-12",contacts:[]},
- createCommercialQuote:{branchId:"",targetType:"PACKAGE",targetId:"",quantity:1,memberSegment:"STANDARD"},
+ createCommercialQuote:{branchId:"",targetType:"PACKAGE",targetId:"",quantity:1},
  checkoutOrder:{sellingBranchId:"",buyerType:"MEMBER",buyerMemberId:"",lines:[]},recordPayment:{collectionBranchId:"",method:"CARD",amountMinor:"0",allocations:[]},
  recordManualAttendance:{branchId:"",credentialValue:"",occurredAt:new Date().toISOString()},createManualReservation:{branchId:"",memberId:"",resourceId:"",type:"SESSION",seats:1},
  createCrmLead:{branchId:"",fullName:"",origin:"WALK_IN",sourceId:"",phoneE164:"+9665XXXXXXXX"},createPublicOnlineRequest:{type:"MEMBERSHIP_INTEREST",fullName:"",phoneE164:"+9665XXXXXXXX"},

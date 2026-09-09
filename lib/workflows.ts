@@ -158,7 +158,7 @@ export const workflows: Record<string, Workflow> = {
       { name: "mealId", label: "الصنف", type: "reference", source: meals, required: true },
       { name: "quantity", label: "الكمية", type: "number", min: "1", required: true },
     ], initial: () => ({ memberId: "", mealId: "", quantity: "1" }),
-    body: (v, c) => ({ sellingBranchId: c.branchId, memberId: v.memberId, memberSegment: "OTHER", lines: [{ type: "RESTAURANT", targetId: v.mealId, quantity: Number(v.quantity) }] }),
+    body: (v, c) => ({ sellingBranchId: c.branchId, memberId: v.memberId, lines: [{ type: "RESTAURANT", targetId: v.mealId, quantity: Number(v.quantity) }] }),
   },
   createEmployee: {
     title: "إضافة موظف وحساب دخول", description: "أنشئ الموظف وحسابه في خطوة واحدة. سيصدر النظام رقمًا وظيفيًا فريدًا تلقائيًا ويعرضه بعد الحفظ، وتُطبق صلاحيات المسمى داخل فرع عمله.", submitLabel: "إنشاء الموظف وحسابه", successMessage: "تم إنشاء الموظف وربط الحساب والمسمى والصلاحيات بنجاح.",

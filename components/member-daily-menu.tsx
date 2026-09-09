@@ -55,7 +55,7 @@ export function MemberDailyMenu({ organizationId, memberId, branchId, branchName
       const order = await apiRequest<CreatedOrder>(`/self/organizations/${organizationId}/members/${memberId}/orders`, {
         method: "POST",
         idempotencyKey: createIdempotencyKey(),
-        body: JSON.stringify({ sellingBranchId: branchId, memberSegment: "OTHER", lines: [{ type: "RESTAURANT", targetId: meal.mealId, quantity: 1 }] }),
+        body: JSON.stringify({ sellingBranchId: branchId, lines: [{ type: "RESTAURANT", targetId: meal.mealId, quantity: 1 }] }),
       })
       setSelected(undefined)
       toast.success(`تم تسجيل طلبك بنجاح. برجاء السداد في استقبال النادي ليصل الطلب إلى المطبخ${order.data.invoiceNumber ? ` — رقم الفاتورة: ${order.data.invoiceNumber}` : ""}.`)

@@ -102,14 +102,14 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const selectedResourceType = String(values.resourceType ?? "")
   const selectedServiceId = String(values.serviceId ?? "")
   const bookingQuantity = selectedResourceType === "CLASS" ? Number(values.seats) : 1
-  const bookingQuoteKey = `${effectiveBranchId}:${selectedServiceId}:${Number.isInteger(bookingQuantity) ? bookingQuantity : 0}`
+  const bookingQuoteKey = `${effectiveBranchId}:${selectedServiceId}:${Number.isInteger(bookingQuantity) ? bookingQuantity : 0}:${values.customerType === "MEMBER" ? selectedMemberId : "VISITOR"}`
   const bookingQuote = bookingQuoteState.key === bookingQuoteKey ? bookingQuoteState.quote : undefined
   const bookingQuoteError = bookingQuoteState.key === bookingQuoteKey ? bookingQuoteState.error ?? "" : ""
   const bookingQuoteLoading = Boolean(isPaidBooking && selectedServiceId && selectedResourceId && (bookingQuoteState.key !== bookingQuoteKey || bookingQuoteState.loading))
   const courtAvailability: CourtAvailabilityState = courtAvailabilityState.key === selectedResourceId ? courtAvailabilityState : { key: selectedResourceId, loading: Boolean(selectedResourceId && selectedResourceType === "COURT"), rules: [] }
   const courtAvailabilityMissing = selectedResourceType === "COURT" && selectedResourceId !== "" && !courtAvailability.loading && !courtAvailability.error && courtAvailability.rules.length === 0
   const normalizedPromoCode = appliedPromoCode.trim().toUpperCase()
-  const quoteKey = `${effectiveBranchId}:${selectedPackageId}:${normalizedPromoCode}:${promoApplyVersion}`
+  const quoteKey = `${effectiveBranchId}:${selectedPackageId}:${selectedMemberId}:${normalizedPromoCode}:${promoApplyVersion}`
   const subscriptionQuote = quoteState.key === quoteKey ? quoteState.quote : undefined
   const quoteError = quoteState.key === quoteKey ? quoteState.error ?? "" : ""
   const quoteLoading = Boolean(selectedPackageId && (quoteState.key !== quoteKey || quoteState.loading))
@@ -192,13 +192,13 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   }, [effectiveOrganizationId, operationId, selectedResourceId, selectedResourceType])
 
   useEffect(() => {
-    if (!isSubscriptionSale || !selectedPackageId || !effectiveOrganizationId || !effectiveBranchId || !hasRuntimeApi()) return
+    if (!isSubscriptionSale || !selectedPackageId || !selectedMemberId || !effectiveOrganizationId || !effectiveBranchId || !hasRuntimeApi()) return
     let cancelled = false
     const timer = window.setTimeout(() => {
       if (!cancelled) setQuoteState({ key: quoteKey, loading: true })
       void apiRequest<SubscriptionQuote>(`/organizations/${effectiveOrganizationId}/quotes`, {
         method: "POST",
-        body: JSON.stringify({ branchId: effectiveBranchId, targetType: "PACKAGE", targetId: selectedPackageId, quantity: 1, memberSegment: "OTHER", ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}) }),
+        body: JSON.stringify({ branchId: effectiveBranchId, targetType: "PACKAGE", targetId: selectedPackageId, quantity: 1, memberId: selectedMemberId, ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}) }),
       }).then(response => {
         if (!cancelled) setQuoteState({ key: quoteKey, loading: false, quote: response.data })
       }).catch(reason => {
@@ -206,7 +206,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       })
     }, 180)
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [effectiveBranchId, effectiveOrganizationId, isSubscriptionSale, normalizedPromoCode, quoteKey, selectedPackageId])
+  }, [effectiveBranchId, effectiveOrganizationId, isSubscriptionSale, normalizedPromoCode, quoteKey, selectedMemberId, selectedPackageId])
 
   useEffect(() => {
     if (!isPaidBooking || !selectedServiceId || !selectedResourceId || !effectiveOrganizationId || !effectiveBranchId || !hasRuntimeApi()) return
@@ -216,7 +216,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       if (!cancelled) setBookingQuoteState({ key: bookingQuoteKey, loading: true })
       void apiRequest<SubscriptionQuote>(`/organizations/${effectiveOrganizationId}/quotes`, {
         method: "POST",
-        body: JSON.stringify({ branchId: effectiveBranchId, targetType: "SERVICE", targetId: selectedServiceId, quantity: bookingQuantity, memberSegment: "OTHER" }),
+        body: JSON.stringify({ branchId: effectiveBranchId, targetType: "SERVICE", targetId: selectedServiceId, quantity: bookingQuantity, ...(values.customerType === "MEMBER" && selectedMemberId ? { memberId: selectedMemberId } : {}) }),
       }).then(response => {
         if (!cancelled) setBookingQuoteState({ key: bookingQuoteKey, loading: false, quote: response.data })
       }).catch(reason => {
@@ -224,7 +224,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       })
     }, 180)
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [bookingQuantity, bookingQuoteKey, effectiveBranchId, effectiveOrganizationId, isPaidBooking, selectedResourceId, selectedServiceId])
+  }, [bookingQuantity, bookingQuoteKey, effectiveBranchId, effectiveOrganizationId, isPaidBooking, selectedMemberId, selectedResourceId, selectedServiceId, values.customerType])
 
   if (!workflow) return null
   const operation = endpoints.find(item => item.operationId === operationId)
@@ -248,12 +248,10 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
       const body = isSubscriptionSale ? {
         sellingBranchId: effectiveBranchId,
         memberId: values.memberId,
-        memberSegment: "OTHER",
         lines: [{ type: "MEMBERSHIP", targetId: values.packageId, quantity: 1, accessBranchId: effectiveBranchId, startAt: new Date(String(values.startAt)).toISOString(), ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}) }],
       } : isPaidBooking ? {
         sellingBranchId: effectiveBranchId,
         ...(values.customerType === "MEMBER" ? { memberId: values.memberId } : {}),
-        memberSegment: "OTHER",
         lines: [{
           type: "BOOKING",
           targetId: values.serviceId,
