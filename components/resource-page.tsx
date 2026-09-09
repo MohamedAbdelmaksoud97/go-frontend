@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { DateTimeInput } from "@/components/date-time-input"
 import { useAppContext } from "@/components/app-context"
 import { endpoints } from "@/lib/endpoint-catalog"
-import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
+import { ApiError, apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { ActionDialog } from "@/components/action-dialog"
 import { operationPermissions } from "@/lib/permissions"
@@ -148,7 +148,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     {disciplinaryMember && <MemberDisciplinaryDialog organizationId={context.organizationId} record={disciplinaryMember} onClose={() => setDisciplinaryMember(undefined)} onSaved={() => { setDisciplinaryMember(undefined); pageCache.current = []; void loadPage(0) }} />}
     {subscriptionFreezeRecord && <SubscriptionFreezeDialog organizationId={context.organizationId} record={subscriptionFreezeRecord} onClose={() => setSubscriptionFreezeRecord(undefined)} onSaved={() => { setSubscriptionFreezeRecord(undefined); pageCache.current = []; void loadPage(0) }} />}
     {subscriptionPolicyAction && <SubscriptionPolicyActionDialog organizationId={context.organizationId} record={subscriptionPolicyAction.record} action={subscriptionPolicyAction.action} onClose={() => setSubscriptionPolicyAction(undefined)} onSaved={() => { setSubscriptionPolicyAction(undefined); pageCache.current = []; void loadPage(0) }} />}
-    {selectedRow && <RecordPreview columns={config.columns} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={config.statusIndex} onFreeze={() => { setSelectedRow(undefined); setSubscriptionFreezeRecord(selectedRow.record) }} onCancel={() => { setSelectedRow(undefined); setSubscriptionPolicyAction({ record: selectedRow.record, action: "CANCEL" }) }} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
+    {selectedRow && <RecordPreview columns={config.columns} fields={config.fields} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={config.statusIndex} onFreeze={() => { setSelectedRow(undefined); setSubscriptionFreezeRecord(selectedRow.record) }} onCancel={() => { setSelectedRow(undefined); setSubscriptionPolicyAction({ record: selectedRow.record, action: "CANCEL" }) }} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
   </div>
 }
 
@@ -592,19 +592,33 @@ function MemberDisciplinaryDialog({ organizationId, record, onClose, onSaved }: 
   </div>
 }
 
-function RecordPreview({ columns, row, record, operationId, organizationId, statusIndex, onFreeze, onCancel, onClose, onChanged }: { columns: string[]; row: string[]; record: ApiRecord; operationId: string; organizationId: string; statusIndex?: number; onFreeze: () => void; onCancel: () => void; onClose: () => void; onChanged: () => void }) {
+function RecordPreview({ columns, fields, row, record, operationId, organizationId, statusIndex, onFreeze, onCancel, onClose, onChanged }: { columns: string[]; fields: string[]; row: string[]; record: ApiRecord; operationId: string; organizationId: string; statusIndex?: number; onFreeze: () => void; onCancel: () => void; onClose: () => void; onChanged: () => void }) {
   const context = useAppContext()
+  const toast = useToast()
+  const [currentRecord, setCurrentRecord] = useState(record)
+  const [refreshing, setRefreshing] = useState(operationId === "listReservations")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [actionResult, setActionResult] = useState("")
   const [pendingAction, setPendingAction] = useState<RecordAction>()
   const [positionOptions, setPositionOptions] = useState<Array<{ value: string; label: string }>>([])
-  const status = String(record.status ?? "")
-  const id = String(record.id ?? record.subscriptionId ?? record.reservationId ?? "")
-  const version = Number(record.version ?? 1)
-  const freezePolicy = subscriptionFreezePolicy(record)
-  const freezeSchedule = pendingFreezeSchedule(record)
+  const status = String(currentRecord.status ?? "")
+  const id = String(currentRecord.id ?? currentRecord.subscriptionId ?? currentRecord.reservationId ?? "")
+  const version = Number(currentRecord.version ?? 1)
+  const freezePolicy = subscriptionFreezePolicy(currentRecord)
+  const freezeSchedule = pendingFreezeSchedule(currentRecord)
+  const currentRow = operationId === "listReservations" ? fields.map(field => displayValue(currentRecord, field, context.branches)) : row
   const actions: RecordAction[] = []
+
+  useEffect(() => {
+    if (operationId !== "listReservations" || !organizationId || !id) return
+    let cancelled = false
+    void apiRequest<ApiRecord>(`/organizations/${organizationId}/reservations/${id}`)
+      .then(response => { if (!cancelled) { setCurrentRecord(value => ({ ...value, ...response.data })); setError("") } })
+      .catch(reason => { if (!cancelled) setError(humanError(reason, "تعذر تحديث حالة الحجز. أغلق التفاصيل وحدّث القائمة ثم حاول مجددًا.")) })
+      .finally(() => { if (!cancelled) setRefreshing(false) })
+    return () => { cancelled = true }
+  }, [id, operationId, organizationId])
 
   useEffect(() => {
     if (operationId !== "listEmployees" || !organizationId || !context.canAccess(["workforce.assignments.manage"])) return
@@ -683,18 +697,29 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
     }
   }
 
+  const bookingStartsAt = operationId === "listReservations" ? new Date(String(currentRecord.startsAt ?? "")) : undefined
+  const bookingHasStarted = bookingStartsAt !== undefined && Number.isFinite(bookingStartsAt.getTime()) && bookingStartsAt <= new Date()
+
   if (operationId === "listReservations" && id && ["PENDING_PAYMENT", "CONFIRMED"].includes(status)) actions.push({
     label: "إلغاء الحجز",
     permission: "bookings.manage",
     danger: true,
     path: `/organizations/${organizationId}/reservations/${id}/cancellations`,
-    description: "سيُلغى الحجز بعد التأكيد مع الاحتفاظ بسبب الإلغاء في السجل.",
+    description: status === "PENDING_PAYMENT"
+      ? "سيُلغى الحجز المعلّق وتُحرر السعة المحجوزة. لا يوجد مبلغ مسترد لأن التحصيل لم يكتمل."
+      : "سيُلغى الحجز وتُحرر السعة. إذا كان مدفوعًا ومستوفيًا سياسة الإلغاء فسينشئ النظام طلب استرداد مالي للمراجعة.",
     fields: [{ name: "reason", label: "سبب إلغاء الحجز", type: "textarea", initial: "طلب العضو", required: true }],
+    confirmLabel: "تأكيد إلغاء الحجز",
+    disabled: bookingHasStarted,
+    disabledReason: bookingHasStarted ? "بدأ موعد الحجز بالفعل؛ بعد البداية سجّل الحجز مكتملًا أو عدم حضور حسب الواقع." : undefined,
     body: values => ({ expectedVersion: version, reason: values.reason.trim() }),
   })
   if (operationId === "listReservations" && id && status === "CONFIRMED") {
-    actions.push({ label: "إكمال الحجز", permission: "bookings.manage", path: `/organizations/${organizationId}/reservations/${id}/transitions`, body: () => ({ expectedVersion: version, action: "COMPLETE" }) })
-    actions.push({ label: "تسجيل عدم حضور", permission: "bookings.manage", danger: true, path: `/organizations/${organizationId}/reservations/${id}/transitions`, description: "سيُسجل الحجز كحالة عدم حضور، وقد ينعكس ذلك على سجل العضو.", body: () => ({ expectedVersion: version, action: "NO_SHOW" }) })
+    const outcomeDisabledReason = !bookingHasStarted && bookingStartsAt
+      ? `لا يمكن تسجيل نتيجة الحجز قبل بدايته في ${bookingStartsAt.toLocaleString("ar-SA")}.`
+      : undefined
+    actions.push({ label: "إكمال الحجز", permission: "bookings.manage", path: `/organizations/${organizationId}/reservations/${id}/transitions`, description: "استخدم هذا الإجراء بعد حضور العميل وتنفيذ الموعد فعليًا. لا يمكن التراجع عنه.", confirmLabel: "تأكيد اكتمال الحجز", requiresConfirmation: true, disabled: !bookingHasStarted, disabledReason: outcomeDisabledReason, body: () => ({ expectedVersion: version, action: "COMPLETE" }) })
+    actions.push({ label: "تسجيل عدم حضور", permission: "bookings.manage", danger: true, path: `/organizations/${organizationId}/reservations/${id}/transitions`, description: "استخدمه بعد بدء الموعد فقط عندما لم يحضر العميل. لا يمكن التراجع عنه، وسيظهر في سجل العضو والتقارير.", confirmLabel: "تأكيد عدم الحضور", disabled: !bookingHasStarted, disabledReason: outcomeDisabledReason, body: () => ({ expectedVersion: version, action: "NO_SHOW" }) })
   }
 
   if (operationId === "listEmployees" && id) {
@@ -751,12 +776,31 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
     setBusy(true)
     setError("")
     try {
-      const response = await apiRequest<ApiRecord>(action.path, { method: action.method ?? "POST", body: JSON.stringify(action.body(values)) })
+      let body = action.body(values)
+      if (operationId === "listReservations" && id) {
+        const latest = (await apiRequest<ApiRecord>(`/organizations/${organizationId}/reservations/${id}`)).data
+        setCurrentRecord(value => ({ ...value, ...latest }))
+        const blockedReason = unavailableBookingActionReason(action.path, body, latest)
+        if (blockedReason) { setError(blockedReason); return }
+        body = { ...body, expectedVersion: Number(latest.version ?? 1) }
+      }
+      const response = await apiRequest<ApiRecord>(action.path, { method: action.method ?? "POST", body: JSON.stringify(body) })
       if (action.responseMessage) {
         setActionResult(action.responseMessage(response.data)); setPendingAction(undefined)
-      } else onChanged()
+      } else {
+        if (operationId === "listReservations") toast.success(bookingActionSuccess(body, response.data))
+        onChanged()
+      }
     } catch (reason) {
-      setError(humanError(reason, "تعذر تنفيذ الإجراء. راجع البيانات ثم حاول مرة أخرى."))
+      if (operationId === "listReservations" && id && reason instanceof ApiError && reason.problem.code === "version_conflict") {
+        try {
+          const latest = (await apiRequest<ApiRecord>(`/organizations/${organizationId}/reservations/${id}`)).data
+          setCurrentRecord(value => ({ ...value, ...latest }))
+          setError(`تغيّرت حالة الحجز أثناء تنفيذ الإجراء، وتم تحديثها الآن إلى «${statusLabel(String(latest.status ?? ""))}». راجع الحالة الجديدة ثم اختر الإجراء المناسب.`)
+        } catch {
+          setError("تغيّرت حالة الحجز أثناء تنفيذ الإجراء. أغلق التفاصيل وحدّث القائمة لمراجعة أحدث حالة قبل المحاولة.")
+        }
+      } else setError(humanError(reason, "تعذر تنفيذ إجراء الحجز. راجع حالة الموعد والبيانات ثم حاول مرة أخرى."))
     } finally {
       setBusy(false)
     }
@@ -776,8 +820,9 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
   return <>
     <div className="fixed inset-0 z-[75] grid place-items-end bg-black/60 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}>
       <section role="dialog" aria-modal="true" aria-labelledby="record-title" className="max-h-[90vh] w-full overflow-y-auto rounded-t-[28px] border bg-card p-5 shadow-2xl sm:max-w-xl sm:rounded-[28px] sm:p-6">
-        <div className="flex items-center"><span className="grid size-10 place-items-center rounded-xl bg-primary/15 text-amber-600"><Eye /></span><div className="mr-3"><p className="text-[10px] text-muted-foreground">ملخص السجل</p><h2 id="record-title" className="font-black">{row[0]}</h2></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} disabled={busy} aria-label="إغلاق"><X /></Button></div>
-        <dl className="mt-6 grid gap-3 sm:grid-cols-2">{columns.map((label, index) => <div key={label} className="rounded-xl bg-secondary/55 p-4"><dt className="text-[10px] font-bold text-muted-foreground">{label}</dt><dd className="mt-2 text-sm font-bold">{index === statusIndex ? <StatusBadge status={row[index]} /> : row[index]}</dd></div>)}</dl>
+        <div className="flex items-center"><span className="grid size-10 place-items-center rounded-xl bg-primary/15 text-amber-600"><Eye /></span><div className="mr-3"><p className="text-[10px] text-muted-foreground">ملخص السجل</p><h2 id="record-title" className="font-black">{currentRow[0]}</h2></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} disabled={busy} aria-label="إغلاق"><X /></Button></div>
+        <dl className="mt-6 grid gap-3 sm:grid-cols-2">{columns.map((label, index) => <div key={label} className="rounded-xl bg-secondary/55 p-4"><dt className="text-[10px] font-bold text-muted-foreground">{label}</dt><dd className="mt-2 text-sm font-bold">{index === statusIndex ? <StatusBadge status={currentRow[index]} /> : currentRow[index]}</dd></div>)}</dl>
+        {operationId === "listReservations" && <BookingStateGuidance record={currentRecord} refreshing={refreshing} />}
         {error && !pendingAction && <p className="mt-4 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}
         {actionResult && <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"><p className="text-xs font-black text-emerald-600">تم إصدار بيانات التفعيل</p><p dir="ltr" className="mt-2 whitespace-pre-line text-left font-mono text-sm font-bold leading-7">{actionResult}</p><p className="mt-2 text-[10px] text-muted-foreground">لا يُحفظ الرمز بصورته الأصلية، لذلك انسخه الآن وسلّمه للعضو عبر قناة آمنة.</p></div>}
         {operationId === "listSubscriptions" && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <div role="status" className={`mt-5 rounded-2xl border p-4 text-xs ${freezePolicy.allowed ? "border-blue-500/25 bg-blue-500/5" : "border-amber-500/30 bg-amber-500/8"}`}><p className="font-black">سياسة التجميد المحفوظة مع الاشتراك</p><p className="mt-2 leading-6 text-muted-foreground">{freezePolicy.message} أيام النشاط المحسوبة: {freezePolicy.activeDays}، والحد الأدنى المطلوب: {freezePolicy.minimumActiveDaysBeforeFreeze}.</p></div>}
@@ -791,6 +836,57 @@ function RecordPreview({ columns, row, record, operationId, organizationId, stat
     </div>
     {pendingAction && <RecordOperationDialog key={pendingAction.label} action={pendingAction} busy={busy} error={error} onClose={() => { if (!busy) { setPendingAction(undefined); setError("") } }} onSubmit={values => run(pendingAction, values)} />}
   </>
+}
+
+function BookingStateGuidance({ record, refreshing }: { record: ApiRecord; refreshing: boolean }) {
+  const status = String(record.status ?? "").toUpperCase()
+  const startsAt = new Date(String(record.startsAt ?? ""))
+  const future = Number.isFinite(startsAt.getTime()) && startsAt > new Date()
+  const salesOrderId = String(record.salesOrderId ?? "")
+  const grossMinor = Number(record.grossMinor ?? 0)
+  const guidance = status === "PENDING_PAYMENT"
+    ? { tone: "border-amber-500/30 bg-amber-500/8 text-amber-900 dark:text-amber-200", title: "الحجز ممسوك مؤقتًا وينتظر السداد", detail: "حُجزت السعة، لكن الموعد لا يصبح مؤكدًا إلا بعد اكتمال تحصيل الفاتورة. يمكن إلغاؤه قبل البداية لتحرير السعة." }
+    : status === "CONFIRMED" && future
+      ? { tone: "border-emerald-500/30 bg-emerald-500/8 text-emerald-900 dark:text-emerald-200", title: "الحجز مؤكد والموعد لم يبدأ بعد", detail: `يمكن إلغاؤه حتى بداية الموعد. يصبح تسجيل الإكمال أو عدم الحضور متاحًا في ${startsAt.toLocaleString("ar-SA")}.` }
+      : status === "CONFIRMED"
+        ? { tone: "border-blue-500/30 bg-blue-500/8 text-blue-900 dark:text-blue-200", title: "بدأ موعد الحجز وينتظر تسجيل النتيجة", detail: "اختر «إكمال الحجز» إذا نُفذت الخدمة، أو «تسجيل عدم حضور» إذا لم يحضر العميل. لا يمكن الإلغاء بعد البداية." }
+        : status === "CANCELLED"
+          ? { tone: "border-red-500/30 bg-red-500/8 text-red-900 dark:text-red-200", title: "الحجز ملغى والسعة محررة", detail: String(record.cancellationReason ?? "تم إلغاء الحجز.") }
+          : status === "COMPLETED"
+            ? { tone: "border-emerald-500/30 bg-emerald-500/8 text-emerald-900 dark:text-emerald-200", title: "اكتمل الحجز", detail: "سُجل تنفيذ الموعد بنجاح ولا توجد إجراءات تشغيلية أخرى عليه." }
+            : { tone: "border-slate-500/25 bg-slate-500/8 text-foreground", title: "تم تسجيل عدم حضور", detail: "أُغلق الحجز كعدم حضور وظهر بهذه النتيجة في سجل العضو والتقارير." }
+  return <section className={`mt-4 rounded-2xl border p-4 text-xs leading-6 ${guidance.tone}`} aria-live="polite">
+    <p className="flex items-center gap-2 font-black">{refreshing && <RefreshCw className="size-4 animate-spin" />}{refreshing ? "جارٍ جلب أحدث حالة للحجز…" : guidance.title}</p>
+    {!refreshing && <><p className="mt-1 opacity-80">{guidance.detail}</p>{status === "PENDING_PAYMENT" && salesOrderId && <Link href={`/cashier?orderId=${encodeURIComponent(salesOrderId)}`} className={buttonVariants({ size: "sm", className: "mt-3" })}><CreditCard />فتح الفاتورة وتحصيل {money(Number.isFinite(grossMinor) ? grossMinor : 0)}</Link>}{status === "CANCELLED" && record.refundRequestId && <p className="mt-2 font-bold">أُنشئ طلب استرداد مالي وفق سياسة الإلغاء، ويحتاج متابعة من قسم المالية.</p>}</>}
+  </section>
+}
+
+function unavailableBookingActionReason(path: string, body: Record<string, unknown>, record: ApiRecord) {
+  const status = String(record.status ?? "").toUpperCase()
+  const startsAt = new Date(String(record.startsAt ?? ""))
+  const started = Number.isFinite(startsAt.getTime()) && startsAt <= new Date()
+  if (path.endsWith("/cancellations")) {
+    if (status === "CANCELLED") return "هذا الحجز ملغى بالفعل؛ لا يمكن إلغاؤه مرة أخرى."
+    if (status === "COMPLETED") return "هذا الحجز مكتمل بالفعل ولا يمكن إلغاؤه."
+    if (status === "NO_SHOW") return "أُغلق هذا الحجز كعدم حضور ولا يمكن إلغاؤه بعد ذلك."
+    if (!["PENDING_PAYMENT", "CONFIRMED"].includes(status)) return `حالة الحجز الحالية «${statusLabel(status)}» لا تسمح بالإلغاء.`
+    if (started) return "بدأ موعد الحجز بالفعل؛ لا يمكن إلغاؤه الآن. سجّل الإكمال أو عدم الحضور حسب الواقع."
+  }
+  if (path.endsWith("/transitions")) {
+    if (status === "PENDING_PAYMENT") return "الحجز ما زال بانتظار الدفع. أكمل تحصيل الفاتورة أولًا ليصبح الحجز مؤكدًا."
+    if (status !== "CONFIRMED") return `تم إغلاق الحجز بحالة «${statusLabel(status)}»، لذلك لا يمكن تسجيل نتيجة جديدة له.`
+    if (!started) return `لا يمكن تسجيل ${body.action === "NO_SHOW" ? "عدم الحضور" : "اكتمال الحجز"} قبل بداية الموعد في ${startsAt.toLocaleString("ar-SA")}.`
+  }
+  return ""
+}
+
+function bookingActionSuccess(body: Record<string, unknown>, record: ApiRecord) {
+  if (String(record.status) === "CANCELLED") return record.refundRequestId
+    ? "تم إلغاء الحجز وتحرير السعة وإنشاء طلب الاسترداد المالي وفق السياسة."
+    : "تم إلغاء الحجز وتحرير السعة بنجاح."
+  if (body.action === "NO_SHOW") return "تم تسجيل عدم حضور العميل وإغلاق الحجز."
+  if (body.action === "COMPLETE") return "تم تسجيل اكتمال الحجز وتنفيذ الموعد."
+  return "تم تحديث الحجز بنجاح."
 }
 
 function RecordOperationDialog({ action, busy, error, onClose, onSubmit }: { action: RecordAction; busy: boolean; error: string; onClose: () => void; onSubmit: (values: Record<string, string>) => Promise<void> }) {
@@ -866,6 +962,10 @@ function phoneFromContacts(record: ApiRecord): unknown { if (!Array.isArray(reco
 function displayValue(record: ApiRecord, field: string, branches: BranchLookup[]) {
   if (field === "remainingDays") return remainingSubscriptionDaysLabel(record)
   let value = readPath(record, field)
+  if ((value === undefined || value === null || value === "") && field === "reservationNumber" && record.id) {
+    const compactId = String(record.id).replaceAll("-", "").slice(0, 12).toUpperCase()
+    value = compactId ? `RSV-${compactId}` : undefined
+  }
   if ((value === undefined || value === null || value === "") && field === "outstandingMinor" && record.grossMinor !== undefined && record.paidMinor !== undefined) value = String(Number(record.grossMinor) - Number(record.paidMinor))
   if ((value === undefined || value === null || value === "") && field === "phoneE164") value = phoneFromContacts(record)
   if ((value === undefined || value === null || value === "") && field === "branchName") { const branchId = record.branchId ?? record.registrationBranchId ?? record.sellingBranchId ?? record.collectionBranchId ?? readPath(record, "assignments.0.branchId"); const branch = branches.find(candidate => candidate.id === branchId); value = branch?.nameAr ?? branch?.name }
