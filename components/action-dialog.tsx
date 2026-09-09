@@ -67,7 +67,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const context = useMemo(() => ({ organizationId: effectiveOrganizationId, branchId: effectiveBranchId }), [effectiveBranchId, effectiveOrganizationId])
   const [values, setValues] = useState<FormValues>(() => {
     const initial = { ...(workflow?.initial(context) ?? {}), ...initialValues }
-    if (operationId === "createManualReservation" && (initial.customerType === "VISITOR" || !appContext.canAccess(["sales.checkout"]))) initial.billingMode = "OPERATIONAL"
+    if (operationId === "createManualReservation" && !appContext.canAccess(["sales.checkout"])) initial.billingMode = "OPERATIONAL"
     return initial
   })
   const [options, setOptions] = useState<Record<string, Choice[]>>({})
@@ -118,7 +118,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
     ?? "الفرع المحدد"
   const visibleFields = workflow?.fields
     .filter(field => isVisibleField(operationId, field.name, values) && (field.type !== "file" || appContext.canAccess(["files.manage"])))
-    .map(field => field.name === "billingMode" ? { ...field, options: field.options?.map(option => option.value === "INVOICE" ? { ...option, disabled: values.customerType === "VISITOR" || !canCreatePaidBooking } : option) } : field) ?? []
+    .map(field => field.name === "billingMode" ? { ...field, options: field.options?.map(option => option.value === "INVOICE" ? { ...option, disabled: !canCreatePaidBooking } : option) } : field) ?? []
 
   useEffect(() => {
     if (!workflow || !hasRuntimeApi()) return
@@ -237,7 +237,6 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
     if (validationError) { setError(validationError); return }
     if (isManualReservationWithoutCourtAvailability(values, courtAvailability)) { setError("لا يمكن تأكيد الحجز قبل إضافة ساعات إتاحة لهذا المورد."); return }
     if (isSubscriptionSale && !subscriptionQuote) { setError(quoteError || "انتظر حتى يتم التحقق من سعر الباقة في الفرع الحالي."); return }
-    if (isPaidBooking && values.customerType !== "MEMBER") { setError("إصدار فاتورة للحجز متاح للأعضاء المسجلين. اختر عضوًا أو استخدم الحجز التشغيلي للزائر."); return }
     if (isPaidBooking && !canCreatePaidBooking) { setError("لا تملك صلاحية إنشاء طلب بيع وفاتورة. اختر حجزًا تشغيليًا أو اطلب صلاحية المبيعات."); return }
     if (isPaidBooking && !bookingQuote) { setError(bookingQuoteError || "انتظر حتى يتم التحقق من سعر الخدمة المرتبطة بالحجز."); return }
     setSaving(true); setError("")
@@ -253,7 +252,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         lines: [{ type: "MEMBERSHIP", targetId: values.packageId, quantity: 1, accessBranchId: effectiveBranchId, startAt: new Date(String(values.startAt)).toISOString(), ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}) }],
       } : isPaidBooking ? {
         sellingBranchId: effectiveBranchId,
-        memberId: values.memberId,
+        ...(values.customerType === "MEMBER" ? { memberId: values.memberId } : {}),
         memberSegment: "OTHER",
         lines: [{
           type: "BOOKING",
@@ -264,6 +263,11 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
             type: values.resourceType,
             seats: bookingQuantity,
             participantCount: selectedResourceType === "COURT" ? Number(values.participantCount) : bookingQuantity,
+            ...(values.customerType === "VISITOR" ? {
+              guestName: String(values.guestName ?? "").trim(),
+              guestPhoneE164: String(values.guestPhoneE164 ?? "").replace(/[\s()-]/gu, ""),
+              ...(String(values.guestEmail ?? "").trim() ? { guestEmail: String(values.guestEmail).trim().toLowerCase() } : {}),
+            } : {}),
             ...(selectedResourceType === "COURT"
               ? { startsAt: new Date(String(values.startsAt)).toISOString(), endsAt: new Date(String(values.endsAt)).toISOString() }
               : { sessionSlotId: values.sessionSlotId }),
@@ -363,7 +367,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
             return
           }
           if (isManualReservation && field.name === "customerType") {
-            setValues(current => ({ ...current, customerType: value, memberId: value === "VISITOR" ? "" : current.memberId, billingMode: value === "VISITOR" || !canCreatePaidBooking ? "OPERATIONAL" : "INVOICE" }))
+            setValues(current => ({ ...current, customerType: value, memberId: value === "VISITOR" ? "" : current.memberId, billingMode: !canCreatePaidBooking ? "OPERATIONAL" : current.billingMode || "INVOICE" }))
             return
           }
           if (operationId !== "createManualReservation" || field.name !== "resourceId") { setValues(current => ({ ...current, [field.name]: value })); return }
@@ -373,7 +377,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
           setCourtAvailabilityState({ key: String(value ?? ""), loading: resourceType === "COURT", rules: [] })
           setValues(current => ({ ...current, resourceId: value, resourceType, serviceId: String(resource?.serviceId ?? ""), sessionSlotId: "", seats: resourceType === "CLASS" ? current.seats : "1", participantCount: resourceType === "COURT" ? current.participantCount || "1" : "1" }))
         }} />)}</div>
-        {isManualReservation && values.billingMode === "OPERATIONAL" && <div className="mt-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6 text-amber-800 dark:text-amber-300"><AlertTriangle className="mt-0.5 size-5 shrink-0"/><div><p className="font-black">حجز تشغيلي بلا مقابل</p><p className="mt-1">سيُؤكد الحجز مباشرة من دون طلب بيع أو فاتورة. استخدمه فقط للحجوزات المجانية أو الإدارية؛ لن يظهر مبلغ لتحصيله لاحقًا.</p>{values.customerType === "VISITOR" && <p className="mt-1 font-bold">حجوزات الزوار تُسجل حاليًا بهذه الطريقة؛ التحصيل المفوتر يتطلب اختيار عضو مسجل.</p>}{!canCreatePaidBooking && values.customerType !== "VISITOR" && <p className="mt-1 font-bold">خيار الفاتورة غير متاح لأن حسابك لا يملك صلاحية إنشاء المبيعات.</p>}</div></div>}
+        {isManualReservation && values.billingMode === "OPERATIONAL" && <div className="mt-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6 text-amber-800 dark:text-amber-300"><AlertTriangle className="mt-0.5 size-5 shrink-0"/><div><p className="font-black">حجز تشغيلي بلا مقابل</p><p className="mt-1">سيُؤكد الحجز مباشرة من دون طلب بيع أو فاتورة. استخدمه فقط للحجوزات المجانية أو الإدارية؛ لن يظهر مبلغ لتحصيله لاحقًا.</p>{!canCreatePaidBooking && <p className="mt-1 font-bold">خيار الفاتورة غير متاح لأن حسابك لا يملك صلاحية إنشاء المبيعات.</p>}</div></div>}
         {isManualReservation && isPaidBooking && selectedServiceId && <BookingPricePreview quote={bookingQuote} loading={bookingQuoteLoading} error={bookingQuoteError} />}
         {operationId === "createManualReservation" && selectedResourceType === "COURT" && selectedResourceId && <div className={`mt-5 rounded-2xl border p-4 text-xs leading-6 ${courtAvailabilityMissing ? "border-red-500/25 bg-red-500/8" : courtAvailability.error ? "border-amber-500/25 bg-amber-500/8" : "border-blue-500/20 bg-blue-500/5"}`}>
           {courtAvailability.loading ? <p className="flex items-center gap-2 font-bold"><Loader2 className="size-4 animate-spin" />جارٍ التحقق من ساعات إتاحة الملعب...</p> : courtAvailabilityMissing ? <div><p className="font-black text-red-600">هذا المورد غير جاهز للحجز</p><p className="mt-1 text-muted-foreground">لم تُضف له أيام وساعات إتاحة بعد، لذلك سيرفض الخادم أي وقت يتم اختياره.</p>{appContext.canAccess(["bookings.facilities.manage"]) && <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => { onClose(); router.push("/system-settings/bookable-resources") }}><CalendarDays />فتح إعداد إتاحة الموارد</Button>}</div> : courtAvailability.error ? <p className="font-bold text-amber-700">{courtAvailability.error}</p> : <div><p className="font-black text-blue-700 dark:text-blue-400">ساعات الحجز المتاحة</p><p className="mt-1 text-muted-foreground">{courtAvailability.rules.map(availabilityRuleLabel).join(" · ")}</p><p className="mt-1 text-muted-foreground">يجب أن يبدأ الحجز وينتهي في اليوم نفسه وداخل إحدى هذه الفترات.</p></div>}
@@ -404,7 +408,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={quoteError} />}
         {isManualAttendance && selectedMemberId && <AttendanceMemberPreview member={selectedMember} lockedMemberLabel={lockedReferenceLabels?.memberId} subscriptions={attendanceSubscriptions} loading={attendanceSubscriptionsLoading} error={attendanceSubscriptionsError} branchId={effectiveBranchId} branches={appContext.branches} />}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
-        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions || loadingSlots || courtAvailability.loading || courtAvailabilityMissing || attendanceSubscriptionsLoading || (isSubscriptionSale && Boolean(selectedPackageId) && (quoteLoading || !subscriptionQuote)) || (isPaidBooking && Boolean(selectedServiceId) && (bookingQuoteLoading || !bookingQuote))}>{saving && <Loader2 className="animate-spin" />}{isPaidBooking ? "إنشاء الحجز والفاتورة" : isManualReservation ? "تأكيد الحجز بلا مقابل" : workflow.submitLabel}</Button></footer>
+        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving}>{saving && <Loader2 className="animate-spin" />}{isPaidBooking ? "إنشاء الحجز والفاتورة" : isManualReservation ? "تأكيد الحجز بلا مقابل" : workflow.submitLabel}</Button></footer>
       </form>}
     </section>
   </div>
