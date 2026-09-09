@@ -39,6 +39,7 @@ type CashPoint = { id: string; name?: string; code?: string };
 type PaymentMethodCode = "CASH" | "CARD" | "BANK_TRANSFER";
 type Invoice = {
   id: string;
+  orderId?: string;
   invoiceNumber?: string;
   grossMinor?: string;
   paidMinor?: string;
@@ -70,7 +71,7 @@ const cashierPermissions = [
   "finance.cash-shifts.manage",
 ];
 
-export function CashierWorkstation() {
+export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" }: { initialInvoiceId?: string; initialOrderId?: string }) {
   const context = useAppContext();
   const toast = useToast();
   const [meals, setMeals] = useState<Meal[]>([]);
@@ -103,6 +104,8 @@ export function CashierWorkstation() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
+  const deepLinkAppliedRef = useRef(false);
+  const collectionCardRef = useRef<HTMLDivElement>(null);
   const authorized = cashierPermissions.filter((permission) =>
     context.canAccess([permission]),
   );
@@ -208,11 +211,15 @@ export function CashierWorkstation() {
         menuResponse,
         retailResponse,
       ];
-      setLoadWarnings(
-        responses.flatMap((response) =>
-          response.warning ? [response.warning] : [],
-        ),
-      );
+      const requestedInvoice = !deepLinkAppliedRef.current && (initialInvoiceId || initialOrderId)
+        ? invoiceResponse.data.find((invoice) => invoice.id === initialInvoiceId || invoice.orderId === initialOrderId)
+        : undefined;
+      const deepLinkMissing = !deepLinkAppliedRef.current && (initialInvoiceId || initialOrderId) && !requestedInvoice;
+      deepLinkAppliedRef.current = true;
+      setLoadWarnings([
+        ...responses.flatMap((response) => response.warning ? [response.warning] : []),
+        ...(deepLinkMissing ? ["تعذر العثور على فاتورة الحجز المطلوبة ضمن فواتير الفرع الحالي. قد تكون محصلة بالفعل أو تخص فرعًا آخر."] : []),
+      ]);
       setMeals(mealResponse.data);
       setCashPoints(pointResponse.data);
       setShifts(shiftResponse.data);
@@ -243,11 +250,15 @@ export function CashierWorkstation() {
           ? current
           : "",
       );
-      setPaymentInvoiceId((current) =>
-        invoiceResponse.data.some((invoice) => invoice.id === current)
-          ? current
-          : "",
-      );
+      const requestedOutstanding = requestedInvoice ? outstanding(requestedInvoice) : 0;
+      setPaymentInvoiceId((current) => requestedInvoice && requestedOutstanding > 0 ? requestedInvoice.id : (invoiceResponse.data.some((invoice) => invoice.id === current) ? current : ""));
+      if (requestedInvoice && outstanding(requestedInvoice) > 0) {
+        setSplitFirstAmount((outstanding(requestedInvoice) / 200).toFixed(2));
+        setCollectionSuccess(`تم فتح ${requestedInvoice.invoiceNumber ?? "فاتورة الحجز"} وهي جاهزة للتحصيل.`);
+        window.setTimeout(() => collectionCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+      } else if (requestedInvoice) {
+        setCollectionSuccess(`${requestedInvoice.invoiceNumber ?? "فاتورة الحجز"} محصلة بالفعل ولا يوجد عليها رصيد مستحق.`);
+      }
     } catch (reason) {
       setError(humanError(reason, "تعذر تجهيز بيانات نقطة البيع."));
     } finally {
@@ -608,7 +619,7 @@ export function CashierWorkstation() {
                 )}
               </CardContent>
             </Card>
-            <Card>
+            <Card ref={collectionCardRef} className={initialInvoiceId || initialOrderId ? "border-primary/40 ring-2 ring-primary/10" : undefined}>
               <CardContent className="p-5">
                 <div className="flex items-center gap-3">
                   <span className="grid size-10 place-items-center rounded-xl bg-blue-500/10 text-blue-700">
@@ -617,7 +628,7 @@ export function CashierWorkstation() {
                   <div>
                     <h2 className="font-black">تحصيل فاتورة معلقة</h2>
                     <p className="text-xs text-muted-foreground">
-                      لطلبات الأعضاء القادمة من بوابة الخدمة الذاتية.
+                      لفواتير الحجوزات والاشتراكات وطلبات الأعضاء، مع دعم الدفع الكامل أو التقسيم على وسيلتين.
                     </p>
                   </div>
                 </div>

@@ -65,7 +65,11 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const effectiveOrganizationId = organizationId || appContext.organizationId
   const effectiveBranchId = branchId || appContext.branchId || (appContext.branches.length === 1 ? appContext.branches[0]?.id ?? "" : "")
   const context = useMemo(() => ({ organizationId: effectiveOrganizationId, branchId: effectiveBranchId }), [effectiveBranchId, effectiveOrganizationId])
-  const [values, setValues] = useState<FormValues>(() => ({ ...(workflow?.initial(context) ?? {}), ...initialValues }))
+  const [values, setValues] = useState<FormValues>(() => {
+    const initial = { ...(workflow?.initial(context) ?? {}), ...initialValues }
+    if (operationId === "createManualReservation" && (initial.customerType === "VISITOR" || !appContext.canAccess(["sales.checkout"]))) initial.billingMode = "OPERATIONAL"
+    return initial
+  })
   const [options, setOptions] = useState<Record<string, Choice[]>>({})
   const [referenceQueries, setReferenceQueries] = useState<Record<string, string>>({})
   const [loadingOptions, setLoadingOptions] = useState(() => Boolean(hasRuntimeApi() && effectiveBranchId && workflow?.fields.some(field => field.type === "reference" && !lockedReferenceLabels?.[field.name])))
@@ -75,7 +79,9 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [createdEmployee, setCreatedEmployee] = useState<{ id: string; number: string; name: string }>()
+  const [createdBookingInvoice, setCreatedBookingInvoice] = useState<{ invoiceId: string; invoiceNumber: string; grossMinor: string }>()
   const [quoteState, setQuoteState] = useState<{ key: string; loading: boolean; quote?: SubscriptionQuote; error?: string }>({ key: "", loading: false })
+  const [bookingQuoteState, setBookingQuoteState] = useState<{ key: string; loading: boolean; quote?: SubscriptionQuote; error?: string }>({ key: "", loading: false })
   const [appliedPromoCode, setAppliedPromoCode] = useState("")
   const [promoApplyVersion, setPromoApplyVersion] = useState(0)
   const isManualAttendance = operationId === "recordManualAttendance"
@@ -83,6 +89,9 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const [attendanceSubscriptionsState, setAttendanceSubscriptionsState] = useState<AttendanceSubscriptionState>(() => ({ key: initialAttendanceMemberId, loading: Boolean(initialAttendanceMemberId), items: [] }))
   const [attendanceResult, setAttendanceResult] = useState<DataRow>()
   const isSubscriptionSale = operationId === "createSubscription"
+  const isManualReservation = operationId === "createManualReservation"
+  const canCreatePaidBooking = appContext.canAccess(["sales.checkout"])
+  const isPaidBooking = isManualReservation && values.billingMode === "INVOICE"
   const selectedMemberId = String(values.memberId ?? "")
   const selectedMember = options.memberId?.find(choice => choice.value === selectedMemberId)?.meta
   const attendanceSubscriptions = attendanceSubscriptionsState.key === selectedMemberId ? attendanceSubscriptionsState.items : []
@@ -91,6 +100,12 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const selectedPackageId = String(values.packageId ?? "")
   const selectedResourceId = String(values.resourceId ?? "")
   const selectedResourceType = String(values.resourceType ?? "")
+  const selectedServiceId = String(values.serviceId ?? "")
+  const bookingQuantity = selectedResourceType === "CLASS" ? Number(values.seats) : 1
+  const bookingQuoteKey = `${effectiveBranchId}:${selectedServiceId}:${Number.isInteger(bookingQuantity) ? bookingQuantity : 0}`
+  const bookingQuote = bookingQuoteState.key === bookingQuoteKey ? bookingQuoteState.quote : undefined
+  const bookingQuoteError = bookingQuoteState.key === bookingQuoteKey ? bookingQuoteState.error ?? "" : ""
+  const bookingQuoteLoading = Boolean(isPaidBooking && selectedServiceId && selectedResourceId && (bookingQuoteState.key !== bookingQuoteKey || bookingQuoteState.loading))
   const courtAvailability: CourtAvailabilityState = courtAvailabilityState.key === selectedResourceId ? courtAvailabilityState : { key: selectedResourceId, loading: Boolean(selectedResourceId && selectedResourceType === "COURT"), rules: [] }
   const courtAvailabilityMissing = selectedResourceType === "COURT" && selectedResourceId !== "" && !courtAvailability.loading && !courtAvailability.error && courtAvailability.rules.length === 0
   const normalizedPromoCode = appliedPromoCode.trim().toUpperCase()
@@ -101,7 +116,9 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const effectiveBranchName = appContext.branches.find(branch => branch.id === effectiveBranchId)?.nameAr
     ?? appContext.branches.find(branch => branch.id === effectiveBranchId)?.name
     ?? "الفرع المحدد"
-  const visibleFields = workflow?.fields.filter(field => isVisibleField(operationId, field.name, values) && (field.type !== "file" || appContext.canAccess(["files.manage"]))) ?? []
+  const visibleFields = workflow?.fields
+    .filter(field => isVisibleField(operationId, field.name, values) && (field.type !== "file" || appContext.canAccess(["files.manage"])))
+    .map(field => field.name === "billingMode" ? { ...field, options: field.options?.map(option => option.value === "INVOICE" ? { ...option, disabled: values.customerType === "VISITOR" || !canCreatePaidBooking } : option) } : field) ?? []
 
   useEffect(() => {
     if (!workflow || !hasRuntimeApi()) return
@@ -191,30 +208,69 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
     return () => { cancelled = true; window.clearTimeout(timer) }
   }, [effectiveBranchId, effectiveOrganizationId, isSubscriptionSale, normalizedPromoCode, quoteKey, selectedPackageId])
 
+  useEffect(() => {
+    if (!isPaidBooking || !selectedServiceId || !selectedResourceId || !effectiveOrganizationId || !effectiveBranchId || !hasRuntimeApi()) return
+    if (!Number.isInteger(bookingQuantity) || bookingQuantity < 1) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      if (!cancelled) setBookingQuoteState({ key: bookingQuoteKey, loading: true })
+      void apiRequest<SubscriptionQuote>(`/organizations/${effectiveOrganizationId}/quotes`, {
+        method: "POST",
+        body: JSON.stringify({ branchId: effectiveBranchId, targetType: "SERVICE", targetId: selectedServiceId, quantity: bookingQuantity, memberSegment: "OTHER" }),
+      }).then(response => {
+        if (!cancelled) setBookingQuoteState({ key: bookingQuoteKey, loading: false, quote: response.data })
+      }).catch(reason => {
+        if (!cancelled) setBookingQuoteState({ key: bookingQuoteKey, loading: false, error: humanError(reason, "تعذر تسعير هذا الحجز في الفرع الحالي. تأكد من إضافة سعر نشط للخدمة المرتبطة بالمورد.") })
+      })
+    }, 180)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [bookingQuantity, bookingQuoteKey, effectiveBranchId, effectiveOrganizationId, isPaidBooking, selectedResourceId, selectedServiceId])
+
   if (!workflow) return null
   const operation = endpoints.find(item => item.operationId === operationId)
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     if (!effectiveOrganizationId || !effectiveBranchId) { setError("تعذر تحديد فرع العمل. ارجع إلى اختيار سياق العمل وحدد الفرع ثم حاول مجددًا."); return }
-    if (!operation && !isSubscriptionSale) { setError("تعذر تجهيز العملية المطلوبة. حدّث الصفحة ثم حاول مجددًا."); return }
+    if (!operation && !isSubscriptionSale && !isPaidBooking) { setError("تعذر تجهيز العملية المطلوبة. حدّث الصفحة ثم حاول مجددًا."); return }
     const validationError = await validateValues(operationId, values)
     if (validationError) { setError(validationError); return }
     if (isManualReservationWithoutCourtAvailability(values, courtAvailability)) { setError("لا يمكن تأكيد الحجز قبل إضافة ساعات إتاحة لهذا المورد."); return }
     if (isSubscriptionSale && !subscriptionQuote) { setError(quoteError || "انتظر حتى يتم التحقق من سعر الباقة في الفرع الحالي."); return }
+    if (isPaidBooking && values.customerType !== "MEMBER") { setError("إصدار فاتورة للحجز متاح للأعضاء المسجلين. اختر عضوًا أو استخدم الحجز التشغيلي للزائر."); return }
+    if (isPaidBooking && !canCreatePaidBooking) { setError("لا تملك صلاحية إنشاء طلب بيع وفاتورة. اختر حجزًا تشغيليًا أو اطلب صلاحية المبيعات."); return }
+    if (isPaidBooking && !bookingQuote) { setError(bookingQuoteError || "انتظر حتى يتم التحقق من سعر الخدمة المرتبطة بالحجز."); return }
     setSaving(true); setError("")
     try {
       // executeOperation receives endpoint-catalog paths as complete API paths.
       // The subscription sale is routed through Sales checkout, so it must carry
       // the same /api/v1 prefix instead of being mistaken for a Next.js-local path.
-      const path = isSubscriptionSale ? `/api/v1/organizations/${effectiveOrganizationId}/orders` : operation!.path.replace("{organizationId}", effectiveOrganizationId).replace("{branchId}", effectiveBranchId)
+      const path = isSubscriptionSale || isPaidBooking ? `/api/v1/organizations/${effectiveOrganizationId}/orders` : operation!.path.replace("{organizationId}", effectiveOrganizationId).replace("{branchId}", effectiveBranchId)
       const body = isSubscriptionSale ? {
         sellingBranchId: effectiveBranchId,
         memberId: values.memberId,
         memberSegment: "OTHER",
         lines: [{ type: "MEMBERSHIP", targetId: values.packageId, quantity: 1, accessBranchId: effectiveBranchId, startAt: new Date(String(values.startAt)).toISOString(), ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}) }],
+      } : isPaidBooking ? {
+        sellingBranchId: effectiveBranchId,
+        memberId: values.memberId,
+        memberSegment: "OTHER",
+        lines: [{
+          type: "BOOKING",
+          targetId: values.serviceId,
+          quantity: bookingQuantity,
+          booking: {
+            resourceId: values.resourceId,
+            type: values.resourceType,
+            seats: bookingQuantity,
+            participantCount: selectedResourceType === "COURT" ? Number(values.participantCount) : bookingQuantity,
+            ...(selectedResourceType === "COURT"
+              ? { startsAt: new Date(String(values.startsAt)).toISOString(), endsAt: new Date(String(values.endsAt)).toISOString() }
+              : { sessionSlotId: values.sessionSlotId }),
+          },
+        }],
       } : workflow.body(values, context)
-      const response = hasRuntimeApi() ? await executeOperation<Record<string, unknown>>(path, isSubscriptionSale ? "post" : operation!.method, {}, body, isSubscriptionSale || operation!.idempotent ? createIdempotencyKey() : undefined) : undefined
+      const response = hasRuntimeApi() ? await executeOperation<Record<string, unknown>>(path, isSubscriptionSale || isPaidBooking ? "post" : operation!.method, {}, body, isSubscriptionSale || isPaidBooking || operation!.idempotent ? createIdempotencyKey() : undefined) : undefined
       if (isManualAttendance && response?.data.decision) {
         setAttendanceResult(response.data)
         if (response.data.decision === "ACCEPTED") toast.success("تم السماح للعضو بالدخول وتسجيل المحاولة بنجاح.")
@@ -242,6 +298,12 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         }
       }
       const invoiceNumber = response?.data.invoiceNumber
+      if (isPaidBooking && response?.data.invoiceId) {
+        setCreatedBookingInvoice({ invoiceId: String(response.data.invoiceId), invoiceNumber: String(invoiceNumber ?? ""), grossMinor: String(response.data.grossMinor ?? bookingQuote?.grossMinor ?? "0") })
+        toast.success(`تم إنشاء الحجز والفاتورة${invoiceNumber ? ` رقم ${String(invoiceNumber)}` : ""}. الحجز الآن بانتظار التحصيل.`)
+        onSaved?.()
+        return
+      }
       const employeeNumber = operationId === "createEmployee" ? String(response?.data.employeeNumber ?? "") : ""
       if (employeeNumber && response?.data.id) {
         setCreatedEmployee({ id: String(response.data.id), number: employeeNumber, name: String(response.data.name ?? values.fullNameAr ?? "الموظف") })
@@ -250,14 +312,14 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         return
       }
       toast.success(isSubscriptionSale && invoiceNumber ? `تم إنشاء الاشتراك والفاتورة رقم ${String(invoiceNumber)}. سيُفعّل الاشتراك تلقائيًا بعد تحصيل الفاتورة.` : workflow.successMessage); onSaved?.(); onClose()
-    } catch (reason) { setError(humanError(reason, operationId === "createSubscription" ? "تعذر إنشاء الاشتراك والفاتورة." : `تعذر تنفيذ «${workflow.title}».`)) }
+    } catch (reason) { setError(humanError(reason, isSubscriptionSale ? "تعذر إنشاء الاشتراك والفاتورة." : isPaidBooking ? "تعذر إنشاء الحجز وفاتورته. راجع السعر والموعد ثم حاول مجددًا." : `تعذر تنفيذ «${workflow.title}».`)) }
     finally { setSaving(false) }
   }
 
   return <div className="fixed inset-0 z-[80] grid place-items-end bg-black/65 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
     <section dir="rtl" role="dialog" aria-modal="true" aria-labelledby="action-title" className={`max-h-[94vh] w-full overflow-y-auto rounded-t-[28px] border bg-card shadow-2xl sm:rounded-[28px] ${isManualAttendance ? "sm:max-w-4xl" : "sm:max-w-2xl"}`}>
       <header className="sticky top-0 z-10 flex items-start gap-4 border-b bg-card/95 p-5 backdrop-blur sm:p-6">
-        <div className="min-w-0"><p className="text-[11px] font-bold text-amber-600 dark:text-primary">إجراء جديد</p><h2 id="action-title" className="mt-1 text-xl font-black">{workflow.title}</h2><p className="mt-2 text-xs leading-6 text-muted-foreground">{workflow.description}</p>{isSubscriptionSale && effectiveBranchId && <p className="mt-2 text-xs font-bold text-primary">فرع البيع والباقات: {effectiveBranchName}</p>}</div>
+        <div className="min-w-0"><p className="text-[11px] font-bold text-amber-600 dark:text-primary">إجراء جديد</p><h2 id="action-title" className="mt-1 text-xl font-black">{workflow.title}</h2><p className="mt-2 text-xs leading-6 text-muted-foreground">{workflow.description}</p>{(isSubscriptionSale || isPaidBooking) && effectiveBranchId && <p className="mt-2 text-xs font-bold text-primary">فرع البيع والتحصيل: {effectiveBranchName}</p>}</div>
         <Button variant="ghost" size="icon" className="mr-auto" onClick={onClose} aria-label="إغلاق"><X /></Button>
       </header>
       {createdEmployee ? <section className="p-5 sm:p-6" aria-live="polite">
@@ -271,6 +333,18 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
             <Button type="button" variant="outline" className="mt-4 w-full" onClick={() => void navigator.clipboard.writeText(createdEmployee.number).then(() => toast.success("تم نسخ الرقم الوظيفي.")).catch(() => toast.error("تعذر النسخ تلقائيًا؛ حدّد الرقم وانسخه يدويًا."))}><Copy/>نسخ الرقم الوظيفي</Button>
           </div>
           <div className="mt-6 flex flex-col-reverse justify-center gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>إغلاق</Button><Button type="button" onClick={() => { onClose(); router.push(`/employees/${createdEmployee.id}`) }}>فتح ملف الموظف</Button></div>
+        </div>
+      </section> : createdBookingInvoice ? <section className="p-5 sm:p-6" aria-live="polite">
+        <div className="rounded-3xl border border-emerald-500/30 bg-emerald-500/[.07] p-6 text-center">
+          <CheckCircle2 className="mx-auto size-12 text-emerald-600"/>
+          <h3 className="mt-4 text-xl font-black">تم إنشاء الحجز والفاتورة</h3>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">تم حفظ السعة للحجز بحالة «بانتظار الدفع». سيتحول إلى «مؤكد» تلقائيًا فور اكتمال تحصيل الفاتورة.</p>
+          <div className="mx-auto mt-6 grid max-w-md gap-3 rounded-2xl border bg-background p-5 sm:grid-cols-2">
+            <div><p className="text-[10px] font-bold text-muted-foreground">رقم الفاتورة</p><strong className="mt-1 block text-base font-black" dir="ltr">{createdBookingInvoice.invoiceNumber || "—"}</strong></div>
+            <div><p className="text-[10px] font-bold text-muted-foreground">المبلغ المطلوب</p><strong className="mt-1 block text-base font-black text-emerald-700 dark:text-emerald-400">{formatMoney(createdBookingInvoice.grossMinor, "SAR")}</strong></div>
+          </div>
+          <p className="mx-auto mt-4 max-w-md rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 text-xs leading-6 text-blue-700 dark:text-blue-300">في نقطة البيع يمكنك تحصيل المبلغ كاملًا بطريقة واحدة أو تقسيمه على وسيلتين، مثل جزء نقدي وجزء بالبطاقة.</p>
+          <div className="mt-6 flex flex-col-reverse justify-center gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>العودة إلى الحجوزات</Button><Button type="button" onClick={() => { onClose(); router.push(`/cashier?invoiceId=${encodeURIComponent(createdBookingInvoice.invoiceId)}`) }}><CreditCard/>الذهاب إلى التحصيل</Button></div>
         </div>
       </section> : attendanceResult ? <AttendanceDecisionResult result={attendanceResult} member={selectedMember} subscriptions={attendanceSubscriptions} branchName={effectiveBranchName} onClose={onClose} onAgain={() => {
         setAttendanceResult(undefined)
@@ -288,6 +362,10 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
             setValues(current => ({ ...current, memberId: value }))
             return
           }
+          if (isManualReservation && field.name === "customerType") {
+            setValues(current => ({ ...current, customerType: value, memberId: value === "VISITOR" ? "" : current.memberId, billingMode: value === "VISITOR" || !canCreatePaidBooking ? "OPERATIONAL" : "INVOICE" }))
+            return
+          }
           if (operationId !== "createManualReservation" || field.name !== "resourceId") { setValues(current => ({ ...current, [field.name]: value })); return }
           const resource = options.resourceId?.find(choice => choice.value === value)?.meta
           const resourceType = String(resource?.type ?? resource?.resourceType ?? "")
@@ -295,6 +373,8 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
           setCourtAvailabilityState({ key: String(value ?? ""), loading: resourceType === "COURT", rules: [] })
           setValues(current => ({ ...current, resourceId: value, resourceType, serviceId: String(resource?.serviceId ?? ""), sessionSlotId: "", seats: resourceType === "CLASS" ? current.seats : "1", participantCount: resourceType === "COURT" ? current.participantCount || "1" : "1" }))
         }} />)}</div>
+        {isManualReservation && values.billingMode === "OPERATIONAL" && <div className="mt-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6 text-amber-800 dark:text-amber-300"><AlertTriangle className="mt-0.5 size-5 shrink-0"/><div><p className="font-black">حجز تشغيلي بلا مقابل</p><p className="mt-1">سيُؤكد الحجز مباشرة من دون طلب بيع أو فاتورة. استخدمه فقط للحجوزات المجانية أو الإدارية؛ لن يظهر مبلغ لتحصيله لاحقًا.</p>{values.customerType === "VISITOR" && <p className="mt-1 font-bold">حجوزات الزوار تُسجل حاليًا بهذه الطريقة؛ التحصيل المفوتر يتطلب اختيار عضو مسجل.</p>}{!canCreatePaidBooking && values.customerType !== "VISITOR" && <p className="mt-1 font-bold">خيار الفاتورة غير متاح لأن حسابك لا يملك صلاحية إنشاء المبيعات.</p>}</div></div>}
+        {isManualReservation && isPaidBooking && selectedServiceId && <BookingPricePreview quote={bookingQuote} loading={bookingQuoteLoading} error={bookingQuoteError} />}
         {operationId === "createManualReservation" && selectedResourceType === "COURT" && selectedResourceId && <div className={`mt-5 rounded-2xl border p-4 text-xs leading-6 ${courtAvailabilityMissing ? "border-red-500/25 bg-red-500/8" : courtAvailability.error ? "border-amber-500/25 bg-amber-500/8" : "border-blue-500/20 bg-blue-500/5"}`}>
           {courtAvailability.loading ? <p className="flex items-center gap-2 font-bold"><Loader2 className="size-4 animate-spin" />جارٍ التحقق من ساعات إتاحة الملعب...</p> : courtAvailabilityMissing ? <div><p className="font-black text-red-600">هذا المورد غير جاهز للحجز</p><p className="mt-1 text-muted-foreground">لم تُضف له أيام وساعات إتاحة بعد، لذلك سيرفض الخادم أي وقت يتم اختياره.</p>{appContext.canAccess(["bookings.facilities.manage"]) && <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => { onClose(); router.push("/system-settings/bookable-resources") }}><CalendarDays />فتح إعداد إتاحة الموارد</Button>}</div> : courtAvailability.error ? <p className="font-bold text-amber-700">{courtAvailability.error}</p> : <div><p className="font-black text-blue-700 dark:text-blue-400">ساعات الحجز المتاحة</p><p className="mt-1 text-muted-foreground">{courtAvailability.rules.map(availabilityRuleLabel).join(" · ")}</p><p className="mt-1 text-muted-foreground">يجب أن يبدأ الحجز وينتهي في اليوم نفسه وداخل إحدى هذه الفترات.</p></div>}
         </div>}
@@ -324,7 +404,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={quoteError} />}
         {isManualAttendance && selectedMemberId && <AttendanceMemberPreview member={selectedMember} lockedMemberLabel={lockedReferenceLabels?.memberId} subscriptions={attendanceSubscriptions} loading={attendanceSubscriptionsLoading} error={attendanceSubscriptionsError} branchId={effectiveBranchId} branches={appContext.branches} />}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
-        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions || loadingSlots || courtAvailability.loading || courtAvailabilityMissing || attendanceSubscriptionsLoading || (isSubscriptionSale && Boolean(selectedPackageId) && (quoteLoading || !subscriptionQuote))}>{saving && <Loader2 className="animate-spin" />}{workflow.submitLabel}</Button></footer>
+        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || loadingOptions || loadingSlots || courtAvailability.loading || courtAvailabilityMissing || attendanceSubscriptionsLoading || (isSubscriptionSale && Boolean(selectedPackageId) && (quoteLoading || !subscriptionQuote)) || (isPaidBooking && Boolean(selectedServiceId) && (bookingQuoteLoading || !bookingQuote))}>{saving && <Loader2 className="animate-spin" />}{isPaidBooking ? "إنشاء الحجز والفاتورة" : isManualReservation ? "تأكيد الحجز بلا مقابل" : workflow.submitLabel}</Button></footer>
       </form>}
     </section>
   </div>
@@ -573,6 +653,24 @@ function SubscriptionPricePreview({ quote, loading, error }: { quote?: Subscript
       <div><dt className="text-muted-foreground">الضريبة</dt><dd className="mt-1 font-bold">{formatMoney(quote.taxMinor, quote.currency)}</dd></div>
       <div><dt className="text-muted-foreground">الإجمالي النهائي شامل الضريبة</dt><dd className="mt-1 font-black">{formatMoney(quote.grossMinor, quote.currency)}</dd></div>
     </dl>
+  </section>
+}
+
+function BookingPricePreview({ quote, loading, error }: { quote?: SubscriptionQuote; loading: boolean; error: string }) {
+  if (loading) return <div className="mt-5 flex items-center gap-2 rounded-2xl border bg-secondary/40 p-4 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" /> جارٍ التحقق من سعر الحجز والضريبة...</div>
+  if (error) return <div className="mt-5 rounded-2xl border border-red-500/25 bg-red-500/8 p-4 text-xs font-semibold leading-6 text-red-600">{error}</div>
+  if (!quote) return null
+  return <section className="mt-5 rounded-2xl border border-emerald-500/25 bg-emerald-500/6 p-4" aria-label="ملخص سعر الحجز">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div><p className="text-xs font-black">فاتورة الحجز قبل التأكيد</p><p className="mt-1 text-[11px] text-muted-foreground">{quote.targetName} · السعر المعتمد في الفرع الحالي</p></div>
+      <div className="text-left"><span className="block text-[10px] text-muted-foreground">الإجمالي المطلوب</span><strong className="text-lg text-emerald-700 dark:text-emerald-400">{formatMoney(quote.grossMinor, quote.currency)}</strong></div>
+    </div>
+    <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-3">
+      <div><dt className="text-muted-foreground">قبل الضريبة</dt><dd className="mt-1 font-bold">{formatMoney(quote.netMinor, quote.currency)}</dd></div>
+      <div><dt className="text-muted-foreground">الضريبة</dt><dd className="mt-1 font-bold">{formatMoney(quote.taxMinor, quote.currency)}</dd></div>
+      <div><dt className="text-muted-foreground">حالة الحجز بعد الإنشاء</dt><dd className="mt-1 font-black text-amber-700 dark:text-amber-300">بانتظار الدفع</dd></div>
+    </dl>
+    <p className="mt-4 rounded-xl bg-background/70 p-3 text-[11px] font-semibold leading-5 text-muted-foreground">سيتم حجز السعة وإصدار الفاتورة معًا. لا يصبح الحجز مؤكدًا إلا بعد اكتمال التحصيل من نقطة البيع.</p>
   </section>
 }
 

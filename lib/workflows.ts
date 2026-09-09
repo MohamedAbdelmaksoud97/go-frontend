@@ -105,20 +105,21 @@ export const workflows: Record<string, Workflow> = {
     initial: () => ({ memberId: "" }), body: (v, c) => ({ branchId: c.branchId, memberId: v.memberId }),
   },
   createManualReservation: {
-    title: "حجز جديد", description: "اختر العميل والمورد؛ يربط النظام الخدمة ونوع الحجز تلقائيًا ويعرض الموعد المناسب.", submitLabel: "تأكيد الحجز", successMessage: "تم إنشاء الحجز بنجاح.",
+    title: "حجز جديد", description: "اختر العميل والمورد وطريقة التأكيد؛ يمكن إصدار فاتورة للحجز ثم تحصيلها من نقطة البيع، أو تسجيل حجز تشغيلي بلا مقابل.", submitLabel: "متابعة إنشاء الحجز", successMessage: "تم إنشاء الحجز بنجاح.",
     fields: [
       { name: "customerType", label: "نوع العميل", type: "select", required: true, options: [{ value: "MEMBER", label: "عضو" }, { value: "VISITOR", label: "زائر" }] },
       { name: "memberId", label: "العضو", type: "reference", source: members, required: true },
       { name: "guestName", label: "اسم الزائر", required: true, placeholder: "الاسم الكامل" },
       { name: "guestPhoneE164", label: "جوال الزائر", type: "tel", required: true, placeholder: "+966 5X XXX XXXX" },
       { name: "guestEmail", label: "البريد الإلكتروني للزائر (اختياري)", type: "email", placeholder: "name@example.com" },
+      { name: "billingMode", label: "طريقة تأكيد الحجز", type: "select", required: true, options: [{ value: "INVOICE", label: "إصدار فاتورة وتحصيل قيمة الحجز" }, { value: "OPERATIONAL", label: "حجز تشغيلي بلا مقابل" }], hint: "الحجز المفوتر يبقى بانتظار الدفع ويحجز السعة مؤقتًا، ثم يتأكد تلقائيًا بعد اكتمال التحصيل." },
       { name: "resourceId", label: "الحصة أو المرفق", type: "reference", source: resources, required: true },
       { name: "sessionSlotId", label: "الموعد المتاح", type: "select", required: true },
       { name: "startsAt", label: "بداية الحجز", type: "datetime-local", required: true },
       { name: "endsAt", label: "نهاية الحجز", type: "datetime-local", required: true },
       { name: "seats", label: "عدد المقاعد", type: "number", min: "1", required: true },
       { name: "participantCount", label: "عدد المشاركين", type: "number", min: "1", required: true, hint: "عدد الأشخاص الذين سيحضرون فعليًا؛ لا يغيّر حصرية حجز الملعب." },
-    ], initial: () => { const now = new Date(); now.setMinutes(0, 0, 0); const start = new Date(now.getTime() + 60 * 60_000); const end = new Date(start.getTime() + 60 * 60_000); const local = (value: Date) => new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); return { customerType: "MEMBER", memberId: "", guestName: "", guestPhoneE164: "", guestEmail: "", serviceId: "", resourceType: "", resourceId: "", sessionSlotId: "", startsAt: local(start), endsAt: local(end), seats: "1", participantCount: "1" } },
+    ], initial: () => { const now = new Date(); now.setMinutes(0, 0, 0); const start = new Date(now.getTime() + 60 * 60_000); const end = new Date(start.getTime() + 60 * 60_000); const local = (value: Date) => new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); return { customerType: "MEMBER", memberId: "", guestName: "", guestPhoneE164: "", guestEmail: "", billingMode: "INVOICE", serviceId: "", resourceType: "", resourceId: "", sessionSlotId: "", startsAt: local(start), endsAt: local(end), seats: "1", participantCount: "1" } },
     body: (v, c) => {
       const type = String(v.resourceType) as "COURT" | "CLASS" | "PERSONAL_TRAINING" | "APPOINTMENT"
       const schedule = type === "COURT"
