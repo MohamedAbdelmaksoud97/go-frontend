@@ -23,7 +23,7 @@ type InvoiceLine = {
   taxRateBps: number; taxInclusive: boolean; fulfillmentStatus?: string; fulfillmentReferenceId?: string; commercialSnapshot?: Record<string, unknown>; contractSnapshots: Record<string, unknown>[]
   subscription?: { id: string; subscriptionNumber: string; status: string; termStart: string; termEnd: string; policySnapshot: Record<string, unknown>; freezesUsed: number; freezeDaysUsed: number }
 }
-type FreezePolicyPrint = { name?: string; maxDaysPerFreeze?: number; maxFreezesPerTerm?: number; minimumActiveDaysBeforeFreeze?: number; freezesUsed: number; freezeDaysUsed: number }
+type FreezePolicyPrint = { totalDays: number }
 type MembershipPrintDetails = { lineId: string; packageName: string; subscriptionNumber?: string; status?: string; termStart?: string; termEnd?: string; promotionName?: string; priceBeforeOfferMinor?: string; subscriptionValueMinor: string; currency: string; freezePolicy?: FreezePolicyPrint }
 export type ContractSection = { title: string; style: "NUMBERED" | "CHECKLIST"; clauses: string[] }
 export type ContractSnapshot = { activityId: string; activityCode: string; activityName: string; packageId?: string; packageCode?: string; activityNames?: string[]; contractType: "GENERAL_ACTIVITY" | "CHILD_ACADEMY"; contractTitle: string; contractContent: string; contractSections: ContractSection[]; packageName?: string; source: "SALE" | "LEGACY_BACKFILL"; membership?: MembershipPrintDetails }
@@ -181,7 +181,8 @@ function InvoicePrintSheet({ invoice, invoiceType, memberships }: { invoice: Inv
     <div className="invoice-print-lines">
       <h2>تفاصيل البنود</h2>
       <table>
-        <thead><tr><th>#</th><th>البيان</th><th>الكمية</th><th>سعر الوحدة</th><th>الخصم</th><th>الضريبة</th><th>الإجمالي</th></tr></thead>
+        <caption className="sr-only">تفاصيل بنود الفاتورة</caption>
+        <thead><tr><th scope="col">#</th><th scope="col">البيان</th><th scope="col">الكمية</th><th scope="col">سعر الوحدة</th><th scope="col">الخصم</th><th scope="col">الضريبة</th><th scope="col">الإجمالي</th></tr></thead>
         <tbody>{invoice.lines.length ? invoice.lines.map((line, index) => <tr key={line.id}>
           <td>{index + 1}</td>
           <td><strong>{line.targetName || line.description}</strong><small>{lineTypeLabel(line.lineType)}</small></td>
@@ -247,7 +248,7 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
 
       <p className="contract-print-preamble">تم الاتفاق بين <strong>{context.organizationName ?? "GO Fitness"}</strong> و{contract.contractType === "CHILD_ACADEMY" ? "ولي أمر العضو الموضحة بياناته أعلاه" : "العضو الموضحة بياناته أعلاه"} على الاشتراك في {contract.packageId ? <>باقة <strong>{contract.packageName}</strong></> : <>نشاط <strong>{contract.activityName}</strong>{contract.packageName ? <> ضمن باقة <strong>{contract.packageName}</strong></> : null}</>}، وتسري التصنيفات والبنود التالية على هذا الاشتراك.</p>
 
-      <section className="contract-print-terms-grid" aria-label="شروط وأحكام العقد">
+      <section className={`contract-print-terms-grid${contract.contractSections.length === 1 ? " is-single" : ""}`} aria-label="شروط وأحكام العقد">
         {contract.contractSections.map((section, sectionIndex) => <section className={`contract-print-term-card ${section.style === "CHECKLIST" ? "is-checklist" : ""}`} key={`${section.title}-${sectionIndex}`}><h2>{section.title}</h2><ol start={clauseStart(contract.contractSections, sectionIndex)}>{section.clauses.map((clause, clauseIndex) => <li key={clauseIndex}>{section.style === "CHECKLIST" && <span className="contract-print-check" aria-hidden="true">✓</span>}<span>{clause}</span></li>)}</ol></section>)}
       </section>
 
@@ -264,7 +265,7 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
 function GeneralContractParty({ member }: { member?: ContractPrintContext["member"] }) { return <section className="contract-print-party"><h2>الطرف الأول: العضو</h2><div className="contract-print-fields"><ContractField label="الاسم الكامل" value={member?.name}/><ContractField label="رقم العضوية" value={member?.memberNumber}/><ContractField label="رقم الهوية / الإقامة" value={member?.nationalId}/><ContractField label="تاريخ الميلاد" value={member?.birthDate ? dateOnly(member.birthDate) : undefined}/><ContractField label="الجنسية" value={member?.nationalityCode}/><ContractField label="رقم الجوال" value={member?.phone}/><ContractField label="البريد الإلكتروني" value={member?.email}/></div></section> }
 function AcademyContractParty({ member }: { member?: ContractPrintContext["member"] }) { return <section className="contract-print-party"><h2>الطرف الأول: العضو وولي الأمر</h2><div className="contract-print-fields"><ContractField label="اسم العضو" value={member?.name}/><ContractField label="رقم العضوية" value={member?.memberNumber}/><ContractField label="تاريخ الميلاد" value={member?.birthDate ? dateOnly(member.birthDate) : undefined}/><ContractField label="الجنسية" value={member?.nationalityCode}/><ContractField label="رقم الهوية / الإقامة" value={member?.nationalId}/><ContractField label="اسم ولي الأمر" value={member?.guardian?.name}/><ContractField label="صلة القرابة" value={guardianRelationship(member?.guardian?.relationship)}/><ContractField label="جوال ولي الأمر" value={member?.guardian?.phone ?? member?.phone}/></div></section> }
 function ClubContractParty({ context, contract }: { context: ContractPrintContext; contract: ContractSnapshot }) { return <section className="contract-print-party"><h2>الطرف الثاني: النادي</h2><div className="contract-print-fields"><ContractField label="اسم النادي" value={context.organizationName ?? "GO Fitness"}/><ContractField label="الفرع" value={context.branchName}/><ContractField label="العنوان" value={context.branchAddress}/><ContractField label="الباقة" value={contract.packageName}/><ContractField label="النشاط" value={contract.activityNames?.join("، ") ?? contract.activityName}/><ContractField label="تاريخ العقد" value={dateOnly(context.issuedAt ?? new Date().toISOString())}/></div></section> }
-function MembershipContractSection({ membership }: { membership: MembershipPrintDetails }) { return <section className="contract-print-party contract-print-membership"><h2>بيانات الاشتراك والقيمة وسياسة التجميد</h2><div className="contract-print-fields">{membershipRows(membership).map(([label, value]) => <ContractField key={label} label={label} value={value}/>)}</div></section> }
+function MembershipContractSection({ membership }: { membership: MembershipPrintDetails }) { return <section className="contract-print-party contract-print-membership"><h2>بيانات الاشتراك والقيمة</h2><div className="contract-print-fields">{membershipRows(membership).map(([label, value]) => <ContractField key={label} label={label} value={value}/>)}</div></section> }
 function ContractField({ label, value }: { label: string; value?: string }) { return <div><span>{label}</span><strong>{value || "غير مسجل"}</strong></div> }
 function Signature({ label, value }: { label: string; value?: string }) { return <div><span>{label}</span><b>{value || "الاسم مثبت ببيانات النظام"}</b><i/></div> }
 function clauseStart(sections: ContractSection[], sectionIndex: number) { return sections.slice(0, sectionIndex).reduce((total, section) => total + (section.style === "NUMBERED" ? section.clauses.length : 0), 1) }
@@ -283,7 +284,11 @@ function membershipPrintDetails(line: InvoiceLine, currency: string): Membership
   const capturedFreeze = capturedPolicies.find(policy => asText(policy.policyType) === "FREEZE")
   const packageFreeze = packagePolicies.find(policy => asText(policy.policyType) === "FREEZE")
   const configuration = asRecord(capturedFreeze?.configuration ?? packageFreeze?.configuration)
-  const hasFreezePolicy = Object.keys(configuration).length > 0
+  const maxDaysPerFreeze = asNumber(configuration.maxDaysPerFreeze)
+  const maxFreezesPerTerm = asNumber(configuration.maxFreezesPerTerm)
+  const totalFreezeDays = maxDaysPerFreeze !== undefined && maxFreezesPerTerm !== undefined
+    ? maxDaysPerFreeze * maxFreezesPerTerm
+    : undefined
   return {
     lineId: line.id,
     packageName: line.targetName || line.description,
@@ -295,14 +300,7 @@ function membershipPrintDetails(line: InvoiceLine, currency: string): Membership
     ...(asText(snapshot.baseAmountMinor) ? { priceBeforeOfferMinor: asText(snapshot.baseAmountMinor) } : {}),
     subscriptionValueMinor: line.grossMinor,
     currency,
-    ...(hasFreezePolicy ? { freezePolicy: {
-      ...(asText(packageFreeze?.name) ? { name: asText(packageFreeze?.name) } : {}),
-      ...(asNumber(configuration.maxDaysPerFreeze) !== undefined ? { maxDaysPerFreeze: asNumber(configuration.maxDaysPerFreeze) } : {}),
-      ...(asNumber(configuration.maxFreezesPerTerm) !== undefined ? { maxFreezesPerTerm: asNumber(configuration.maxFreezesPerTerm) } : {}),
-      ...(asNumber(configuration.minimumActiveDaysBeforeFreeze) !== undefined ? { minimumActiveDaysBeforeFreeze: asNumber(configuration.minimumActiveDaysBeforeFreeze) } : {}),
-      freezesUsed: line.subscription?.freezesUsed ?? 0,
-      freezeDaysUsed: line.subscription?.freezeDaysUsed ?? 0,
-    } } : {}),
+    ...(totalFreezeDays !== undefined ? { freezePolicy: { totalDays: totalFreezeDays } } : {}),
   }
 }
 function membershipRows(membership: MembershipPrintDetails): Array<[string, string]> {
@@ -317,15 +315,7 @@ function membershipRows(membership: MembershipPrintDetails): Array<[string, stri
     if (membership.priceBeforeOfferMinor) rows.push(["السعر الأساسي قبل تطبيق العرض", money(membership.priceBeforeOfferMinor, membership.currency)])
   }
   const policy = membership.freezePolicy
-  if (policy) {
-    if (policy.name) rows.push(["سياسة التجميد", policy.name])
-    if (policy.maxFreezesPerTerm !== undefined) rows.push(["مرات التجميد المسموحة", `${policy.maxFreezesPerTerm} مرة`])
-    if (policy.maxDaysPerFreeze !== undefined) rows.push(["أقصى مدة للتجميد في المرة", `${policy.maxDaysPerFreeze} يوم`])
-    if (policy.minimumActiveDaysBeforeFreeze !== undefined) rows.push(["النشاط المطلوب قبل التجميد", `${policy.minimumActiveDaysBeforeFreeze} يوم`])
-    rows.push(["مرات التجميد المستخدمة", `${policy.freezesUsed} مرة`])
-    rows.push(["أيام التجميد المستخدمة", `${policy.freezeDaysUsed} يوم`])
-    if (policy.maxFreezesPerTerm !== undefined) rows.push(["مرات التجميد المتبقية", `${Math.max(policy.maxFreezesPerTerm - policy.freezesUsed, 0)} مرة`])
-  }
+  if (policy) rows.push(["إجمالي أيام التجميد", `${policy.totalDays} يوم`])
   return rows
 }
 
