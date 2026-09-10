@@ -2,9 +2,9 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
-  Activity, Barcode, Bell, BookOpenText, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, Compass, CreditCard, FileText,
+  Activity, Barcode, Bell, BellRing, BookOpenText, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, Compass, CreditCard, FileText,
   Dumbbell, History, LayoutDashboard, LogOut, Menu, MessageSquareText, Moon, ReceiptText, Settings,
   ScanFace, Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
 } from "lucide-react"
@@ -16,6 +16,22 @@ import { apiRequest, clearSession } from "@/lib/api-client"
 import { firstAllowedDestination, permissionsForRoute, systemSettingsPermissions } from "@/lib/permissions"
 import type { AccountNotification } from "@/components/account-notification-inbox"
 import { GlobalSearch } from "@/components/global-search"
+import { useToast } from "@/components/toast-provider"
+
+type GateEvent = {
+  id:string
+  deviceName?:string
+  deviceOccurredAt:string
+  doorNumber:number
+  direction:"IN"|"OUT"|"UNKNOWN"
+  eventType:number
+  credentialPin?:string
+  deviceDecision:"ALLOWED"|"DENIED"|"UNKNOWN"
+  processingStatus:"ATTENDANCE_RECORDED"|"DEVICE_DENIED"|"UNMAPPED_CREDENTIAL"|"IGNORED"|"FAILED"
+  processingCode?:string
+  memberName?:string
+  memberNumber?:string
+}
 
 const navGroups = [
   { label: "نظرة عامة", items: [{ href: "/", label: "لوحة التحكم", icon: LayoutDashboard, permissions:["reporting.read"] }] },
@@ -64,11 +80,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router=useRouter()
   const context=useAppContext()
+  const toast=useToast()
   const [open, setOpen] = useState(false)
   const [dark, setDark] = useState(false)
   const [notices, setNotices] = useState(false)
   const [notificationItems,setNotificationItems]=useState<AccountNotification[]>([])
   const [unreadNotifications,setUnreadNotifications]=useState(0)
+  const [gateAlertsEnabled,setGateAlertsEnabled]=useState(false)
+  const gateAlertsEnabledRef=useRef(false)
+  const seenGateEventsRef=useRef(new Set<string>())
+  const gateEventsInitializedRef=useRef(false)
+  const gatePollInFlightRef=useRef(false)
   const hasMember = Boolean(context.self.members?.length)
   const memberOnlyAccount = hasMember && context.grants.length === 0
   const accountName = context.account?.displayName?.trim() || "الحساب"
@@ -77,6 +99,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const requiredPermissions=permissionsForRoute(pathname)
   const routeAllowed=requiredPermissions===undefined||context.canAccess(requiredPermissions)
   const fallbackDestination=firstAllowedDestination(context.canAccess)
+  const canReadGateEvents=context.canAccess(["attendance.devices.read","attendance.devices.manage"])
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setDark(document.documentElement.classList.contains("dark")))
@@ -93,9 +116,78 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return()=>{cancelled=true;window.clearInterval(timer)}
   },[context.loading,context.userAccountId])
 
+  useEffect(()=>{
+    const timer=window.setTimeout(()=>{
+      const enabled=typeof Notification!=="undefined"&&Notification.permission==="granted"&&localStorage.getItem("go-gate-desktop-alerts")==="enabled"
+      gateAlertsEnabledRef.current=enabled
+      setGateAlertsEnabled(enabled)
+    },0)
+    return()=>window.clearTimeout(timer)
+  },[])
+
+  useEffect(()=>{
+    if(context.loading||!context.organizationId||!canReadGateEvents)return
+    let cancelled=false
+    seenGateEventsRef.current.clear()
+    gateEventsInitializedRef.current=false
+    async function pollGateEvents(){
+      if(gatePollInFlightRef.current)return
+      gatePollInFlightRef.current=true
+      try{
+        const response=await apiRequest<GateEvent[]>(`/organizations/${context.organizationId}/access-device-events?limit=100`)
+        if(cancelled)return
+        const rows=response.data??[]
+        window.dispatchEvent(new CustomEvent("go:access-events",{detail:rows}))
+        if(!gateEventsInitializedRef.current){
+          rows.forEach(item=>seenGateEventsRef.current.add(item.id))
+          gateEventsInitializedRef.current=true
+          return
+        }
+        const fresh=rows.filter(item=>!seenGateEventsRef.current.has(item.id)).reverse()
+        rows.forEach(item=>seenGateEventsRef.current.add(item.id))
+        for(const item of fresh.slice(-5)){
+          const presentation=gateEventPresentation(item)
+          toast.show({title:presentation.title,message:presentation.message,kind:presentation.kind,duration:7000})
+          if(gateAlertsEnabledRef.current&&Notification.permission==="granted"){
+            const desktop=new Notification(presentation.title,{body:presentation.message,tag:`go-gate-${item.id}`,icon:"/favicon.ico"})
+            desktop.onclick=()=>{window.focus();router.push("/access-control");desktop.close()}
+          }
+        }
+      }catch{
+        // Keep the last live snapshot and retry after a transient network failure.
+      }finally{gatePollInFlightRef.current=false}
+    }
+    void pollGateEvents()
+    const timer=window.setInterval(()=>void pollGateEvents(),3_000)
+    return()=>{cancelled=true;window.clearInterval(timer)}
+  },[canReadGateEvents,context.loading,context.organizationId,router,toast])
+
   async function openNotification(item:AccountNotification){if(!item.readAt){try{const response=await apiRequest<AccountNotification>(`/me/account-notifications/${item.id}/read`,{method:"POST"});setNotificationItems(current=>current.map(value=>value.id===item.id?response.data:value));setUnreadNotifications(value=>Math.max(0,value-1))}catch{}}setNotices(false);if(item.actionHref)router.push(item.actionHref)}
 
   async function markAllNotificationsRead(){try{await apiRequest("/me/account-notifications/read-all",{method:"POST"});setNotificationItems(current=>current.map(item=>({...item,readAt:item.readAt??new Date().toISOString()})));setUnreadNotifications(0)}catch{}}
+
+  async function toggleGateDesktopAlerts(){
+    if(gateAlertsEnabled){
+      localStorage.removeItem("go-gate-desktop-alerts")
+      gateAlertsEnabledRef.current=false
+      setGateAlertsEnabled(false)
+      toast.info("ستظل تنبيهات البوابة تظهر داخل GO، وتم إيقاف تنبيهات سطح المكتب.","تم إيقاف التنبيهات الخارجية")
+      return
+    }
+    if(typeof Notification==="undefined"){
+      toast.warning("هذا المتصفح لا يدعم تنبيهات سطح المكتب. ستظل التنبيهات تظهر داخل GO.")
+      return
+    }
+    const permission=Notification.permission==="granted"?"granted":await Notification.requestPermission()
+    if(permission!=="granted"){
+      toast.warning("لم يمنح المتصفح إذن الإشعارات. يمكنك السماح بها من إعدادات الموقع في المتصفح.","تعذر تفعيل التنبيهات الخارجية")
+      return
+    }
+    localStorage.setItem("go-gate-desktop-alerts","enabled")
+    gateAlertsEnabledRef.current=true
+    setGateAlertsEnabled(true)
+    toast.success("ستصلك تنبيهات الدخول والخروج والرفض حتى عندما تكون تبويبة GO في الخلفية.","تم تفعيل تنبيهات البوابة")
+  }
 
   function toggleTheme() {
     const next = !dark
@@ -164,6 +256,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </>}
           <Button variant="outline" size="icon" onClick={toggleTheme} aria-label={dark ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"}>{dark ? <Sun /> : <Moon />}</Button>
+          {canReadGateEvents&&<Button variant="outline" size="icon" className="relative" aria-pressed={gateAlertsEnabled} aria-label={gateAlertsEnabled?"إيقاف تنبيهات البوابة الخارجية":"تفعيل تنبيهات البوابة الخارجية"} title={gateAlertsEnabled?"تنبيهات البوابة الخارجية مفعلة":"تفعيل تنبيهات البوابة الخارجية"} onClick={()=>void toggleGateDesktopAlerts()}><BellRing/>{gateAlertsEnabled&&<span className="absolute -left-0.5 -top-0.5 size-2.5 rounded-full border-2 border-background bg-emerald-500"/>}</Button>}
           <div className="relative">
             <Button variant="outline" size="icon" onClick={() => setNotices(v => !v)} aria-label="الإشعارات"><Bell /></Button>
             {unreadNotifications>0&&<span className="pointer-events-none absolute -left-1 -top-1 grid min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-black leading-5 text-white">{unreadNotifications>99?"99+":unreadNotifications}</span>}
@@ -179,3 +272,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   </div>
 }
+
+function gateEventPresentation(item:GateEvent):{title:string;message:string;kind:"success"|"warning"|"info"|"error"}{
+  const member=item.memberName??(item.credentialPin?`PIN ${item.credentialPin}`:"شخص غير معروف")
+  const reader=item.direction==="IN"?"قارئ الدخول":item.direction==="OUT"?"قارئ الخروج":`منفذ اللوحة ${item.doorNumber}`
+  const location=`${item.deviceName??"بوابة النادي"} · ${reader}`
+  if(item.deviceDecision==="DENIED")return{title:`رفض من البوابة — ${member}`,message:`${gateEventReason(item.eventType)} · ${location}`,kind:"warning"}
+  if(item.direction==="OUT")return{title:`خروج — ${member}`,message:location,kind:"info"}
+  if(item.processingStatus==="ATTENDANCE_RECORDED"&&item.processingCode==="SYSTEM_ACCEPTED")return{title:`دخول مسجل — ${member}`,message:location,kind:"success"}
+  if(item.processingStatus==="UNMAPPED_CREDENTIAL")return{title:`PIN غير مربوط — ${member}`,message:`راجع ربط رقم البصمة · ${location}`,kind:"warning"}
+  if(item.processingStatus==="FAILED")return{title:`تعذر معالجة حدث البوابة — ${member}`,message:location,kind:"error"}
+  return{title:`حدث دخول — ${member}`,message:location,kind:"info"}
+}
+
+function gateEventReason(type:number){return type===29?"الصلاحية منتهية":type===34?"بصمة غير مسجلة":`رفض اللوحة (الرمز ${type})`}
