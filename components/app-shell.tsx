@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { apiRequest, clearSession } from "@/lib/api-client"
 import { firstAllowedDestination, permissionsForRoute, systemSettingsPermissions } from "@/lib/permissions"
+import { physicalGateDirection } from "@/lib/gate-direction"
 import type { AccountNotification } from "@/components/account-notification-inbox"
 import { GlobalSearch } from "@/components/global-search"
 import { useToast } from "@/components/toast-provider"
@@ -297,10 +298,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 function gateEventPresentation(item:GateEvent):{title:string;message:string;kind:"success"|"warning"|"info"|"error"}{
   const member=item.memberName??(item.credentialPin?`PIN ${item.credentialPin}`:"شخص غير معروف")
-  const reader=item.direction==="IN"?"قارئ الدخول":item.direction==="OUT"?"قارئ الخروج":`منفذ اللوحة ${item.doorNumber}`
+  const direction=physicalGateDirection(item.doorNumber,item.direction)
+  const reader=direction==="IN"?"قارئ الدخول":direction==="OUT"?"قارئ الخروج":`منفذ اللوحة ${item.doorNumber}`
   const location=`${item.deviceName??"بوابة النادي"} · ${reader}`
   if(item.deviceDecision==="DENIED")return{title:`رفض من البوابة — ${member}`,message:`${gateEventReason(item.eventType)} · ${location}`,kind:"warning"}
-  if(item.direction==="OUT")return{title:`خروج — ${member}`,message:location,kind:"info"}
+  if(direction==="OUT")return{title:`خروج — ${member}`,message:location,kind:"info"}
   if(item.processingStatus==="ATTENDANCE_RECORDED"&&item.processingCode==="SYSTEM_ACCEPTED")return{title:`دخول مسجل — ${member}`,message:location,kind:"success"}
   if(item.processingStatus==="UNMAPPED_CREDENTIAL")return{title:`PIN غير مربوط — ${member}`,message:`راجع ربط رقم البصمة · ${location}`,kind:"warning"}
   if(item.processingStatus==="FAILED")return{title:`تعذر معالجة حدث البوابة — ${member}`,message:location,kind:"error"}

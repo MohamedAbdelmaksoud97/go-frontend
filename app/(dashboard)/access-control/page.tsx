@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
+import { physicalGateDirection } from "@/lib/gate-direction"
 
 type DeviceMode="OBSERVE"|"ENFORCE"
 type DeviceStatus="ACTIVE"|"MAINTENANCE"|"DISABLED"
@@ -127,5 +128,5 @@ function memberName(member:Member){return member.name??member.fullNameAr??member
 function isOnline(value?:string){return Boolean(value&&Date.now()-new Date(value).getTime()<120_000)}
 function formatDate(value?:string){return value?new Intl.DateTimeFormat("ar-EG",{dateStyle:"short",timeStyle:"short"}).format(new Date(value)):"—"}
 function eventReason(type:number){return type===29?"صلاحية منتهية":type===34?"بصمة غير مسجلة":`رفض اللوحة (${type})`}
-function readerLabel(event:AccessEvent){return event.direction==="IN"?"قارئ الدخول":event.direction==="OUT"?"قارئ الخروج":"قارئ غير محدد"}
-function processingLabel(event:AccessEvent){if(event.processingStatus==="ATTENDANCE_RECORDED")return event.processingCode==="SYSTEM_ACCEPTED"?"دخول مسجل":"رفضه GO";if(event.processingStatus==="UNMAPPED_CREDENTIAL")return "PIN غير مربوط";if(event.processingStatus==="DEVICE_DENIED")return "رفض من اللوحة";if(event.processingStatus==="FAILED")return "فشل المعالجة";return event.direction==="OUT"?"حدث خروج":"تم التجاهل"}
+function readerLabel(event:AccessEvent){const direction=physicalGateDirection(event.doorNumber,event.direction);return direction==="IN"?"قارئ الدخول":direction==="OUT"?"قارئ الخروج":"قارئ غير محدد"}
+function processingLabel(event:AccessEvent){const direction=physicalGateDirection(event.doorNumber,event.direction);if(event.processingStatus==="UNMAPPED_CREDENTIAL")return "PIN غير مربوط";if(event.processingStatus==="DEVICE_DENIED")return "رفض من اللوحة";if(event.processingStatus==="FAILED")return "فشل المعالجة";if(direction==="OUT")return event.processingStatus==="ATTENDANCE_RECORDED"?"خروج فعلي — سُجل قديمًا كدخول":"حدث خروج";if(event.processingStatus==="ATTENDANCE_RECORDED")return event.processingCode==="SYSTEM_ACCEPTED"?"دخول مسجل":"رفضه GO";if(direction==="IN")return event.direction==="OUT"?"دخول فعلي — لم يُسجل":"تم تجاهله";return "تم التجاهل"}
