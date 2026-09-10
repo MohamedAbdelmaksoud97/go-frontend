@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, BadgeDollarSign, BarChart3, CalendarPlus, ChevronLeft, ChevronRight, CircleX, ClipboardCheck, CreditCard, Download, Eye, EyeOff, LockKeyhole, MoreHorizontal, Play, Plus, RefreshCw, Search, ShieldAlert, SlidersHorizontal, Snowflake, Sparkles, UserRoundCheck, UserRoundX, X } from "lucide-react"
+import { AlertTriangle, BadgeDollarSign, BarChart3, CalendarPlus, ChevronLeft, ChevronRight, CircleX, ClipboardCheck, Copy, CreditCard, Download, Eye, EyeOff, LockKeyhole, MoreHorizontal, Play, Plus, RefreshCw, Search, ShieldAlert, SlidersHorizontal, Snowflake, Sparkles, UserRoundCheck, UserRoundX, X } from "lucide-react"
 import type { SectionConfig } from "@/lib/sections"
 import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
@@ -76,9 +76,20 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
   const canRead = listPermission === undefined || context.canAccess([listPermission])
   const canCreate = createPermission !== undefined && context.canAccess([createPermission])
     && (config.createOperationId !== "createEmployee" || context.canAccess(["workforce.accounts.manage"]))
+  const canReadFingerprintPins = config.listOperationId === "listMembers" && context.canAccess(["access-credentials.read"])
+  const visibleConfig = useMemo(() => {
+    const fingerprintPinIndex = config.fields.indexOf("fingerprintPin")
+    if (fingerprintPinIndex < 0 || canReadFingerprintPins) return config
+    return {
+      ...config,
+      fields: config.fields.filter((_, index) => index !== fingerprintPinIndex),
+      columns: config.columns.filter((_, index) => index !== fingerprintPinIndex),
+      statusIndex: config.statusIndex === undefined || config.statusIndex < fingerprintPinIndex ? config.statusIndex : config.statusIndex - 1,
+    }
+  }, [canReadFingerprintPins, config])
   const serverFiltered = config.listOperationId === "listMembers" || config.listOperationId === "listSubscriptions" || config.listOperationId === "listEmployees"
-  const statuses = useMemo(() => statusOptions(config.listOperationId, serverRows, config.statusIndex), [config.listOperationId, config.statusIndex, serverRows])
-  const rows = useMemo(() => serverRows.filter(row => (serverFiltered || row.some(cell => cell.toLowerCase().includes(query.toLowerCase()))) && (serverFiltered || !status || config.statusIndex === undefined || row[config.statusIndex] === status)), [config.statusIndex, query, serverFiltered, serverRows, status])
+  const statuses = useMemo(() => statusOptions(config.listOperationId, serverRows, visibleConfig.statusIndex), [config.listOperationId, serverRows, visibleConfig.statusIndex])
+  const rows = useMemo(() => serverRows.filter(row => (serverFiltered || row.some(cell => cell.toLowerCase().includes(query.toLowerCase()))) && (serverFiltered || !status || visibleConfig.statusIndex === undefined || row[visibleConfig.statusIndex] === status)), [query, serverFiltered, serverRows, status, visibleConfig.statusIndex])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDatabaseQuery(query.trim()), 300)
@@ -91,7 +102,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     return () => { cancelled = true; cancelAnimationFrame(frame) }
   // The page cache must reset whenever the selected resource/context changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.fields, context.branchId, context.branches, context.organizationId, databaseQuery, filterBranchId, listOperation, status])
+  }, [context.branchId, context.branches, context.organizationId, databaseQuery, filterBranchId, listOperation, status, visibleConfig.fields])
 
   async function loadPage(targetPage: number, cancelled = false) {
     if (!hasRuntimeApi() || !listOperation || !context.organizationId) { setLoading(false); return }
@@ -119,7 +130,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
       if (previous?.nextCursor) url.searchParams.set("cursor", previous.nextCursor)
       const response = await apiRequest<unknown>(`${url.pathname}${url.search}`)
       const records = toList(response.data)
-      const rows = records.map(item => config.fields.map(field => displayValue(item, field, context.branches)))
+      const rows = records.map(item => visibleConfig.fields.map(field => displayValue(item, field, context.branches)))
       if (cancelled) return
       pageCache.current[targetPage] = { rows, records, nextCursor: response.meta?.nextCursor }
       setServerRows(rows); setServerRecords(records); setPage(targetPage); setKnownPages(current => Math.max(current, targetPage + 1))
@@ -129,7 +140,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
 
   function exportCsv() {
     const escape = (value: string) => `"${value.replaceAll('"', '""')}"`
-    const csv = [config.columns, ...rows].map(row => row.map(escape).join(",")).join("\n")
+    const csv = [visibleConfig.columns, ...rows].map(row => row.map(escape).join(",")).join("\n")
     const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }))
     const link = document.createElement("a"); link.href = url; link.download = `go-${config.listOperationId}.csv`; link.click(); URL.revokeObjectURL(url)
   }
@@ -140,7 +151,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/8 text-amber-700 dark:text-primary">{config.eyebrow}</Badge><h1 className="text-2xl font-black tracking-tight sm:text-3xl">{config.title}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{config.description}</p></div><div className="flex gap-2"><Button size="lg" variant="outline" onClick={exportCsv} disabled={!rows.length}><Download />تصدير</Button>{canCreate && <Button size="lg" className="brand-shadow" onClick={() => setShowAction(true)}><Plus />{config.action}</Button>}</div></div>
     <section className="grid gap-4 md:grid-cols-3">{config.metrics.map((metric, index) => <Card key={metric.label}><CardContent className="flex items-center gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-xl ${index === 0 ? "bg-primary/15 text-amber-600" : index === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{index === 0 ? <BarChart3 /> : index === 1 ? <Sparkles /> : <SlidersHorizontal />}</span><div><p className="text-[11px] font-semibold text-muted-foreground">{metricLabel(config.listOperationId, index, metric.label)}</p><p className="mt-1 text-xl font-black">{metricValue(config.listOperationId, index, serverRecords)}</p><p className="mt-1 text-[9px] text-muted-foreground">{metricNote(serverRecords.length, metric.note)}</p></div></CardContent></Card>)}</section>
     <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}</div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{config.columns.map(heading => <th key={heading} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="sticky left-0 z-20 min-w-[160px] border-r bg-secondary px-3 py-3 text-[10px] font-bold text-muted-foreground shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)]">الإجراءات السريعة</th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); const recordBranchId = String(record.registrationBranchId ?? record.branchId ?? ""); const filteredBranchId = context.branches.some(branch => branch.id === filterBranchId) ? filterBranchId : ""; const actionBranchId = context.branchId || filteredBranchId || (context.branches.length === 1 ? context.branches[0]?.id ?? "" : "") || recordBranchId; return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold"><ResourceCellValue config={config} record={record} cell={cell} columnIndex={columnIndex} recordId={memberId} /></td>)}<td className="sticky left-0 z-10 min-w-[160px] border-r bg-card px-3 py-4 shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)] transition-colors group-hover:bg-secondary">{config.listOperationId === "listMembers" && memberId ? <MemberQuickActions record={record} canAccess={context.canAccess} onWorkflow={(operationId, initialValues, lockedReferenceLabels) => { if (!context.branchId && actionBranchId) context.setBranchId(actionBranchId); setQuickAction({ operationId, branchId: actionBranchId, initialValues, lockedReferenceLabels }) }} onDiscipline={() => setDisciplinaryMember(record)} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listSubscriptions" ? <SubscriptionQuickActions record={record} canAccess={context.canAccess} onFreeze={() => setSubscriptionFreezeRecord(record)} onRenew={() => setSubscriptionPolicyAction({ record, action: "RENEW" })} onCancel={() => setSubscriptionPolicyAction({ record, action: "CANCEL" })} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listReservations" ? <BookingQuickActions record={record} canAccess={context.canAccess} onDetails={() => setSelectedRow({ row, record })} /> : <Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button>}</td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{visibleConfig.columns.map((heading, index) => <th key={heading} title={visibleConfig.fields[index] === "fingerprintPin" ? "للأعضاء القدامى: رقم العضوية القديم نفسه. للأعضاء الجدد: رقم رقمي يولده النظام تلقائيًا." : undefined} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="sticky left-0 z-20 min-w-[160px] border-r bg-secondary px-3 py-3 text-[10px] font-bold text-muted-foreground shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)]">الإجراءات السريعة</th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); const recordBranchId = String(record.registrationBranchId ?? record.branchId ?? ""); const filteredBranchId = context.branches.some(branch => branch.id === filterBranchId) ? filterBranchId : ""; const actionBranchId = context.branchId || filteredBranchId || (context.branches.length === 1 ? context.branches[0]?.id ?? "" : "") || recordBranchId; return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold"><ResourceCellValue config={visibleConfig} record={record} cell={cell} columnIndex={columnIndex} recordId={memberId} /></td>)}<td className="sticky left-0 z-10 min-w-[160px] border-r bg-card px-3 py-4 shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)] transition-colors group-hover:bg-secondary">{config.listOperationId === "listMembers" && memberId ? <MemberQuickActions record={record} canAccess={context.canAccess} onWorkflow={(operationId, initialValues, lockedReferenceLabels) => { if (!context.branchId && actionBranchId) context.setBranchId(actionBranchId); setQuickAction({ operationId, branchId: actionBranchId, initialValues, lockedReferenceLabels }) }} onDiscipline={() => setDisciplinaryMember(record)} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listSubscriptions" ? <SubscriptionQuickActions record={record} canAccess={context.canAccess} onFreeze={() => setSubscriptionFreezeRecord(record)} onRenew={() => setSubscriptionPolicyAction({ record, action: "RENEW" })} onCancel={() => setSubscriptionPolicyAction({ record, action: "CANCEL" })} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listReservations" ? <BookingQuickActions record={record} canAccess={context.canAccess} onDetails={() => setSelectedRow({ row, record })} /> : <Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button>}</td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
       <div className="flex items-center justify-between border-t p-4"><p className="text-[10px] text-muted-foreground">عرض {rows.length} سجلًا · الصفحة {page + 1}</p><div className="flex items-center gap-1"><Button variant="outline" size="icon-sm" disabled={page === 0 || loading} aria-label="الصفحة السابقة" onClick={() => void loadPage(page - 1)}><ChevronRight /></Button>{Array.from({ length: knownPages }, (_, index) => <Button key={index} variant={index === page ? "default" : "outline"} size="icon-sm" disabled={loading} aria-label={`الصفحة ${index + 1}`} onClick={() => void loadPage(index)}>{index + 1}</Button>)}<Button variant="outline" size="icon-sm" disabled={loading || !pageCache.current[page]?.nextCursor} aria-label="الصفحة التالية" onClick={() => void loadPage(page + 1)}><ChevronLeft /></Button></div></div>
     </Card>
     {showAction && config.createOperationId && canCreate && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} onSaved={() => { pageCache.current = []; void loadPage(0) }} />}
@@ -148,7 +159,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     {disciplinaryMember && <MemberDisciplinaryDialog organizationId={context.organizationId} record={disciplinaryMember} onClose={() => setDisciplinaryMember(undefined)} onSaved={() => { setDisciplinaryMember(undefined); pageCache.current = []; void loadPage(0) }} />}
     {subscriptionFreezeRecord && <SubscriptionFreezeDialog organizationId={context.organizationId} record={subscriptionFreezeRecord} onClose={() => setSubscriptionFreezeRecord(undefined)} onSaved={() => { setSubscriptionFreezeRecord(undefined); pageCache.current = []; void loadPage(0) }} />}
     {subscriptionPolicyAction && <SubscriptionPolicyActionDialog organizationId={context.organizationId} record={subscriptionPolicyAction.record} action={subscriptionPolicyAction.action} onClose={() => setSubscriptionPolicyAction(undefined)} onSaved={() => { setSubscriptionPolicyAction(undefined); pageCache.current = []; void loadPage(0) }} />}
-    {selectedRow && <RecordPreview columns={config.columns} fields={config.fields} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={config.statusIndex} onFreeze={() => { setSelectedRow(undefined); setSubscriptionFreezeRecord(selectedRow.record) }} onCancel={() => { setSelectedRow(undefined); setSubscriptionPolicyAction({ record: selectedRow.record, action: "CANCEL" }) }} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
+    {selectedRow && <RecordPreview columns={visibleConfig.columns} fields={visibleConfig.fields} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={visibleConfig.statusIndex} onFreeze={() => { setSelectedRow(undefined); setSubscriptionFreezeRecord(selectedRow.record) }} onCancel={() => { setSelectedRow(undefined); setSubscriptionPolicyAction({ record: selectedRow.record, action: "CANCEL" }) }} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
   </div>
 }
 
@@ -157,6 +168,10 @@ function ResourceCellValue({ config, record, cell, columnIndex, recordId }: { co
 
   if (config.listOperationId === "listMembers" && columnIndex === 0) {
     return <MemberIdentity name={cell} memberId={recordId} blocked={record.isBlocked === true} />
+  }
+
+  if (config.listOperationId === "listMembers" && config.fields[columnIndex] === "fingerprintPin") {
+    return <FingerprintPinCell pin={cell} legacyMemberNumber={String(record.legacyMemberNumber ?? "")} />
   }
 
   if (config.listOperationId === "listSubscriptions" && config.fields[columnIndex] === "memberName") {
@@ -168,6 +183,25 @@ function ResourceCellValue({ config, record, cell, columnIndex, recordId }: { co
   }
 
   return cell
+}
+
+function FingerprintPinCell({ pin, legacyMemberNumber }: { pin: string; legacyMemberNumber: string }) {
+  const toast = useToast()
+  if (!pin || pin === "—") return <span className="font-bold text-amber-700 dark:text-amber-400">غير معيّن</span>
+  const inheritedFromLegacyNumber = legacyMemberNumber === pin
+  async function copyPin() {
+    try {
+      await navigator.clipboard.writeText(pin)
+      toast.success(`تم نسخ PIN البصمة ${pin}.`)
+    } catch {
+      toast.error("تعذر نسخ PIN البصمة. حدده وانسخه يدويًا.")
+    }
+  }
+  return <span className="inline-flex items-center gap-2">
+    <span dir="ltr" className="font-mono text-sm font-black tabular-nums">{pin}</span>
+    <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground">{inheritedFromLegacyNumber ? "من الرقم القديم" : "مولّد تلقائيًا"}</span>
+    <Button type="button" variant="ghost" size="icon-sm" className="size-7" onClick={() => void copyPin()} title="نسخ PIN البصمة" aria-label={`نسخ PIN البصمة ${pin}`}><Copy className="size-3.5" /></Button>
+  </span>
 }
 
 function MemberIdentity({ name, memberId, blocked }: { name: string; memberId?: string; blocked: boolean }) {
