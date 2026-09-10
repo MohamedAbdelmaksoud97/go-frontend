@@ -90,7 +90,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const gateAlertsEnabledRef=useRef(false)
   const seenGateEventsRef=useRef(new Set<string>())
   const gateEventsInitializedRef=useRef(false)
-  const gatePollInFlightRef=useRef(false)
   const hasMember = Boolean(context.self.members?.length)
   const memberOnlyAccount = hasMember && context.grants.length === 0
   const accountName = context.account?.displayName?.trim() || "الحساب"
@@ -128,38 +127,61 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(()=>{
     if(context.loading||!context.organizationId||!canReadGateEvents)return
     let cancelled=false
+    const abortController=new AbortController()
+    let latestRows:GateEvent[]=[]
     seenGateEventsRef.current.clear()
     gateEventsInitializedRef.current=false
-    async function pollGateEvents(){
-      if(gatePollInFlightRef.current)return
-      gatePollInFlightRef.current=true
-      try{
-        const response=await apiRequest<GateEvent[]>(`/organizations/${context.organizationId}/access-device-events?limit=100`)
-        if(cancelled)return
-        const rows=response.data??[]
-        window.dispatchEvent(new CustomEvent("go:access-events",{detail:rows}))
-        if(!gateEventsInitializedRef.current){
-          rows.forEach(item=>seenGateEventsRef.current.add(item.id))
-          gateEventsInitializedRef.current=true
-          return
-        }
-        const fresh=rows.filter(item=>!seenGateEventsRef.current.has(item.id)).reverse()
-        rows.forEach(item=>seenGateEventsRef.current.add(item.id))
-        for(const item of fresh.slice(-5)){
-          const presentation=gateEventPresentation(item)
-          toast.show({title:presentation.title,message:presentation.message,kind:presentation.kind,duration:7000})
-          if(gateAlertsEnabledRef.current&&Notification.permission==="granted"){
-            const desktop=new Notification(presentation.title,{body:presentation.message,tag:`go-gate-${item.id}`,icon:"/favicon.ico"})
-            desktop.onclick=()=>{window.focus();router.push("/access-control");desktop.close()}
-          }
-        }
-      }catch{
-        // Keep the last live snapshot and retry after a transient network failure.
-      }finally{gatePollInFlightRef.current=false}
+    function notify(item:GateEvent){
+      const presentation=gateEventPresentation(item)
+      toast.show({title:presentation.title,message:presentation.message,kind:presentation.kind,duration:7000})
+      if(gateAlertsEnabledRef.current&&Notification.permission==="granted"){
+        const desktop=new Notification(presentation.title,{body:presentation.message,tag:`go-gate-${item.id}`,icon:"/favicon.ico"})
+        desktop.onclick=()=>{window.focus();router.push("/access-control");desktop.close()}
+      }
     }
-    void pollGateEvents()
-    const timer=window.setInterval(()=>void pollGateEvents(),3_000)
-    return()=>{cancelled=true;window.clearInterval(timer)}
+    async function refreshSnapshot(announce:boolean){
+      const response=await apiRequest<GateEvent[]>(`/organizations/${context.organizationId}/access-device-events?limit=100`)
+      if(cancelled)return
+      latestRows=response.data??[]
+      const fresh=gateEventsInitializedRef.current&&announce?latestRows.filter(item=>!seenGateEventsRef.current.has(item.id)).reverse():[]
+      latestRows.forEach(item=>seenGateEventsRef.current.add(item.id))
+      gateEventsInitializedRef.current=true
+      window.dispatchEvent(new CustomEvent("go:access-events",{detail:latestRows}))
+      fresh.slice(-5).forEach(notify)
+    }
+    function receive(item:GateEvent){
+      if(cancelled||seenGateEventsRef.current.has(item.id))return
+      seenGateEventsRef.current.add(item.id)
+      latestRows=[item,...latestRows.filter(row=>row.id!==item.id)].sort((left,right)=>new Date(right.deviceOccurredAt).getTime()-new Date(left.deviceOccurredAt).getTime()).slice(0,100)
+      window.dispatchEvent(new CustomEvent("go:access-events",{detail:latestRows}))
+      notify(item)
+    }
+    async function stream(){
+      await refreshSnapshot(false)
+      while(!cancelled){
+        try{
+          const response=await fetch(`/api/backend/api/v1/organizations/${context.organizationId}/access-device-events/stream`,{headers:{Accept:"text/event-stream"},cache:"no-store",signal:abortController.signal})
+          if(!response.ok||!response.body)throw new Error(`Gate event stream failed with ${response.status}`)
+          const reader=response.body.getReader();const decoder=new TextDecoder();let buffer=""
+          while(!cancelled){
+            const part=await reader.read();if(part.done)break
+            buffer+=decoder.decode(part.value,{stream:true})
+            let boundary=buffer.indexOf("\n\n")
+            while(boundary>=0){
+              const frame=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2)
+              const data=frame.split("\n").filter(line=>line.startsWith("data:")).map(line=>line.slice(5).trimStart()).join("\n")
+              if(data){try{receive(JSON.parse(data) as GateEvent)}catch{}}
+              boundary=buffer.indexOf("\n\n")
+            }
+          }
+        }catch(error){if(cancelled||(error instanceof DOMException&&error.name==="AbortError"))return}
+        if(cancelled)return
+        await new Promise(resolve=>window.setTimeout(resolve,3_000))
+        try{await refreshSnapshot(true)}catch{}
+      }
+    }
+    void stream()
+    return()=>{cancelled=true;abortController.abort()}
   },[canReadGateEvents,context.loading,context.organizationId,router,toast])
 
   async function openNotification(item:AccountNotification){if(!item.readAt){try{const response=await apiRequest<AccountNotification>(`/me/account-notifications/${item.id}/read`,{method:"POST"});setNotificationItems(current=>current.map(value=>value.id===item.id?response.data:value));setUnreadNotifications(value=>Math.max(0,value-1))}catch{}}setNotices(false);if(item.actionHref)router.push(item.actionHref)}
