@@ -573,7 +573,7 @@
     "operationId": "recordPayment",
     "secured": true,
     "idempotent": true,
-    "description": "Payment, allocations, cash movement, and paid fulfillment recorded atomically."
+    "description": "One payment or a multi-method split collection, including allocations, cash movements, and paid fulfillment, recorded atomically."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/payments/{paymentId}/refunds",
@@ -1293,7 +1293,7 @@
     "operationId": "getDetailedOperationalReport",
     "secured": true,
     "idempotent": false,
-    "description": "Source-of-truth subscription, service, attendance, debt, expense, or treasury detail for an authorized branch/date range."
+    "description": "Source-of-truth member/subscription, package, promotion, service, attendance, booking, debt, expense, or treasury detail for an authorized branch/date range, with optional package or promotion subscription drill-down."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/reporting-rebuilds",
@@ -2272,12 +2272,84 @@
     "description": "Branch-scoped barcode and device credentials."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/access-credentials/fingerprint-pins",
+    "method": "post",
+    "operationId": "assignFingerprintPin",
+    "secured": true,
+    "idempotent": false,
+    "description": "A dedicated numeric controller PIN is assigned to a member without changing the GO membership number."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/access-credentials/{id}/revocations",
     "method": "post",
     "operationId": "revokeAccessCredential",
     "secured": true,
     "idempotent": false,
     "description": "Access credential revoked with an audited reason."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-devices",
+    "method": "get",
+    "operationId": "listAccessDevices",
+    "secured": true,
+    "idempotent": false,
+    "description": "Access controllers visible in the caller's branch scope."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-devices",
+    "method": "post",
+    "operationId": "registerAccessDevice",
+    "secured": true,
+    "idempotent": false,
+    "description": "Access controller registered; its device API key is returned once."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-devices/{deviceId}",
+    "method": "patch",
+    "operationId": "updateAccessDevice",
+    "secured": true,
+    "idempotent": false,
+    "description": "Controller operating mode or status updated with optimistic concurrency."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-devices/{deviceId}/key-rotations",
+    "method": "post",
+    "operationId": "rotateAccessDeviceKey",
+    "secured": true,
+    "idempotent": false,
+    "description": "The old device key is revoked and a replacement is returned once."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-device-events",
+    "method": "get",
+    "operationId": "listAccessDeviceEvents",
+    "secured": true,
+    "idempotent": false,
+    "description": "Append-only normalized access-controller events and their GO attendance processing result."
+  },
+  {
+    "path": "/api/v1/device-gateway/v1/heartbeat",
+    "method": "post",
+    "operationId": "accessDeviceHeartbeat",
+    "secured": true,
+    "idempotent": false,
+    "description": "Device connectivity recorded and current operating mode returned."
+  },
+  {
+    "path": "/api/v1/device-gateway/v1/events",
+    "method": "post",
+    "operationId": "ingestAccessDeviceEvents",
+    "secured": true,
+    "idempotent": false,
+    "description": "Idempotent device events accepted and normalized into attendance attempts where applicable."
+  },
+  {
+    "path": "/api/v1/device-gateway/v1/sync-plan",
+    "method": "get",
+    "operationId": "getAccessDeviceSyncPlan",
+    "secured": true,
+    "idempotent": false,
+    "description": "Numeric member PIN eligibility plan; contains no biometric templates."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/online-requests/{id}/transitions",

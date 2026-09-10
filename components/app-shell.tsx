@@ -6,7 +6,7 @@ import { useEffect, useState } from "react"
 import {
   Activity, Barcode, Bell, BookOpenText, Building2, CalendarDays, ChevronDown, CircleDollarSign, ClipboardList, Compass, CreditCard, FileText,
   Dumbbell, History, LayoutDashboard, LogOut, Menu, MessageSquareText, Moon, ReceiptText, Settings,
-  Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
+  ScanFace, Sun, Users, UserCircle2, UserRoundCheck, Utensils, WalletCards, X, Zap,
 } from "lucide-react"
 import { BrandLogo } from "@/components/brand-logo"
 import { useAppContext } from "@/components/app-context"
@@ -23,6 +23,7 @@ const navGroups = [
     { href: "/members", label: "الأعضاء", icon: Users, permissions:["members.read"] },
     { href: "/subscriptions", label: "الاشتراكات", icon: CreditCard, permissions:["subscriptions.read"] },
     { href: "/attendance", label: "الحضور والدخول", icon: UserRoundCheck, permissions:["attendance.read","attendance.check-in"] },
+    { href: "/access-control", label: "البوابات والبصمة", icon: ScanFace, permissions:["attendance.devices.read","attendance.devices.manage"] },
     { href: "/bookings", label: "الحجوزات", icon: CalendarDays, permissions:["bookings.read"] },
     { href: "/barcodes", label: "الباركود والطباعة", icon: Barcode, permissions:["access-credentials.read","access-credentials.manage"] },
     { href: "/files", label: "الملفات", icon: FileText, permissions:["files.read","files.manage"] },
