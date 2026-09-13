@@ -14,25 +14,12 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { apiRequest, clearSession } from "@/lib/api-client"
 import { firstAllowedDestination, permissionsForRoute, systemSettingsPermissions } from "@/lib/permissions"
-import { physicalGateDirection } from "@/lib/gate-direction"
+import { accessDeviceReason, accessReader, accessSeverity, accessSubject, accessSystemReason, type GateAccessEvent } from "@/lib/access-event"
 import type { AccountNotification } from "@/components/account-notification-inbox"
 import { GlobalSearch } from "@/components/global-search"
 import { useToast } from "@/components/toast-provider"
 
-type GateEvent = {
-  id:string
-  deviceName?:string
-  deviceOccurredAt:string
-  doorNumber:number
-  direction:"IN"|"OUT"|"UNKNOWN"
-  eventType:number
-  credentialPin?:string
-  deviceDecision:"ALLOWED"|"DENIED"|"UNKNOWN"
-  processingStatus:"ATTENDANCE_RECORDED"|"DEVICE_DENIED"|"UNMAPPED_CREDENTIAL"|"IGNORED"|"FAILED"
-  processingCode?:string
-  memberName?:string
-  memberNumber?:string
-}
+type GateEvent = GateAccessEvent
 
 const navGroups = [
   { label: "نظرة عامة", items: [{ href: "/", label: "لوحة التحكم", icon: LayoutDashboard, permissions:["reporting.read"] }] },
@@ -299,16 +286,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function gateEventPresentation(item:GateEvent):{title:string;message:string;kind:"success"|"warning"|"info"|"error"}{
-  const member=item.memberName??(item.credentialPin?`PIN ${item.credentialPin}`:"شخص غير معروف")
-  const direction=physicalGateDirection(item.doorNumber,item.direction)
-  const reader=direction==="IN"?"قارئ الدخول":direction==="OUT"?"قارئ الخروج":`منفذ اللوحة ${item.doorNumber}`
+  const member=accessSubject(item)
+  const reader=accessReader(item)
   const location=`${item.deviceName??"بوابة النادي"} · ${reader}`
-  if(item.deviceDecision==="DENIED")return{title:`رفض من البوابة — ${member}`,message:`${gateEventReason(item.eventType)} · ${location}`,kind:"warning"}
-  if(direction==="OUT")return{title:`خروج — ${member}`,message:location,kind:"info"}
-  if(item.processingStatus==="ATTENDANCE_RECORDED"&&item.processingCode==="SYSTEM_ACCEPTED")return{title:`دخول مسجل — ${member}`,message:location,kind:"success"}
+  if(item.deviceDecision==="DENIED")return{title:`رفض من البوابة — ${member}`,message:`${accessDeviceReason(item)} · ${location}`,kind:"warning"}
+  const severity=accessSeverity(item);const reason=accessSystemReason(item)
+  if(severity==="danger")return{title:`تنبيه دخول — ${member}`,message:`فتحت اللوحة لكن GO رفض التسجيل: ${reason} · ${location}`,kind:"error"}
+  if(severity==="success")return{title:`${reason} — ${member}`,message:location,kind:"success"}
   if(item.processingStatus==="UNMAPPED_CREDENTIAL")return{title:`PIN غير مربوط — ${member}`,message:`راجع ربط رقم البصمة · ${location}`,kind:"warning"}
-  if(item.processingStatus==="FAILED")return{title:`تعذر معالجة حدث البوابة — ${member}`,message:location,kind:"error"}
-  return{title:`حدث دخول — ${member}`,message:location,kind:"info"}
+  return{title:`${reason} — ${member}`,message:location,kind:"info"}
 }
-
-function gateEventReason(type:number){return type===29?"الصلاحية منتهية":type===34?"بصمة غير مسجلة":`رفض اللوحة (الرمز ${type})`}
