@@ -63,7 +63,7 @@ const navGroups = [
     { href: "/system-settings/branches", label: "إعداد النظام", icon: Settings, permissions:[...systemSettingsPermissions] },
   ]},
   { label: "المساعدة", items: [
-    { href: "/guide", label: "دليل الاستخدام", icon: BookOpenText, permissions:[] },
+    { href: "/guide", label: "دليل الاستخدام", icon: BookOpenText, permissions:[], staffOnly:true },
   ]},
   { label: "مساحتي", items: [
     { href: "/notifications", label: "الإشعارات", icon: Bell, permissions:[] },
@@ -92,12 +92,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const seenGateEventsRef=useRef(new Set<string>())
   const gateEventsInitializedRef=useRef(false)
   const hasMember = Boolean(context.self.members?.length)
-  const memberOnlyAccount = hasMember && context.grants.length === 0
+  const staffAccount = context.grants.length > 0
+  const memberOnlyAccount = hasMember && !staffAccount
   const accountName = context.account?.displayName?.trim() || "الحساب"
   const accountSubtitle = context.canAccess(["iam.roles.manage"]) ? "مسؤول النظام" : context.grants.length ? "حساب موظف" : hasMember ? (context.self.members?.some(member => member.relationship === "SELF") ? "عضو النادي" : "ولي أمر") : "حساب شخصي"
   const currentBranch=context.branches.find(branch=>branch.id===context.branchId)
   const requiredPermissions=permissionsForRoute(pathname)
-  const routeAllowed=requiredPermissions===undefined||context.canAccess(requiredPermissions)
+  const staffOnlyRoute=pathname==="/guide"||pathname.startsWith("/guide/")
+  const routeAllowed=(requiredPermissions===undefined||context.canAccess(requiredPermissions))&&(!staffOnlyRoute||staffAccount)
   const fallbackDestination=firstAllowedDestination(context.canAccess)
   const canReadGateEvents=context.canAccess(["attendance.devices.read","attendance.devices.manage"])
 
@@ -229,7 +231,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Button variant="ghost" size="icon" className="text-sidebar-foreground lg:hidden" onClick={() => setOpen(false)} aria-label="إغلاق القائمة"><X /></Button>
       </div>
       <nav className="flex-1 overflow-y-auto px-3 py-5">
-        {navGroups.map(group => {const items=group.items.filter(item=>context.canAccess(item.permissions)&&(!("memberOnly" in item)||!item.memberOnly||hasMember)&&(!("memberCapability" in item)||(item.memberCapability==="BOOK"?Boolean(context.self.members?.some(member=>member.canBook)):Boolean(context.self.members?.some(member=>member.canBook||member.canManageMembership)))));return items.length?<div key={group.label} className="mb-5">
+        {navGroups.map(group => {const items=group.items.filter(item=>context.canAccess(item.permissions)&&(!("staffOnly" in item)||!item.staffOnly||staffAccount)&&(!("memberOnly" in item)||!item.memberOnly||hasMember)&&(!("memberCapability" in item)||(item.memberCapability==="BOOK"?Boolean(context.self.members?.some(member=>member.canBook)):Boolean(context.self.members?.some(member=>member.canBook||member.canManageMembership)))));return items.length?<div key={group.label} className="mb-5">
           <p className="mb-2 px-3 text-[10px] font-bold tracking-wider text-sidebar-foreground/42">{group.label==="مساحتي"&&hasMember?"بوابة العضو":group.label}</p>
           <div className="space-y-1">
             {items.map(item => {
