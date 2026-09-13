@@ -10,8 +10,14 @@ import { executeOperation, hasRuntimeApi } from "@/lib/api-client"
 import { humanError, UserInputError } from "@/lib/human-errors"
 import { MIN_PASSWORD_LENGTH, passwordLengthError } from "@/lib/password-policy"
 
+const GO_FITNESS_ORGANIZATION_ID = "019c4f00-0000-7000-8000-000000000001"
+
 export default function JoinPage() {
-  const organizationId = process.env.NEXT_PUBLIC_ORGANIZATION_ID ?? ""
+  // This is the public tenant identifier, not a credential. Keeping the
+  // production club as a fallback prevents account activation from becoming
+  // unavailable when a frontend deployment omits the optional environment
+  // override.
+  const organizationId = process.env.NEXT_PUBLIC_ORGANIZATION_ID?.trim() || GO_FITNESS_ORGANIZATION_ID
   const [form, setForm] = useState({ memberNumber: "", phone: "+9665", activationCode: "", password: "", confirmPassword: "" })
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -28,7 +34,6 @@ export default function JoinPage() {
     if (form.password !== form.confirmPassword) { setError("كلمتا المرور غير متطابقتين."); return }
     setLoading(true)
     try {
-      if (!organizationId) throw new UserInputError("صفحة تفعيل الحساب غير مهيأة للنادي حاليًا. تواصل مع الاستقبال.")
       if (!hasRuntimeApi()) throw new UserInputError("خدمة تفعيل الحساب غير متاحة في هذه البيئة. تواصل مع مسؤول النظام.")
       await executeOperation("/api/v1/auth/member/account-activations", "post", {}, {
         organizationId,
