@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { Dialog } from "@base-ui/react/dialog"
 import { CalendarDays, CalendarPlus, CheckCircle2, CreditCard, FileText, Loader2, Printer, RefreshCw, ShoppingBag, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -34,10 +35,15 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState("")
   const [error, setError] = useState("")
+  const [bookingError, setBookingError] = useState("")
+  const [loadingSlots, setLoadingSlots] = useState(false)
+  const bookingRequest = useRef(0)
   const allowed = (tab === "booking" && member.canBook) || (tab !== "booking" && member.canManageMembership)
 
   async function load() {
     if (!allowed) return
+    bookingRequest.current += 1
+    setLoadingSlots(false); setBookingError("")
     setLoading(true); setError(""); setSlots([]); setResource(undefined)
     try {
       const suffix = tab === "packages" ? "packages" : tab === "services" ? "services" : "bookable-resources"
@@ -82,47 +88,54 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
 
   async function chooseResource(item: Row) {
     const id = String(item.id ?? ""); if (!id) return
-    setResource(item); setSlots([]); setError("")
-    if (bookingType(item.resourceType) === "COURT") { setCourtSchedule(futureCourtSchedule()); setCourtParticipants("1"); return }
-    setBusy(id)
+    const request = ++bookingRequest.current
+    setResource(item); setSlots([]); setBookingError("")
+    if (bookingType(item.resourceType) === "COURT") { setLoadingSlots(false); setCourtSchedule(futureCourtSchedule()); setCourtParticipants("1"); return }
+    setLoadingSlots(true)
     try {
       const from = new Date(); const to = new Date(); to.setDate(to.getDate() + 30)
       const response = await apiRequest<unknown>(`/self/organizations/${member.organizationId}/bookable-resources/${id}/session-slots?branchId=${branchId}&from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`)
-      setSlots(list(response.data))
-    } catch (reason) { setError(humanError(reason, "تعذر تحميل المواعيد المتاحة.")); setSlots([]) }
-    finally { setBusy("") }
+      if (request === bookingRequest.current) setSlots(list(response.data))
+    } catch (reason) { if (request === bookingRequest.current) { setBookingError(humanError(reason, "تعذر تحميل المواعيد المتاحة.")); setSlots([]) } }
+    finally { if (request === bookingRequest.current) setLoadingSlots(false) }
+  }
+
+  function closeBooking() {
+    bookingRequest.current += 1
+    setResource(undefined); setSlots([]); setLoadingSlots(false); setBookingError("")
   }
 
   async function book(slot: Row) {
     if (!resource) return
     const id = String(slot.id ?? ""); const serviceId = String(resource.serviceId ?? "")
     if (!id || !serviceId) return
-    setBusy(id); setError("")
+    setBusy(id); setBookingError("")
     try {
       const order = await checkout({ type: "BOOKING", targetId: serviceId, quantity: 1, booking: { resourceId: String(resource.id), type: bookingType(resource.resourceType), sessionSlotId: id, seats: 1, participantCount: 1 } })
       toast.success(invoiceSuccess(order, "تم تسجيل الحجز بنجاح. برجاء السداد في استقبال النادي لتأكيد الموعد."))
-      await chooseResource(resource)
-    } catch (reason) { setError(humanError(reason, "تعذر إنشاء الحجز والفاتورة.")) }
+      closeBooking()
+    } catch (reason) { setBookingError(humanError(reason, "تعذر إنشاء الحجز والفاتورة.")) }
     finally { setBusy("") }
   }
 
   async function bookCourt(event: React.FormEvent) {
     event.preventDefault()
     if (!resource) return
-    if (!Array.isArray(resource.availabilityRules) || !resource.availabilityRules.length) { setError("لا يمكن تأكيد الحجز قبل توفر فترات الإتاحة لهذا المورد."); return }
+    if (!Array.isArray(resource.availabilityRules) || !resource.availabilityRules.length) { setBookingError("لا يمكن تأكيد الحجز قبل توفر فترات الإتاحة لهذا المورد."); return }
     const serviceId = String(resource.serviceId ?? ""); const startsAt = new Date(courtSchedule.startsAt); const endsAt = new Date(courtSchedule.endsAt)
-    if (!serviceId) { setError("هذا المورد غير مرتبط بخدمة صالحة للحجز."); return }
-    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) { setError("وقت نهاية الحجز يجب أن يكون بعد وقت البداية."); return }
-    if (startsAt <= new Date()) { setError("اختر موعد حجز في المستقبل."); return }
+    if (!serviceId) { setBookingError("هذا المورد غير مرتبط بخدمة صالحة للحجز."); return }
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) { setBookingError("وقت نهاية الحجز يجب أن يكون بعد وقت البداية."); return }
+    if (startsAt <= new Date()) { setBookingError("اختر موعد حجز في المستقبل."); return }
     const participantCount = Number(courtParticipants)
-    if (!Number.isInteger(participantCount) || participantCount < 1 || participantCount > 100) { setError("أدخل عدد مشاركين صحيحًا من 1 إلى 100."); return }
-    const id = String(resource.id ?? ""); setBusy(id); setError("")
+    if (!Number.isInteger(participantCount) || participantCount < 1 || participantCount > 100) { setBookingError("أدخل عدد مشاركين صحيحًا من 1 إلى 100."); return }
+    const id = String(resource.id ?? ""); setBusy(id); setBookingError("")
     try {
       const order = await checkout({ type: "BOOKING", targetId: serviceId, quantity: 1, booking: { resourceId: id, type: "COURT", startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), seats: 1, participantCount } })
       toast.success(invoiceSuccess(order, "تم تسجيل الحجز بنجاح. برجاء السداد في استقبال النادي لتأكيد الموعد."))
       setCourtSchedule(futureCourtSchedule())
       setCourtParticipants("1")
-    } catch (reason) { setError(humanError(reason, "تعذر إنشاء الحجز والفاتورة.")) }
+      closeBooking()
+    } catch (reason) { setBookingError(humanError(reason, "تعذر إنشاء الحجز والفاتورة.")) }
     finally { setBusy("") }
   }
 
@@ -168,11 +181,32 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
             {!items.length && <div className="rounded-2xl border border-dashed p-10 text-center lg:col-span-2"><CalendarDays className="mx-auto size-9 text-muted-foreground/50" /><p className="mt-3 text-sm font-bold">لا توجد خيارات منشورة في هذا الفرع حاليًا</p><p className="mt-1 text-xs text-muted-foreground">يمكنك اختيار فرع آخر من القائمة بالأعلى.</p></div>}
           </div>
         )}
-        {resource && <BookingAvailability rules={Array.isArray(resource.availabilityRules) ? resource.availabilityRules as Row[] : undefined} timezone={String(resource.timezone ?? "Asia/Riyadh")} />}
-        {resource && bookingType(resource.resourceType) === "COURT" && <form onSubmit={bookCourt} className="mt-5 border-t pt-5"><h3 className="text-sm font-black">وقت الحجز — {String(resource.name ?? "")}</h3><p className="mt-1 text-xs text-muted-foreground">اختر فترة تقع داخل ساعات إتاحة الملعب. يحجز النظام الملعب كوحدة واحدة، وعدد المشاركين للتشغيل والتقارير فقط.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold">بداية الحجز<DateTimeInput required type="datetime-local" value={courtSchedule.startsAt} onChange={event => setCourtSchedule(current => ({ ...current, startsAt: event.target.value }))} className="mt-2 h-11" /></label><label className="text-xs font-bold">نهاية الحجز<DateTimeInput required type="datetime-local" value={courtSchedule.endsAt} onChange={event => setCourtSchedule(current => ({ ...current, endsAt: event.target.value }))} className="mt-2 h-11" /></label><label className="text-xs font-bold sm:col-span-2">عدد المشاركين<Input required type="number" min="1" max="100" value={courtParticipants} onChange={event => setCourtParticipants(event.target.value)} className="mt-2 h-11" /></label><Button type="submit" className="sm:col-span-2" disabled={Boolean(busy) || !Array.isArray(resource.availabilityRules) || !resource.availabilityRules.length}>{busy === String(resource.id) ? <Loader2 className="animate-spin" /> : <CalendarPlus />}تأكيد الحجز وإصدار الفاتورة</Button></div></form>}
-        {resource && bookingType(resource.resourceType) !== "COURT" && <div className="mt-5 border-t pt-5"><h3 className="text-sm font-black">المواعيد المتاحة — {String(resource.name ?? "")}</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{slots.map((slot, index) => <Button key={String(slot.id ?? index)} variant="outline" className="h-auto justify-between py-3" disabled={Boolean(busy)} onClick={() => void book(slot)}><span>{bookingSlotPeriod(slot, String(resource.timezone ?? "Asia/Riyadh"))}</span><span className="text-[10px] text-muted-foreground">متاح {String(slot.availableCount ?? "")}</span>{busy === String(slot.id) && <Loader2 className="animate-spin" />}</Button>)}{!slots.length && <p className="text-xs text-muted-foreground">لا توجد مواعيد شاغرة خلال الثلاثين يومًا القادمة.</p>}</div></div>}
       </CardContent>
     </Card>
+    <Dialog.Root open={Boolean(resource)} disablePointerDismissal={Boolean(busy)} onOpenChange={open => { if (!open && !busy) closeBooking() }}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-[100] bg-black/65 backdrop-blur-sm" />
+        <Dialog.Viewport className="fixed inset-0 z-[101] grid items-end justify-items-center sm:items-center sm:p-5">
+          <Dialog.Popup dir="rtl" className="flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[28px] border bg-card text-card-foreground shadow-2xl outline-none sm:max-w-2xl sm:rounded-[28px]">
+            <header className="flex shrink-0 items-start gap-4 border-b p-5 sm:p-6">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-primary">حجز موعد · {branchName ?? "الفرع المختار"}</p>
+                <Dialog.Title className="mt-1 text-xl font-black">{String(resource?.name ?? "اختيار وقت الحجز")}</Dialog.Title>
+                <Dialog.Description className="mt-2 text-xs leading-6 text-muted-foreground">راجع فترات الإتاحة واختر وقت الحجز. يُؤكد الموعد بعد السداد في استقبال النادي.</Dialog.Description>
+              </div>
+              <Dialog.Close render={<Button variant="ghost" size="icon" className="mr-auto shrink-0" disabled={Boolean(busy)} aria-label="إغلاق نافذة الحجز" />}><X /></Dialog.Close>
+            </header>
+            <div className="min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6">
+              {resource && <BookingAvailability rules={Array.isArray(resource.availabilityRules) ? resource.availabilityRules as Row[] : undefined} timezone={String(resource.timezone ?? "Asia/Riyadh")} />}
+              {loadingSlots && <p role="status" className="mt-4 flex items-center gap-2 text-sm font-bold"><Loader2 className="size-4 animate-spin" />جارٍ تحميل المواعيد المتاحة...</p>}
+              {bookingError && <div role="alert" className="mt-4 rounded-xl bg-destructive/10 p-3 text-xs leading-6 text-destructive">{bookingError}{resource && bookingType(resource.resourceType) !== "COURT" && <Button type="button" variant="outline" size="sm" className="mt-2 flex" disabled={Boolean(busy)} onClick={() => void chooseResource(resource)}><RefreshCw />إعادة تحميل المواعيد</Button>}</div>}
+              {resource && bookingType(resource.resourceType) === "COURT" && <form onSubmit={bookCourt} className="mt-5"><p className="mt-1 text-xs text-muted-foreground">اختر فترة تقع داخل ساعات إتاحة الملعب. يحجز النظام الملعب كوحدة واحدة، وعدد المشاركين للتشغيل والتقارير فقط.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold">بداية الحجز<DateTimeInput required type="datetime-local" value={courtSchedule.startsAt} onChange={event => setCourtSchedule(current => ({ ...current, startsAt: event.target.value }))} className="mt-2 h-11" /></label><label className="text-xs font-bold">نهاية الحجز<DateTimeInput required type="datetime-local" value={courtSchedule.endsAt} onChange={event => setCourtSchedule(current => ({ ...current, endsAt: event.target.value }))} className="mt-2 h-11" /></label><label className="text-xs font-bold sm:col-span-2">عدد المشاركين<Input required type="number" min="1" max="100" value={courtParticipants} onChange={event => setCourtParticipants(event.target.value)} className="mt-2 h-11" /></label><Button type="submit" className="sm:col-span-2" disabled={Boolean(busy) || !Array.isArray(resource.availabilityRules) || !resource.availabilityRules.length}>{busy === String(resource.id) ? <Loader2 className="animate-spin" /> : <CalendarPlus />}تأكيد الحجز وإصدار الفاتورة</Button></div></form>}
+              {resource && bookingType(resource.resourceType) !== "COURT" && <div className="mt-5"><h3 className="text-sm font-black">المواعيد المتاحة — {String(resource.name ?? "")}</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{!loadingSlots && !bookingError && slots.map((slot, index) => <Button key={String(slot.id ?? index)} variant="outline" className="h-auto min-h-14 justify-between gap-3 whitespace-normal py-3 text-start" disabled={Boolean(busy)} onClick={() => void book(slot)}><span className="min-w-0 flex-1">{bookingSlotPeriod(slot, String(resource.timezone ?? "Asia/Riyadh"))}</span><span className="text-[10px] text-muted-foreground">متاح {String(slot.availableCount ?? "")}</span>{busy === String(slot.id) && <Loader2 className="animate-spin" />}</Button>)}{!loadingSlots && !bookingError && !slots.length && <p className="text-xs text-muted-foreground">لا توجد مواعيد شاغرة خلال الثلاثين يومًا القادمة.</p>}</div></div>}
+            </div>
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
     {pending && <QuoteDialog pending={pending} busy={Boolean(busy)} onClose={() => setPending(undefined)} onConfirm={() => void confirmCheckout()} onPrint={contract => printContract(contract, String(pending.item.name ?? pending.item.code ?? ""))} />}
     {printable && <ContractPrintSheets context={{ branchName: branchName ?? "الفرع المختار", preview: true, member: { name: member.memberName, memberNumber: member.memberNumber } }} contracts={[printable]} />}
   </>
