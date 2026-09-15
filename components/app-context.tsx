@@ -6,7 +6,7 @@ import { humanError } from "@/lib/human-errors"
 import type { Grant } from "@/lib/permissions"
 import { can } from "@/lib/permissions"
 
-type Branch={id:string;nameAr?:string;name?:string;status?:string}
+type Branch={id:string;nameAr?:string;name?:string;status?:string;timezone?:string}
 type AccountSummary={displayName?:string|null}
 export type SelfMemberLink={organizationId:string;memberId:string;registrationBranchId:string;memberName:string;memberNumber:string;relationship?:string;canView?:boolean;canBook?:boolean;canManageMembership?:boolean}
 export type SelfEmployeeLink={organizationId:string;employeeId:string;employeeNumber:string;name:string;status?:string;trainerProfileId?:string}

@@ -6,6 +6,7 @@ import { AlertTriangle, CalendarDays, Check, CheckCircle2, Copy, CreditCard, Eye
 import { endpoints } from "@/lib/endpoint-catalog"
 import { apiRequest, createIdempotencyKey, executeOperation, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
+import { availabilityRuleLabel, bookingSlotPeriod } from "@/lib/booking-availability"
 import { passwordLengthError } from "@/lib/password-policy"
 import { type Choice, type FormValues, workflows } from "@/lib/workflows"
 import { Button } from "@/components/ui/button"
@@ -100,13 +101,14 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const selectedPackageId = String(values.packageId ?? "")
   const selectedResourceId = String(values.resourceId ?? "")
   const selectedResourceType = String(values.resourceType ?? "")
+  const bookingTimezone = appContext.branches.find(branch => branch.id === effectiveBranchId)?.timezone ?? "Asia/Riyadh"
   const selectedServiceId = String(values.serviceId ?? "")
   const bookingQuantity = selectedResourceType === "CLASS" ? Number(values.seats) : 1
   const bookingQuoteKey = `${effectiveBranchId}:${selectedServiceId}:${Number.isInteger(bookingQuantity) ? bookingQuantity : 0}:${values.customerType === "MEMBER" ? selectedMemberId : "VISITOR"}`
   const bookingQuote = bookingQuoteState.key === bookingQuoteKey ? bookingQuoteState.quote : undefined
   const bookingQuoteError = bookingQuoteState.key === bookingQuoteKey ? bookingQuoteState.error ?? "" : ""
   const bookingQuoteLoading = Boolean(isPaidBooking && selectedServiceId && selectedResourceId && (bookingQuoteState.key !== bookingQuoteKey || bookingQuoteState.loading))
-  const courtAvailability: CourtAvailabilityState = courtAvailabilityState.key === selectedResourceId ? courtAvailabilityState : { key: selectedResourceId, loading: Boolean(selectedResourceId && selectedResourceType === "COURT"), rules: [] }
+  const courtAvailability: CourtAvailabilityState = courtAvailabilityState.key === selectedResourceId ? courtAvailabilityState : { key: selectedResourceId, loading: Boolean(selectedResourceId), rules: [] }
   const courtAvailabilityMissing = selectedResourceType === "COURT" && selectedResourceId !== "" && !courtAvailability.loading && !courtAvailability.error && courtAvailability.rules.length === 0
   const normalizedPromoCode = appliedPromoCode.trim().toUpperCase()
   const quoteKey = `${effectiveBranchId}:${selectedPackageId}:${selectedMemberId}:${normalizedPromoCode}:${promoApplyVersion}`
@@ -168,15 +170,15 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
         if (cancelled) return
         const payload = response.data
         const list = Array.isArray(payload) ? payload : payload && typeof payload === "object" && "items" in payload ? (payload as { items: unknown[] }).items : []
-        setOptions(current => ({ ...current, sessionSlotId: list.flatMap(sessionSlotChoice) }))
+        setOptions(current => ({ ...current, sessionSlotId: list.flatMap(item => sessionSlotChoice(item, bookingTimezone)) }))
       })
       .catch(reason => { if (!cancelled) setSlotError(humanError(reason, "تعذر تحميل المواعيد المتاحة لهذا المورد.")) })
       .finally(() => { if (!cancelled) setLoadingSlots(false) })
     return () => { cancelled = true }
-  }, [effectiveOrganizationId, operationId, values.resourceId, values.resourceType])
+  }, [effectiveOrganizationId, operationId, values.resourceId, values.resourceType, bookingTimezone])
 
   useEffect(() => {
-    if (operationId !== "createManualReservation" || selectedResourceType !== "COURT" || !selectedResourceId || !effectiveOrganizationId || !hasRuntimeApi()) return
+    if (operationId !== "createManualReservation" || !selectedResourceId || !effectiveOrganizationId || !hasRuntimeApi()) return
     let cancelled = false
     void apiRequest<unknown>(`/organizations/${effectiveOrganizationId}/bookable-resources/${selectedResourceId}/availability-rules`)
       .then(response => {
@@ -372,13 +374,13 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
           const resource = options.resourceId?.find(choice => choice.value === value)?.meta
           const resourceType = String(resource?.type ?? resource?.resourceType ?? "")
           setSlotError(""); setLoadingSlots(resourceType !== "COURT"); setOptions(current => ({ ...current, sessionSlotId: [] }))
-          setCourtAvailabilityState({ key: String(value ?? ""), loading: resourceType === "COURT", rules: [] })
+          setCourtAvailabilityState({ key: String(value ?? ""), loading: Boolean(value), rules: [] })
           setValues(current => ({ ...current, resourceId: value, resourceType, serviceId: String(resource?.serviceId ?? ""), sessionSlotId: "", seats: resourceType === "CLASS" ? current.seats : "1", participantCount: resourceType === "COURT" ? current.participantCount || "1" : "1" }))
         }} />)}</div>
         {isManualReservation && values.billingMode === "OPERATIONAL" && <div className="mt-5 flex gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs leading-6 text-amber-800 dark:text-amber-300"><AlertTriangle className="mt-0.5 size-5 shrink-0"/><div><p className="font-black">حجز تشغيلي بلا مقابل</p><p className="mt-1">سيُؤكد الحجز مباشرة من دون طلب بيع أو فاتورة. استخدمه فقط للحجوزات المجانية أو الإدارية؛ لن يظهر مبلغ لتحصيله لاحقًا.</p>{!canCreatePaidBooking && <p className="mt-1 font-bold">خيار الفاتورة غير متاح لأن حسابك لا يملك صلاحية إنشاء المبيعات.</p>}</div></div>}
         {isManualReservation && isPaidBooking && selectedServiceId && <BookingPricePreview quote={bookingQuote} loading={bookingQuoteLoading} error={bookingQuoteError} />}
-        {operationId === "createManualReservation" && selectedResourceType === "COURT" && selectedResourceId && <div className={`mt-5 rounded-2xl border p-4 text-xs leading-6 ${courtAvailabilityMissing ? "border-red-500/25 bg-red-500/8" : courtAvailability.error ? "border-amber-500/25 bg-amber-500/8" : "border-blue-500/20 bg-blue-500/5"}`}>
-          {courtAvailability.loading ? <p className="flex items-center gap-2 font-bold"><Loader2 className="size-4 animate-spin" />جارٍ التحقق من ساعات إتاحة الملعب...</p> : courtAvailabilityMissing ? <div><p className="font-black text-red-600">هذا المورد غير جاهز للحجز</p><p className="mt-1 text-muted-foreground">لم تُضف له أيام وساعات إتاحة بعد، لذلك سيرفض الخادم أي وقت يتم اختياره.</p>{appContext.canAccess(["bookings.facilities.manage"]) && <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => { onClose(); router.push("/system-settings/bookable-resources") }}><CalendarDays />فتح إعداد إتاحة الموارد</Button>}</div> : courtAvailability.error ? <p className="font-bold text-amber-700">{courtAvailability.error}</p> : <div><p className="font-black text-blue-700 dark:text-blue-400">ساعات الحجز المتاحة</p><p className="mt-1 text-muted-foreground">{courtAvailability.rules.map(availabilityRuleLabel).join(" · ")}</p><p className="mt-1 text-muted-foreground">يجب أن يبدأ الحجز وينتهي في اليوم نفسه وداخل إحدى هذه الفترات.</p></div>}
+        {operationId === "createManualReservation" && selectedResourceId && <div className={`mt-5 rounded-2xl border p-4 text-xs leading-6 ${courtAvailabilityMissing ? "border-red-500/25 bg-red-500/8" : courtAvailability.error ? "border-amber-500/25 bg-amber-500/8" : "border-blue-500/20 bg-blue-500/5"}`}>
+          {courtAvailability.loading ? <p className="flex items-center gap-2 font-bold"><Loader2 className="size-4 animate-spin" />جارٍ التحقق من فترات إتاحة المورد...</p> : courtAvailabilityMissing ? <div><p className="font-black text-red-600">هذا المورد غير جاهز للحجز</p><p className="mt-1 text-muted-foreground">لم تُضف له أيام وساعات إتاحة بعد، لذلك سيرفض الخادم أي وقت يتم اختياره.</p>{appContext.canAccess(["bookings.facilities.manage"]) && <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => { onClose(); router.push("/system-settings/bookable-resources") }}><CalendarDays />فتح إعداد إتاحة الموارد</Button>}</div> : courtAvailability.error ? <p className="font-bold text-amber-700">{courtAvailability.error}</p> : <div><p className="font-black text-blue-700 dark:text-blue-400">فترات الإتاحة بتوقيت الفرع</p>{courtAvailability.rules.length ? <ul className="mt-2 space-y-2">{courtAvailability.rules.map((rule, index) => <li key={String(rule.id ?? index)} className="rounded-xl bg-background px-3 py-2">{availabilityRuleLabel(rule)}</li>)}</ul> : <p className="mt-1 text-muted-foreground">لا توجد فترات إتاحة مسجلة لهذا المورد.</p>}<p className="mt-1 text-muted-foreground">يجب أن يبدأ الحجز وينتهي في اليوم نفسه وداخل إحدى هذه الفترات.</p></div>}
         </div>}
         {slotError && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{slotError}</p>}
         {isSubscriptionSale && selectedPackageId && <PromoCodeControl
@@ -774,12 +776,6 @@ function isManualReservationWithoutCourtAvailability(values: FormValues, availab
   return values.resourceType === "COURT" && Boolean(values.resourceId) && !availability.loading && !availability.error && availability.rules.length === 0
 }
 
-function availabilityRuleLabel(rule: DataRow) {
-  const days = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"]
-  const day = days[Number(rule.dayOfWeek)] ?? "يوم غير محدد"
-  return `${day} ${String(rule.startLocal ?? "").slice(0, 5)}–${String(rule.endLocal ?? "").slice(0, 5)}`
-}
-
 function referencePath(path: string, searchParam?: string, query?: string) {
   if (!searchParam || !query?.trim()) return path
   const url = new URL(path, "http://local")
@@ -799,16 +795,14 @@ function toChoice(item: unknown, labelKeys: string[], subtitleKeys: string[] = [
   return [{ value: id, label: disabled ? `${baseLabel} — بدون صلاحيات` : baseLabel, disabled, meta: record }]
 }
 
-function sessionSlotChoice(item: unknown): Choice[] {
+function sessionSlotChoice(item: unknown, timezone = "Asia/Riyadh"): Choice[] {
   if (!item || typeof item !== "object") return []
   const slot = item as Record<string, unknown>
   const id = String(slot.id ?? slot.sessionSlotId ?? "")
   const startsAt = new Date(String(slot.startsAt ?? "")); const endsAt = new Date(String(slot.endsAt ?? ""))
   if (!id || Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) return []
-  const date = new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short" }).format(startsAt)
-  const end = new Intl.DateTimeFormat("ar-SA", { timeStyle: "short" }).format(endsAt)
   const remaining = Math.max(0, Number(slot.capacity ?? 0) - Number(slot.bookedCount ?? 0))
-  return [{ value: id, label: `${date} — ${end} — المتاح ${remaining}`, disabled: remaining < 1, meta: slot }]
+  return [{ value: id, label: `${bookingSlotPeriod(slot, timezone)} — المتاح ${remaining}`, disabled: remaining < 1, meta: slot }]
 }
 
 async function sellablePackages(items: unknown[], organizationId: string, branchId: string): Promise<unknown[]> {
