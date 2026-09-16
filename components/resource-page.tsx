@@ -63,6 +63,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
   const [disciplinaryMember, setDisciplinaryMember] = useState<ApiRecord>()
   const [subscriptionFreezeRecord, setSubscriptionFreezeRecord] = useState<ApiRecord>()
   const [subscriptionPolicyAction, setSubscriptionPolicyAction] = useState<{ record: ApiRecord; action: "RENEW" | "CANCEL" }>()
+  const [resourceSchedule, setResourceSchedule] = useState<{ id: string; name: string; branchId?: string }>()
   const [serverRows, setServerRows] = useState<string[][]>(config.rows)
   const [serverRecords, setServerRecords] = useState<ApiRecord[]>([])
   const [loading, setLoading] = useState(hasRuntimeApi())
@@ -151,7 +152,7 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/8 text-amber-700 dark:text-primary">{config.eyebrow}</Badge><h1 className="text-2xl font-black tracking-tight sm:text-3xl">{config.title}</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{config.description}</p></div><div className="flex gap-2"><Button size="lg" variant="outline" onClick={exportCsv} disabled={!rows.length}><Download />تصدير</Button>{canCreate && <Button size="lg" className="brand-shadow" onClick={() => setShowAction(true)}><Plus />{config.action}</Button>}</div></div>
     <section className="grid gap-4 md:grid-cols-3">{config.metrics.map((metric, index) => <Card key={metric.label}><CardContent className="flex items-center gap-4 p-5"><span className={`grid size-11 shrink-0 place-items-center rounded-xl ${index === 0 ? "bg-primary/15 text-amber-600" : index === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{index === 0 ? <BarChart3 /> : index === 1 ? <Sparkles /> : <SlidersHorizontal />}</span><div><p className="text-[11px] font-semibold text-muted-foreground">{metricLabel(config.listOperationId, index, metric.label)}</p><p className="mt-1 text-xl font-black">{metricValue(config.listOperationId, index, serverRecords)}</p><p className="mt-1 text-[9px] text-muted-foreground">{metricNote(serverRecords.length, metric.note)}</p></div></CardContent></Card>)}</section>
     <Card className="mt-5 overflow-hidden"><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center"><div className="relative w-full sm:max-w-md"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} className="pr-10" placeholder={config.search} /></div>{statuses.length > 0 && <select aria-label="تصفية حسب الحالة" value={status} onChange={event => setStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs outline-none focus:border-primary"><option value="">كل الحالات</option>{statuses.map(item => <option key={item} value={item}>{statusLabel(item)}</option>)}</select>}</div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{visibleConfig.columns.map((heading, index) => <th key={heading} title={visibleConfig.fields[index] === "fingerprintPin" ? "للأعضاء القدامى: رقم العضوية القديم نفسه. للأعضاء الجدد: رقم رقمي يولده النظام تلقائيًا." : undefined} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="sticky left-0 z-20 min-w-[160px] border-r bg-secondary px-3 py-3 text-[10px] font-bold text-muted-foreground shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)]">الإجراءات السريعة</th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); const recordBranchId = String(record.registrationBranchId ?? record.branchId ?? ""); const filteredBranchId = context.branches.some(branch => branch.id === filterBranchId) ? filterBranchId : ""; const actionBranchId = context.branchId || filteredBranchId || (context.branches.length === 1 ? context.branches[0]?.id ?? "" : "") || recordBranchId; return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold"><ResourceCellValue config={visibleConfig} record={record} cell={cell} columnIndex={columnIndex} recordId={memberId} /></td>)}<td className="sticky left-0 z-10 min-w-[160px] border-r bg-card px-3 py-4 shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)] transition-colors group-hover:bg-secondary">{config.listOperationId === "listMembers" && memberId ? <MemberQuickActions record={record} canAccess={context.canAccess} onWorkflow={(operationId, initialValues, lockedReferenceLabels) => { if (!context.branchId && actionBranchId) context.setBranchId(actionBranchId); setQuickAction({ operationId, branchId: actionBranchId, initialValues, lockedReferenceLabels }) }} onDiscipline={() => setDisciplinaryMember(record)} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listSubscriptions" ? <SubscriptionQuickActions record={record} canAccess={context.canAccess} onFreeze={() => setSubscriptionFreezeRecord(record)} onRenew={() => setSubscriptionPolicyAction({ record, action: "RENEW" })} onCancel={() => setSubscriptionPolicyAction({ record, action: "CANCEL" })} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listReservations" ? <BookingQuickActions record={record} canAccess={context.canAccess} onDetails={() => setSelectedRow({ row, record })} /> : <Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button>}</td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-right"><thead><tr className="bg-secondary/45">{visibleConfig.columns.map((heading, index) => <th key={heading} title={visibleConfig.fields[index] === "fingerprintPin" ? "للأعضاء القدامى: رقم العضوية القديم نفسه. للأعضاء الجدد: رقم رقمي يولده النظام تلقائيًا." : undefined} className="whitespace-nowrap px-5 py-3 text-[10px] font-bold text-muted-foreground">{heading}</th>)}<th className="sticky left-0 z-20 min-w-[160px] border-r bg-secondary px-3 py-3 text-[10px] font-bold text-muted-foreground shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)]">الإجراءات السريعة</th></tr></thead><tbody className="divide-y">{rows.map((row, rowIndex) => { const sourceIndex = serverRows.indexOf(row); const record = serverRecords[sourceIndex] ?? {}; const memberId = String(record.id ?? ""); const recordBranchId = String(record.registrationBranchId ?? record.branchId ?? ""); const filteredBranchId = context.branches.some(branch => branch.id === filterBranchId) ? filterBranchId : ""; const actionBranchId = context.branchId || filteredBranchId || (context.branches.length === 1 ? context.branches[0]?.id ?? "" : "") || recordBranchId; return <tr key={rowIndex} className="group transition hover:bg-secondary/30">{row.map((cell, columnIndex) => <td key={columnIndex} className="whitespace-nowrap px-5 py-4 text-xs first:font-bold"><ResourceCellValue config={visibleConfig} record={record} cell={cell} columnIndex={columnIndex} recordId={memberId} onOpenResourceSchedule={resource => setResourceSchedule(resource)} /></td>)}<td className="sticky left-0 z-10 min-w-[160px] border-r bg-card px-3 py-4 shadow-[10px_0_18px_-18px_rgba(0,0,0,0.8)] transition-colors group-hover:bg-secondary">{config.listOperationId === "listMembers" && memberId ? <MemberQuickActions record={record} canAccess={context.canAccess} onWorkflow={(operationId, initialValues, lockedReferenceLabels) => { if (!context.branchId && actionBranchId) context.setBranchId(actionBranchId); setQuickAction({ operationId, branchId: actionBranchId, initialValues, lockedReferenceLabels }) }} onDiscipline={() => setDisciplinaryMember(record)} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listSubscriptions" ? <SubscriptionQuickActions record={record} canAccess={context.canAccess} onFreeze={() => setSubscriptionFreezeRecord(record)} onRenew={() => setSubscriptionPolicyAction({ record, action: "RENEW" })} onCancel={() => setSubscriptionPolicyAction({ record: record, action: "CANCEL" })} onDetails={() => setSelectedRow({ row, record })} /> : config.listOperationId === "listReservations" ? <BookingQuickActions record={record} canAccess={context.canAccess} onDetails={() => setSelectedRow({ row, record })} /> : <Button variant="ghost" size="icon-sm" aria-label="عرض التفاصيل" onClick={() => setSelectedRow({ row, record })}><MoreHorizontal /></Button>}</td></tr> })}</tbody></table>{loading ? <div className="grid place-items-center px-6 py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="grid place-items-center px-6 py-16 text-center"><p className="text-sm font-bold text-red-600">تعذر عرض البيانات</p><p className="mt-1 text-xs text-muted-foreground">{error}</p></div> : rows.length === 0 && <div className="grid place-items-center px-6 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Search className="text-muted-foreground" /></span><p className="mt-4 text-sm font-bold">لا توجد نتائج</p><p className="mt-1 text-xs text-muted-foreground">جرّب تغيير البحث أو إزالة التصفية.</p></div>}</div>
       <div className="flex items-center justify-between border-t p-4"><p className="text-[10px] text-muted-foreground">عرض {rows.length} سجلًا · الصفحة {page + 1}</p><div className="flex items-center gap-1"><Button variant="outline" size="icon-sm" disabled={page === 0 || loading} aria-label="الصفحة السابقة" onClick={() => void loadPage(page - 1)}><ChevronRight /></Button>{Array.from({ length: knownPages }, (_, index) => <Button key={index} variant={index === page ? "default" : "outline"} size="icon-sm" disabled={loading} aria-label={`الصفحة ${index + 1}`} onClick={() => void loadPage(index)}>{index + 1}</Button>)}<Button variant="outline" size="icon-sm" disabled={loading || !pageCache.current[page]?.nextCursor} aria-label="الصفحة التالية" onClick={() => void loadPage(page + 1)}><ChevronLeft /></Button></div></div>
     </Card>
     {showAction && config.createOperationId && canCreate && <ActionDialog operationId={config.createOperationId} organizationId={context.organizationId} branchId={context.branchId} onClose={() => setShowAction(false)} onSaved={() => { pageCache.current = []; void loadPage(0) }} />}
@@ -159,11 +160,12 @@ export function ResourcePage({ config, openCreate = false, initialSearch = "" }:
     {disciplinaryMember && <MemberDisciplinaryDialog organizationId={context.organizationId} record={disciplinaryMember} onClose={() => setDisciplinaryMember(undefined)} onSaved={() => { setDisciplinaryMember(undefined); pageCache.current = []; void loadPage(0) }} />}
     {subscriptionFreezeRecord && <SubscriptionFreezeDialog organizationId={context.organizationId} record={subscriptionFreezeRecord} onClose={() => setSubscriptionFreezeRecord(undefined)} onSaved={() => { setSubscriptionFreezeRecord(undefined); pageCache.current = []; void loadPage(0) }} />}
     {subscriptionPolicyAction && <SubscriptionPolicyActionDialog organizationId={context.organizationId} record={subscriptionPolicyAction.record} action={subscriptionPolicyAction.action} onClose={() => setSubscriptionPolicyAction(undefined)} onSaved={() => { setSubscriptionPolicyAction(undefined); pageCache.current = []; void loadPage(0) }} />}
+    {resourceSchedule && <ResourceBookingScheduleDialog organizationId={context.organizationId} resource={resourceSchedule} onClose={() => setResourceSchedule(undefined)} />}
     {selectedRow && <RecordPreview columns={visibleConfig.columns} fields={visibleConfig.fields} row={selectedRow.row} record={selectedRow.record} operationId={config.listOperationId} organizationId={context.organizationId} statusIndex={visibleConfig.statusIndex} onFreeze={() => { setSelectedRow(undefined); setSubscriptionFreezeRecord(selectedRow.record) }} onCancel={() => { setSelectedRow(undefined); setSubscriptionPolicyAction({ record: selectedRow.record, action: "CANCEL" }) }} onClose={() => setSelectedRow(undefined)} onChanged={() => { setSelectedRow(undefined); pageCache.current=[]; void loadPage(0) }} />}
   </div>
 }
 
-function ResourceCellValue({ config, record, cell, columnIndex, recordId }: { config: SectionConfig; record: ApiRecord; cell: string; columnIndex: number; recordId: string }) {
+function ResourceCellValue({ config, record, cell, columnIndex, recordId, onOpenResourceSchedule }: { config: SectionConfig; record: ApiRecord; cell: string; columnIndex: number; recordId: string; onOpenResourceSchedule: (resource: { id: string; name: string; branchId?: string }) => void }) {
   if (columnIndex === config.statusIndex) return <StatusBadge status={cell} />
 
   if (config.listOperationId === "listMembers" && columnIndex === 0) {
@@ -182,6 +184,10 @@ function ResourceCellValue({ config, record, cell, columnIndex, recordId }: { co
     return <Link href={`/employees/${recordId}`} className="text-foreground underline-offset-4 transition hover:text-primary hover:underline" aria-label={`فتح ملف الموظف ${cell}`}>{cell}</Link>
   }
 
+  if (config.listOperationId === "listReservations" && config.fields[columnIndex] === "resourceName" && record.resourceId) {
+    return <button type="button" className="font-bold text-amber-700 underline decoration-dotted underline-offset-4 transition hover:text-primary dark:text-primary" title="عرض الأوقات المحجوزة فعليًا لهذا المورد" onClick={() => onOpenResourceSchedule({ id: String(record.resourceId), name: cell, ...(record.branchId ? { branchId: String(record.branchId) } : {}) })}>{cell}</button>
+  }
+
   return cell
 }
 
@@ -197,6 +203,7 @@ function FingerprintPinCell({ pin, legacyMemberNumber }: { pin: string; legacyMe
       toast.error("تعذر نسخ PIN البصمة. حدده وانسخه يدويًا.")
     }
   }
+
   return <span className="inline-flex items-center gap-2">
     <span dir="ltr" className="font-mono text-sm font-black tabular-nums">{pin}</span>
     <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground">{inheritedFromLegacyNumber ? "من الرقم القديم" : "مولّد تلقائيًا"}</span>
@@ -622,6 +629,72 @@ function MemberDisciplinaryDialog({ organizationId, record, onClose, onSaved }: 
       {error && <p role="alert" className="mt-4 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
       <div className="mt-6 flex gap-2 border-t pt-5"><Button type="button" variant="outline" onClick={onClose}>إلغاء</Button><Button type="submit" className={`mr-auto ${blocked ? "" : "bg-red-600 text-white hover:bg-red-700"}`} disabled={saving}>{saving ? "جارٍ الحفظ..." : blocked ? "رفع الحظر" : "تأكيد الحظر"}</Button></div>
     </form>
+  </div>
+}
+
+function ResourceBookingScheduleDialog({ organizationId, resource, onClose }: { organizationId: string; resource: { id: string; name: string; branchId?: string }; onClose: () => void }) {
+  const [records, setRecords] = useState<ApiRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState("")
+
+  async function loadSchedule() {
+    setError("")
+    setLoading(records.length === 0)
+    setRefreshing(records.length > 0)
+    try {
+      const items: ApiRecord[] = []
+      let cursor: string | undefined
+      for (let page = 0; page < 20; page += 1) {
+        const url = new URL(`/organizations/${organizationId}/reservations`, "http://local")
+        url.searchParams.set("resourceId", resource.id)
+        url.searchParams.set("limit", "100")
+        if (resource.branchId) url.searchParams.set("branchId", resource.branchId)
+        if (cursor) url.searchParams.set("cursor", cursor)
+        const response = await apiRequest<unknown>(`${url.pathname}${url.search}`)
+        items.push(...toList(response.data))
+        if (!response.meta?.nextCursor || response.meta.nextCursor === cursor) break
+        cursor = response.meta.nextCursor
+      }
+      const active = items
+        .filter(item => !["CANCELLED", "EXPIRED", "VOID", "VOIDED"].includes(recordStatus(item)))
+        .sort((left, right) => new Date(String(left.startsAt ?? "")).getTime() - new Date(String(right.startsAt ?? "")).getTime())
+      setRecords(active)
+    } catch (reason) {
+      setError(humanError(reason, "تعذر تحميل الأوقات المحجوزة لهذا المورد."))
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadSchedule() }, 0)
+    return () => window.clearTimeout(timer)
+    // loadSchedule intentionally captures the selected resource and is invoked after mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organizationId, resource.id, resource.branchId])
+
+  const dateTime = (value: unknown) => {
+    const date = new Date(String(value ?? ""))
+    return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(date) : "—"
+  }
+  const customerName = (record: ApiRecord) => String(record.memberName ?? record.customerName ?? record.guestName ?? record.memberNumber ?? "عميل غير مسجل")
+  const reservationLabel = (record: ApiRecord) => String(record.reservationNumber ?? `RSV-${String(record.id ?? "").replaceAll("-", "").slice(0, 12).toUpperCase()}`)
+  const reservationTypeLabel = (value: unknown) => ({ COURT: "ملعب أو مرفق", CLASS: "حصة جماعية", PERSONAL_TRAINING: "تدريب شخصي", APPOINTMENT: "موعد" } as Record<string, string>)[String(value ?? "").toUpperCase()] ?? "حجز"
+
+  return <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <section role="dialog" aria-modal="true" aria-labelledby="resource-schedule-title" dir="rtl" className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-[28px] border bg-card shadow-2xl sm:rounded-[28px]">
+      <header className="flex items-start gap-3 border-b p-5 sm:p-6">
+        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/15 text-amber-600"><CalendarPlus /></span>
+        <div className="min-w-0 flex-1"><p className="text-xs font-bold text-primary">جدول المورد</p><h2 id="resource-schedule-title" className="mt-1 truncate text-xl font-black">الأوقات المحجوزة — {resource.name}</h2><p className="mt-1 text-xs leading-6 text-muted-foreground">يعرض الأوقات المسجلة فعليًا لهذا المورد. الحجوزات الملغاة لا تشغل المورد ولا تظهر هنا.</p></div>
+        <div className="flex items-center gap-1"><Button variant="ghost" size="icon" onClick={() => void loadSchedule()} disabled={loading || refreshing} aria-label="تحديث الأوقات"><RefreshCw className={refreshing ? "animate-spin" : ""} /></Button><Button variant="ghost" size="icon" onClick={onClose} aria-label="إغلاق"><X /></Button></div>
+      </header>
+      <div className="min-h-0 overflow-y-auto p-5 sm:p-6">
+        {loading ? <div className="grid place-items-center py-16"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : error ? <div className="rounded-2xl bg-destructive/10 p-5 text-center"><p className="text-sm font-bold text-destructive">تعذر عرض جدول المورد</p><p className="mt-2 text-xs leading-6 text-muted-foreground">{error}</p><Button className="mt-4" variant="outline" onClick={() => void loadSchedule()}>إعادة المحاولة</Button></div> : records.length === 0 ? <div className="grid place-items-center rounded-2xl bg-secondary/50 px-5 py-16 text-center"><span className="grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary"><CalendarPlus /></span><p className="mt-4 text-sm font-bold">لا توجد حجوزات لهذا المورد</p><p className="mt-1 text-xs text-muted-foreground">سيظهر أي حجز جديد لهذا المورد هنا تلقائيًا.</p></div> : <div className="grid gap-3">{records.map(record => <article key={String(record.id)} className="rounded-2xl border bg-background/60 p-4 transition hover:border-primary/50"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-sm font-black">{customerName(record)}</p><p className="mt-1 text-[11px] text-muted-foreground">{reservationLabel(record)}</p></div><StatusBadge status={recordStatus(record)} /></div><dl className="mt-4 grid gap-3 text-xs sm:grid-cols-2"><div className="rounded-xl bg-secondary/50 p-3"><dt className="font-semibold text-muted-foreground">من</dt><dd className="mt-1 font-bold">{dateTime(record.startsAt)}</dd></div><div className="rounded-xl bg-secondary/50 p-3"><dt className="font-semibold text-muted-foreground">إلى</dt><dd className="mt-1 font-bold">{dateTime(record.endsAt)}</dd></div><div className="rounded-xl bg-secondary/50 p-3"><dt className="font-semibold text-muted-foreground">عدد المقاعد</dt><dd className="mt-1 font-bold">{String(record.seats ?? record.participantCount ?? "—")}</dd></div><div className="rounded-xl bg-secondary/50 p-3"><dt className="font-semibold text-muted-foreground">نوع الحجز</dt><dd className="mt-1 font-bold">{reservationTypeLabel(record.type ?? record.reservationType)}</dd></div></dl></article>)}</div>}
+      </div>
+      <footer className="flex items-center justify-between gap-3 border-t p-4 sm:p-5"><p className="text-[11px] text-muted-foreground">{records.length ? `${records.length} حجزًا غير ملغى` : "لا توجد حجوزات"}</p><Button variant="outline" onClick={onClose}>إغلاق</Button></footer>
+    </section>
   </div>
 }
 
