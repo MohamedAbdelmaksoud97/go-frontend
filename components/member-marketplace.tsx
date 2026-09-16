@@ -214,12 +214,15 @@ export function MemberMarketplace({ member, branchId, branchName }: { member: Me
 
 function QuoteDialog({ pending, busy, onClose, onConfirm, onPrint }: { pending: PendingCheckout; busy: boolean; onClose: () => void; onConfirm: () => void; onPrint: (contract: Row) => void }) {
   const quote = pending.quote
-  return <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="member-quote-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}>
-    <div className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl"><div className="flex items-start gap-3"><span className="grid size-12 place-items-center rounded-2xl bg-primary/15 text-primary"><CheckCircle2 /></span><div><p className="text-xs font-bold text-primary">مراجعة الطلب</p><h3 id="member-quote-title" className="mt-1 text-xl font-black">{quote.targetName}</h3></div><Button className="mr-auto" variant="ghost" size="icon" onClick={onClose} disabled={busy} aria-label="إغلاق"><X /></Button></div>
-      <dl className="mt-6 space-y-3 rounded-2xl bg-secondary/50 p-4 text-sm"><PriceRow label="السعر قبل الخصم" value={quote.baseAmountMinor} />{Number(quote.discountMinor) > 0 && <PriceRow label={`الخصم${quote.promotion ? ` — ${quote.promotion.name}` : ""}`} value={quote.discountMinor} negative />}<PriceRow label="الصافي قبل الضريبة" value={quote.netMinor} /><PriceRow label="الضريبة" value={quote.taxMinor} /><div className="border-t pt-3"><PriceRow label="الإجمالي المطلوب في الاستقبال" value={quote.grossMinor} strong /></div></dl>
-      <p className="mt-4 text-xs leading-6 text-muted-foreground">سيُنشأ الطلب وفاتورة برقم واضح. يكتمل تفعيل الاشتراك أو الخدمة بعد السداد في استقبال النادي.</p>
-      <ContractSummary contracts={pending.contracts} expanded onPrint={onPrint} />
-      <div className="mt-6 flex gap-3"><Button className="flex-1" onClick={onConfirm} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <CreditCard />}تأكيد وإنشاء الفاتورة</Button><Button variant="outline" onClick={onClose} disabled={busy}>رجوع</Button></div>
+  return <div className="fixed inset-0 z-[100] flex items-end justify-center overflow-hidden bg-black/70 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="member-quote-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose() }}>
+    <div className="flex max-h-[100dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border bg-card shadow-2xl sm:max-h-[94dvh] sm:rounded-3xl">
+      <div className="flex shrink-0 items-start gap-3 border-b p-5 sm:p-6"><span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/15 text-primary"><CheckCircle2 /></span><div className="min-w-0"><p className="text-xs font-bold text-primary">مراجعة الطلب</p><h3 id="member-quote-title" className="mt-1 text-xl font-black">{quote.targetName}</h3></div><Button className="mr-auto shrink-0" variant="ghost" size="icon" onClick={onClose} disabled={busy} aria-label="إغلاق"><X /></Button></div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
+        <dl className="space-y-3 rounded-2xl bg-secondary/50 p-4 text-sm"><PriceRow label="السعر قبل الخصم" value={quote.baseAmountMinor} />{Number(quote.discountMinor) > 0 && <PriceRow label={`الخصم${quote.promotion ? ` — ${quote.promotion.name}` : ""}`} value={quote.discountMinor} negative />}<PriceRow label="الصافي قبل الضريبة" value={quote.netMinor} /><PriceRow label="الضريبة" value={quote.taxMinor} /><div className="border-t pt-3"><PriceRow label="الإجمالي المطلوب في الاستقبال" value={quote.grossMinor} strong /></div></dl>
+        <p className="mt-4 text-xs leading-6 text-muted-foreground">سيُنشأ الطلب وفاتورة برقم واضح. يكتمل تفعيل الاشتراك أو الخدمة بعد السداد في استقبال النادي.</p>
+        <ContractSummary contracts={pending.contracts} expanded onPrint={onPrint} />
+      </div>
+      <div className="flex shrink-0 gap-3 border-t bg-card p-4 sm:px-6"><Button className="flex-1" onClick={onConfirm} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <CreditCard />}تأكيد وإنشاء الفاتورة</Button><Button variant="outline" onClick={onClose} disabled={busy}>رجوع</Button></div>
     </div>
   </div>
 }
