@@ -23,7 +23,7 @@ export function can(grants:Grant[],permission:string,organizationId:string,branc
 
 export const operationPermissions:Record<string,string>={
  listMembers:"members.read",registerMember:"members.manage",listSubscriptions:"subscriptions.read",createSubscription:"sales.checkout",listAttendanceAttempts:"attendance.read",recordManualAttendance:"attendance.check-in",listReservations:"bookings.read",createManualReservation:"bookings.create",listInvoices:"finance.invoices.read",recordPayment:"finance.payments.record",listCrmLeads:"crm.leads.read",createCrmLead:"crm.leads.manage",listRestaurantOrders:"restaurant.orders.read",checkoutOrder:"sales.checkout",listEmployees:"workforce.read",createEmployee:"workforce.manage",getBranchDailyReport:"reporting.read",getDetailedOperationalReport:"reporting.read",requestReportingRebuild:"reporting.rebuild",
- listEmployeeShiftRoster:"workforce.shifts.read",scheduleEmployeeShift:"workforce.shifts.manage",listEmployeeAttendance:"workforce.shifts.read",listOnlineRequests:"online-requests.read",listFeedbackCases:"feedback.read",listLockers:"lockers.read",listOtherIncome:"finance.other-income.read",listTrainerCommissions:"coaching.commissions.read",
+ listEmployeeShiftRoster:"workforce.shifts.read",scheduleEmployeeShift:"workforce.shifts.manage",listEmployeeAttendance:"workforce.shifts.read",listOnlineRequests:"online-requests.read",listSelfServiceRequests:"online-requests.read",listFeedbackCases:"feedback.read",listLockers:"lockers.read",listOtherIncome:"finance.other-income.read",listTrainerCommissions:"coaching.commissions.read",
  recordOtherIncome:"finance.other-income.manage",
 }
 

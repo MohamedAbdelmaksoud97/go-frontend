@@ -13,7 +13,7 @@ export const endpointModules:EndpointModule[]=[
  {slug:"finance",label:"المبيعات والمالية",description:"الطلبات والفواتير والمدفوعات والنقدية والمصروفات",match:o=>/orders|invoices|payments|refunds|cash-|expenses|other-income/.test(o.path)&&!o.path.includes("restaurant")&&!o.path.includes("/self/")},
  {slug:"operations",label:"الحضور والحجوزات",description:"الدخول، المرافق، الموارد، الحجوزات والخزائن",match:o=>/attendance-attempts|facilities|bookable-resources|reservations|lockers|locker-assignments/.test(o.path)&&!o.path.includes("/self/")},
  {slug:"restaurant",label:"المطعم",description:"الوجبات والأسعار وقائمة اليوم وطابور المطبخ",match:o=>/restaurant|daily-menus/.test(o.path)&&!o.path.includes("/self/")},
- {slug:"engagement",label:"CRM والتواصل",description:"العملاء المحتملون والمتابعات والإشعارات والحملات والطلبات",match:o=>/\/crm\/|notification|whatsapp|online-requests|feedback-cases/.test(o.path)&&!o.path.includes("/self/")&&!o.path.includes("/public/")},
+ {slug:"engagement",label:"CRM والتواصل",description:"العملاء المحتملون والمتابعات والإشعارات والحملات والطلبات",match:o=>/\/crm\/|notification|whatsapp|online-requests|self-service-requests|feedback-cases/.test(o.path)&&!o.path.includes("/self/")&&!o.path.includes("/public/")},
  {slug:"reporting",label:"التقارير والتدقيق",description:"لوحات المؤشرات والتقارير وسجل التدقيق",match:o=>/reports|reporting|dashboard\/summary|audit-records/.test(o.path)},
  {slug:"self",label:"الخدمة الذاتية",description:"العضو وولي الأمر والموظف والمدرب",match:o=>o.path.includes("/self/")||o.path==="/api/v1/self"},
  {slug:"public",label:"الواجهات العامة",description:"طلبات الانضمام العامة دون مصادقة موظف",match:o=>o.path.includes("/public/")},

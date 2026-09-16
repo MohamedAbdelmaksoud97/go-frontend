@@ -1344,6 +1344,14 @@
     "description": "Idempotent online request submitted for follow-up."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/self-service-requests",
+    "method": "get",
+    "operationId": "listSelfServiceRequests",
+    "secured": true,
+    "idempotent": false,
+    "description": "Branch-scoped member self-service purchases, bookings, and services with live order and invoice status."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/employee-shifts",
     "method": "get",
     "operationId": "listEmployeeShiftRoster",
@@ -2326,6 +2334,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Append-only normalized access-controller events and their GO attendance processing result."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/access-device-events/stream",
+    "method": "get",
+    "operationId": "streamAccessDeviceEvents",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authorized server-sent stream of new access-controller events."
   },
   {
     "path": "/api/v1/device-gateway/v1/heartbeat",
