@@ -287,9 +287,9 @@ function membershipPrintDetails(line: InvoiceLine, currency: string): Membership
   const configuration = asRecord(capturedFreeze?.configuration ?? packageFreeze?.configuration)
   const maxDaysPerFreeze = asNumber(configuration.maxDaysPerFreeze)
   const maxFreezesPerTerm = asNumber(configuration.maxFreezesPerTerm)
-  const totalFreezeDays = maxDaysPerFreeze !== undefined && maxFreezesPerTerm !== undefined
+  const totalFreezeDays = asNumber(configuration.maxTotalFreezeDays) ?? (maxDaysPerFreeze !== undefined && maxFreezesPerTerm !== undefined
     ? maxDaysPerFreeze * maxFreezesPerTerm
-    : undefined
+    : undefined)
   return {
     lineId: line.id,
     packageName: line.targetName || line.description,

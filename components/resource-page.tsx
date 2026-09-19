@@ -374,8 +374,8 @@ function SubscriptionFreezeDialog({
       setError("أدخل عدد أيام صحيحًا يبدأ من يوم واحد.")
       return
     }
-    if (!frozen && !pendingSchedule && days > freezePolicy.maxDaysPerFreeze) {
-      setError(`الحد الأقصى المسموح في هذه السياسة هو ${freezePolicy.maxDaysPerFreeze} يوم.`)
+    if (!frozen && !pendingSchedule && days > freezePolicy.maxRequestDays) {
+      setError(`الحد المتاح لهذا التجميد هو ${freezePolicy.maxRequestDays} يوم بعد احتساب رصيد السياسة الإجمالي.`)
       return
     }
     if (!frozen && !pendingSchedule && reason.trim().length < 3) {
@@ -452,12 +452,13 @@ function SubscriptionFreezeDialog({
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <PolicyMetric label="أقصى مدة" value={`${freezePolicy.maxDaysPerFreeze} يوم`} />
             <PolicyMetric label="المرات المتبقية" value={`${freezePolicy.remainingFreezes} من ${freezePolicy.maxFreezesPerTerm}`} />
+            {freezePolicy.remainingTotalDays !== undefined && <PolicyMetric label="الرصيد الإجمالي المتبقي" value={`${freezePolicy.remainingTotalDays} من ${freezePolicy.maxTotalFreezeDays} يوم`} />}
             <PolicyMetric label="الحد الأدنى للنشاط" value={`${freezePolicy.minimumActiveDaysBeforeFreeze} يوم`} />
             <PolicyMetric label="أيام النشاط المحسوبة" value={`${freezePolicy.activeDays} يوم`} />
           </div>
           <p className="mt-3 leading-6 text-muted-foreground">{freezePolicy.message}</p>
         </div>
-        <label className="mt-5 block text-xs font-bold">عدد أيام التجميد<span className="mr-1 text-red-500">*</span><Input type="number" min={1} max={freezePolicy.maxDaysPerFreeze || 1} value={requestedDays} onChange={event => setRequestedDays(event.target.value)} className="mt-2" inputMode="numeric" /></label>
+        <label className="mt-5 block text-xs font-bold">عدد أيام التجميد<span className="mr-1 text-red-500">*</span><Input type="number" min={1} max={freezePolicy.maxRequestDays || 1} value={requestedDays} onChange={event => setRequestedDays(event.target.value)} className="mt-2" inputMode="numeric" /></label>
         {projectedTermEnd && <div className="mt-4 rounded-2xl border border-sky-500/25 bg-sky-500/8 p-4 text-xs leading-6 text-sky-800 dark:text-sky-200"><p className="font-black">أثر التجميد على نهاية الاشتراك</p><p className="mt-1">النهاية الحالية: <strong>{subscriptionDateTime(currentTermEnd)}</strong></p><p>النهاية المتوقعة عند بدء التجميد: <strong>{subscriptionDateTime(projectedTermEnd)}</strong></p>{scheduleMode === "LATER" && <p className="mt-1 text-muted-foreground">لن يتغير التاريخ قبل حلول موعد الجدولة وبدء التجميد فعليًا.</p>}</div>}
         <label className="mt-4 block text-xs font-bold">سبب التجميد<span className="mr-1 text-red-500">*</span><textarea value={reason} onChange={event => setReason(event.target.value)} rows={4} placeholder="مثال: طلب العضو بسبب السفر" className="mt-2 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" /></label>
       </>}
@@ -466,7 +467,7 @@ function SubscriptionFreezeDialog({
       </div>
       <div className="flex shrink-0 gap-2 border-t bg-card px-6 py-4 shadow-[0_-12px_24px_-24px_rgba(0,0,0,0.8)]">
         <Button type="button" variant="outline" disabled={saving} onClick={onClose}>رجوع</Button>
-        <Button type="submit" className="mr-auto" variant={pendingSchedule ? "destructive" : "default"} disabled={saving || Boolean(pendingSchedule && reason.trim().length < 3) || (!pendingSchedule && !frozen && (!freezePolicy.allowed || Number(requestedDays) > freezePolicy.maxDaysPerFreeze))}>{saving ? "جارٍ الحفظ..." : pendingSchedule ? "إلغاء موعد التجميد" : frozen ? "استئناف الاشتراك" : scheduleMode === "LATER" ? "حفظ الجدولة" : "تأكيد التجميد الآن"}</Button>
+        <Button type="submit" className="mr-auto" variant={pendingSchedule ? "destructive" : "default"} disabled={saving || Boolean(pendingSchedule && reason.trim().length < 3) || (!pendingSchedule && !frozen && (!freezePolicy.allowed || Number(requestedDays) > freezePolicy.maxRequestDays))}>{saving ? "جارٍ الحفظ..." : pendingSchedule ? "إلغاء موعد التجميد" : frozen ? "استئناف الاشتراك" : scheduleMode === "LATER" ? "حفظ الجدولة" : "تأكيد التجميد الآن"}</Button>
       </div>
     </form>
   </div>

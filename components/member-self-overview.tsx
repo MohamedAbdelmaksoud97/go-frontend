@@ -118,7 +118,7 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
     }
     const policy = subscriptionFreezePolicy(freezeRequest, freezeMode === "LATER" ? new Date(freezeStartAt) : new Date())
     const days = Number(freezeDays)
-    if (!policy.allowed || !Number.isInteger(days) || days < 1 || days > policy.maxDaysPerFreeze || freezeReason.trim().length < 3) return
+    if (!policy.allowed || !Number.isInteger(days) || days < 1 || days > policy.maxRequestDays || freezeReason.trim().length < 3) return
     const scheduled = freezeMode === "LATER" ? new Date(freezeStartAt) : undefined
     const deadline = subscriptionFreezeScheduleDeadline(freezeRequest)
     if (scheduled && (!Number.isFinite(scheduled.getTime()) || scheduled <= new Date() || (deadline !== undefined && scheduled >= deadline))) return
@@ -171,18 +171,19 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <FreezeMetric label="أقصى مدة" value={`${selectedFreezePolicy.maxDaysPerFreeze} يوم`} />
             <FreezeMetric label="المرات المتبقية" value={`${selectedFreezePolicy.remainingFreezes} من ${selectedFreezePolicy.maxFreezesPerTerm}`} />
+            {selectedFreezePolicy.remainingTotalDays !== undefined && <FreezeMetric label="الرصيد الإجمالي المتبقي" value={`${selectedFreezePolicy.remainingTotalDays} من ${selectedFreezePolicy.maxTotalFreezeDays} يوم`} />}
             <FreezeMetric label="النشاط المطلوب" value={`${selectedFreezePolicy.minimumActiveDaysBeforeFreeze} يوم`} />
             <FreezeMetric label="نشاطك المحسوب" value={`${selectedFreezePolicy.activeDays} يوم`} />
           </div>
           <p className="mt-3 leading-6 text-muted-foreground">{selectedFreezePolicy.message}</p>
         </div>}
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <div><label className="block text-sm font-bold" htmlFor="freeze-days">عدد أيام التجميد</label><Input id="freeze-days" className="mt-2" type="number" min={1} max={selectedFreezePolicy?.maxDaysPerFreeze || 1} inputMode="numeric" value={freezeDays} onChange={event => setFreezeDays(event.target.value)} autoFocus /></div>
+          <div><label className="block text-sm font-bold" htmlFor="freeze-days">عدد أيام التجميد</label><Input id="freeze-days" className="mt-2" type="number" min={1} max={selectedFreezePolicy?.maxRequestDays || 1} inputMode="numeric" value={freezeDays} onChange={event => setFreezeDays(event.target.value)} autoFocus /></div>
           <div><label className="block text-sm font-bold" htmlFor="freeze-reason">سبب التجميد</label><Input id="freeze-reason" className="mt-2" value={freezeReason} onChange={event => setFreezeReason(event.target.value)} placeholder="مثال: سفر أو ظرف صحي" /></div>
         </div>
         </>}
         {selectedPendingSchedule && <div className="mt-5"><label className="block text-sm font-bold" htmlFor="freeze-reason">سبب إلغاء الجدولة</label><Input id="freeze-reason" className="mt-2" value={freezeReason} onChange={event => setFreezeReason(event.target.value)} /></div>}
-        <div className="mt-6 flex flex-wrap gap-2"><Button variant={selectedPendingSchedule ? "destructive" : "default"} disabled={Boolean(busy) || Boolean(selectedPendingSchedule ? freezeReason.trim().length < 3 : !selectedFreezePolicy?.allowed || !selectedScheduleAllowed || !Number.isInteger(Number(freezeDays)) || Number(freezeDays) < 1 || Number(freezeDays) > (selectedFreezePolicy?.maxDaysPerFreeze ?? 0) || freezeReason.trim().length < 3)} onClick={() => void confirmFreeze()}>{busy && <Loader2 className="animate-spin" />}{selectedPendingSchedule ? "إلغاء موعد التجميد" : freezeMode === "LATER" ? "حفظ الجدولة" : "تأكيد التجميد الآن"}</Button><Button variant="outline" disabled={Boolean(busy)} onClick={() => setFreezeRequest(undefined)}>رجوع</Button></div>
+        <div className="mt-6 flex flex-wrap gap-2"><Button variant={selectedPendingSchedule ? "destructive" : "default"} disabled={Boolean(busy) || Boolean(selectedPendingSchedule ? freezeReason.trim().length < 3 : !selectedFreezePolicy?.allowed || !selectedScheduleAllowed || !Number.isInteger(Number(freezeDays)) || Number(freezeDays) < 1 || Number(freezeDays) > (selectedFreezePolicy?.maxRequestDays ?? 0) || freezeReason.trim().length < 3)} onClick={() => void confirmFreeze()}>{busy && <Loader2 className="animate-spin" />}{selectedPendingSchedule ? "إلغاء موعد التجميد" : freezeMode === "LATER" ? "حفظ الجدولة" : "تأكيد التجميد الآن"}</Button><Button variant="outline" disabled={Boolean(busy)} onClick={() => setFreezeRequest(undefined)}>رجوع</Button></div>
       </div>
     </div>}
     {cancellation && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="cancellation-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setCancellation(undefined) }}>
@@ -259,7 +260,7 @@ function title(row: Row, active: string, index: number) {
 }
 function summary(row: Row, active: string) {
   const branch = row.sellingBranchName ?? row.registrationBranchName ?? row.branchName
-  if (active === "subscriptions") { const period = `${dateOnly(row.termStart)} — ${dateOnly(row.termEnd)}`; const visits = row.visitAllowance == null ? "دخول غير محدود" : `${String(row.visitsRemaining ?? 0)} زيارة متبقية من ${String(row.visitAllowance)}`; const freeze = subscriptionFreezePolicy(row); const freezeSummary = freeze.available ? `التجميد: أقصى ${freeze.maxDaysPerFreeze} يوم في المرة، والمتبقي ${freeze.remainingFreezes} من ${freeze.maxFreezesPerTerm} مرات${freeze.allowed ? "" : ` — ${freeze.message}`}` : freeze.message; return join([row.subscriptionNumber && `رقم الاشتراك ${row.subscriptionNumber}`, period, status(row.status), visits, branch && `فرع ${branch}`, freezeSummary]) }
+  if (active === "subscriptions") { const period = `${dateOnly(row.termStart)} — ${dateOnly(row.termEnd)}`; const visits = row.visitAllowance == null ? "دخول غير محدود" : `${String(row.visitsRemaining ?? 0)} زيارة متبقية من ${String(row.visitAllowance)}`; const freeze = subscriptionFreezePolicy(row); const freezeSummary = freeze.available ? `التجميد: أقصى ${freeze.maxDaysPerFreeze} يوم في المرة، والمتبقي ${freeze.remainingFreezes} من ${freeze.maxFreezesPerTerm} مرات${freeze.remainingTotalDays === undefined ? "" : `، و${freeze.remainingTotalDays} من ${freeze.maxTotalFreezeDays} يوم إجماليًا`}${freeze.allowed ? "" : ` — ${freeze.message}`}` : freeze.message; return join([row.subscriptionNumber && `رقم الاشتراك ${row.subscriptionNumber}`, period, status(row.status), visits, branch && `فرع ${branch}`, freezeSummary]) }
   if (active === "invoices") return join([row.issuedAt && formatDate(row.issuedAt), branch && `فرع ${branch}`, `الإجمالي ${money(row.grossMinor)}`, `المدفوع ${money(row.paidMinor)}`, `المتبقي ${money(row.outstandingMinor)}`, status(row.status)])
   if (active === "orders") return join([row.createdAt && formatDate(row.createdAt), branch && `فرع ${branch}`, `الإجمالي ${money(row.grossMinor)}`, status(row.status), row.invoiceNumber && `فاتورة ${row.invoiceNumber}`, row.invoiceStatus && status(row.invoiceStatus)])
   if (active === "restaurant-orders") return join([row.createdAt && formatDate(row.createdAt), branch && `فرع ${branch}`, `الإجمالي ${money(row.grossMinor)}`, status(row.status), row.invoiceNumber && `فاتورة ${row.invoiceNumber}`, row.invoiceStatus && status(row.invoiceStatus)])

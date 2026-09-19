@@ -6,7 +6,10 @@ export type SubscriptionFreezePolicyView = {
   available: boolean
   allowed: boolean
   maxDaysPerFreeze: number
+  maxRequestDays: number
   maxFreezesPerTerm: number
+  maxTotalFreezeDays?: number
+  remainingTotalDays?: number
   minimumActiveDaysBeforeFreeze: number
   usedFreezes: number
   remainingFreezes: number
@@ -34,21 +37,30 @@ export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): 
   const configuration = capturedFreezeConfiguration(record)
   const maxDaysPerFreeze = integer(configuration?.maxDaysPerFreeze)
   const maxFreezesPerTerm = integer(configuration?.maxFreezesPerTerm)
+  const maxTotalFreezeDays = configuration?.maxTotalFreezeDays === undefined ? undefined : integer(configuration.maxTotalFreezeDays)
   const minimumActiveDaysBeforeFreeze = integer(configuration?.minimumActiveDaysBeforeFreeze)
   const pendingSchedule = pendingFreezeSchedule(record)
   const usedFreezes = array(record.freezePeriods).length + (pendingSchedule ? 1 : 0)
   const activeDays = totalActiveDays(record.accessPeriods, at)
 
-  if (maxDaysPerFreeze === undefined || maxFreezesPerTerm === undefined || minimumActiveDaysBeforeFreeze === undefined) {
+  if (maxDaysPerFreeze === undefined || maxFreezesPerTerm === undefined || minimumActiveDaysBeforeFreeze === undefined || (configuration?.maxTotalFreezeDays !== undefined && maxTotalFreezeDays === undefined)) {
     return unavailable("لا توجد سياسة تجميد صالحة محفوظة مع هذا الاشتراك.", usedFreezes, activeDays)
   }
 
   const remainingFreezes = Math.max(0, maxFreezesPerTerm - usedFreezes)
+  const usedFreezeMilliseconds = array(record.freezePeriods).map(object).reduce((total, period) => {
+    const start = validDate(period?.startedAt)?.getTime()
+    const end = validDate(period?.resumedAt ?? period?.plannedEndAt)?.getTime()
+    return total + (start === undefined || end === undefined ? 0 : Math.max(0, end - start))
+  }, 0) + (pendingSchedule ? Math.max(0, Number(pendingSchedule.requestedDays) || 0) * DAY_MS : 0)
+  const remainingTotalDays = maxTotalFreezeDays === undefined ? undefined : Math.max(0, Math.floor((maxTotalFreezeDays * DAY_MS - usedFreezeMilliseconds) / DAY_MS))
+  const maxRequestDays = Math.min(maxDaysPerFreeze, remainingTotalDays ?? maxDaysPerFreeze)
   const remainingActiveDays = Math.max(0, minimumActiveDaysBeforeFreeze - activeDays)
-  const recommendedDays = Math.max(1, Math.min(7, maxDaysPerFreeze || 1))
+  const recommendedDays = Math.max(1, Math.min(7, maxRequestDays || 1))
   const status = String(record.status ?? "").toUpperCase()
   let allowed = true
   let message = `الحد الأقصى ${maxDaysPerFreeze} يوم في المرة، والمتبقي ${remainingFreezes} من ${maxFreezesPerTerm} مرات.`
+  if (remainingTotalDays !== undefined) message += ` رصيد التجميد الإجمالي المتبقي ${remainingTotalDays} من ${maxTotalFreezeDays} يوم.`
 
   if (!["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status)) {
     allowed = false
@@ -56,6 +68,9 @@ export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): 
   } else if (maxDaysPerFreeze < 1 || remainingFreezes < 1) {
     allowed = false
     message = "تم استنفاد مرات التجميد المسموحة في سياسة هذا الاشتراك."
+  } else if (remainingTotalDays === 0) {
+    allowed = false
+    message = "تم استنفاد رصيد أيام التجميد الإجمالي لهذا الاشتراك."
   } else if (pendingSchedule) {
     allowed = false
     message = `يوجد تجميد مجدول بالفعل ليبدأ في ${new Date(String(pendingSchedule.scheduledStartAt ?? "")).toLocaleString("ar-SA")}. ألغِ الجدولة الحالية قبل إنشاء أخرى.`
@@ -68,7 +83,9 @@ export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): 
     available: true,
     allowed,
     maxDaysPerFreeze,
+    maxRequestDays,
     maxFreezesPerTerm,
+    ...(maxTotalFreezeDays === undefined ? {} : { maxTotalFreezeDays, remainingTotalDays }),
     minimumActiveDaysBeforeFreeze,
     usedFreezes,
     remainingFreezes,
@@ -98,7 +115,7 @@ function totalActiveDays(value: unknown, at: Date): number {
 }
 
 function unavailable(message: string, usedFreezes: number, activeDays: number): SubscriptionFreezePolicyView {
-  return { available: false, allowed: false, maxDaysPerFreeze: 0, maxFreezesPerTerm: 0, minimumActiveDaysBeforeFreeze: 0, usedFreezes, remainingFreezes: 0, activeDays, remainingActiveDays: 0, recommendedDays: 1, message }
+  return { available: false, allowed: false, maxDaysPerFreeze: 0, maxRequestDays: 0, maxFreezesPerTerm: 0, minimumActiveDaysBeforeFreeze: 0, usedFreezes, remainingFreezes: 0, activeDays, remainingActiveDays: 0, recommendedDays: 1, message }
 }
 
 function integer(value: unknown): number | undefined {

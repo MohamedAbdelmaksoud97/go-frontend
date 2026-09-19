@@ -564,6 +564,7 @@ function subscriptionContractPrintRows(subscription: Row): Array<[string, string
   if (configuration) {
     rows.push(["مرات التجميد المسموحة", `${minor(configuration.maxFreezesPerTerm)} مرة`])
     rows.push(["أقصى مدة للتجميد في المرة", `${minor(configuration.maxDaysPerFreeze)} يوم`])
+    if (configuration.maxTotalFreezeDays !== undefined) rows.push(["إجمالي أيام التجميد المسموحة", `${minor(configuration.maxTotalFreezeDays)} يوم`])
     rows.push(["النشاط المطلوب قبل التجميد", `${minor(configuration.minimumActiveDaysBeforeFreeze)} يوم`])
     rows.push(["مرات التجميد المستخدمة", `${periods.length} مرة`])
     rows.push(["أيام التجميد المستخدمة", `${totalUsedFreezeDays(periods, Date.now())} يوم`])
