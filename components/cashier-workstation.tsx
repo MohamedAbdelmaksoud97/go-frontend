@@ -29,6 +29,8 @@ import { humanError } from "@/lib/human-errors";
 import { permissionArabicLabel } from "@/lib/permission-display";
 
 type Meal = { id: string; name: string };
+type Service = { id: string; name: string; code?: string };
+type ServiceQuote = { grossMinor: string; taxMinor: string; discountMinor: string; currency: string };
 type RetailProduct = { id: string; name: string; code?: string; barcode?: string; grossMinor?: string; amountMinor?: string; quantityAvailable?: number };
 type Menu = {
   status: "DRAFT" | "PUBLISHED" | "CLOSED";
@@ -75,6 +77,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
   const context = useAppContext();
   const toast = useToast();
   const [meals, setMeals] = useState<Meal[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [retailProducts, setRetailProducts] = useState<RetailProduct[]>([]);
   const [menu, setMenu] = useState<Menu>();
   const [cashPoints, setCashPoints] = useState<CashPoint[]>([]);
@@ -84,8 +87,10 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
   const [memberSelection, setMemberSelection] = useState<{ organizationId: string; branchId: string; member?: Member }>({ organizationId: "", branchId: "" });
   const [mealId, setMealId] = useState("");
   const [productId, setProductId] = useState("");
-  const [saleKind, setSaleKind] = useState<"MEAL" | "RETAIL">("MEAL");
+  const [serviceId, setServiceId] = useState("");
+  const [saleKind, setSaleKind] = useState<"MEAL" | "RETAIL" | "SERVICE">("MEAL");
   const [quantity, setQuantity] = useState("1");
+  const [serviceQuoteResult, setServiceQuoteResult] = useState<{ key: string; quote?: ServiceQuote; error?: string }>();
   const [paymentInvoiceId, setPaymentInvoiceId] = useState("");
   const [method, setMethod] = useState<PaymentMethodCode>("CASH");
   const [invoicePaymentMode, setInvoicePaymentMode] = useState<"SINGLE" | "SPLIT">("SINGLE");
@@ -124,6 +129,14 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
   const splitUsesCash = splitFirstMethod === "CASH" || splitSecondMethod === "CASH";
   const splitIsValid = selectedInvoiceOutstanding > 0 && splitFirstMinor > 0 && splitFirstMinor < selectedInvoiceOutstanding && splitFirstMethod !== splitSecondMethod && (!splitUsesCash || selectedShift !== undefined);
   const selectedMember = memberSelection.organizationId === context.organizationId && memberSelection.branchId === context.branchId ? memberSelection.member : undefined;
+  const quoteMemberId = customerMode === "MEMBER" ? selectedMember?.id : undefined;
+  const quoteQuantity = Number(quantity);
+  const serviceQuoteKey = saleKind === "SERVICE" && serviceId && context.organizationId && context.branchId &&
+    (customerMode === "GUEST" || quoteMemberId) && Number.isInteger(quoteQuantity) && quoteQuantity >= 1 && quoteQuantity <= 100
+    ? JSON.stringify([context.organizationId, context.branchId, serviceId, quoteQuantity, quoteMemberId ?? null]) : "";
+  const serviceQuote = serviceQuoteResult?.key === serviceQuoteKey ? serviceQuoteResult.quote : undefined;
+  const serviceQuoteError = serviceQuoteResult?.key === serviceQuoteKey ? serviceQuoteResult.error ?? "" : "";
+  const loadingServiceQuote = Boolean(serviceQuoteKey && serviceQuoteResult?.key !== serviceQuoteKey);
   const publishedMeals = useMemo(() => {
     const allowed = new Set(
       (menu?.status === "PUBLISHED" ? menu.items : [])
@@ -132,6 +145,18 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
     );
     return meals.filter((meal) => allowed.has(meal.id));
   }, [meals, menu]);
+
+  useEffect(() => {
+    if (!serviceQuoteKey) return;
+    let cancelled = false;
+    void apiRequest<ServiceQuote>(`/organizations/${context.organizationId}/quotes`, {
+      method: "POST",
+      body: JSON.stringify({ branchId: context.branchId, targetType: "SERVICE", targetId: serviceId, quantity: quoteQuantity,
+        ...(quoteMemberId ? { memberId: quoteMemberId } : {}) }),
+    }).then((response) => { if (!cancelled) setServiceQuoteResult({ key: serviceQuoteKey, quote: response.data }); })
+      .catch((reason) => { if (!cancelled) setServiceQuoteResult({ key: serviceQuoteKey, error: humanError(reason, "الخدمة غير متاحة للبيع أو لا يوجد لها سعر ساري في هذا الفرع.") }); });
+    return () => { cancelled = true; };
+  }, [serviceQuoteKey, serviceId, quoteQuantity, quoteMemberId, context.organizationId, context.branchId]);
 
   async function load() {
     if (!hasRuntimeApi() || !context.organizationId || !context.branchId) {
@@ -151,6 +176,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
         invoiceResponse,
         menuResponse,
         retailResponse,
+        serviceResponse,
       ] = await Promise.all([
         loadSource(
           "وجبات المطعم",
@@ -202,6 +228,14 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
           ).then((response) => list<RetailProduct>(response.data)),
           [] as RetailProduct[],
         ),
+        loadSource(
+          "الخدمات المتاحة للبيع",
+          "sales.checkout",
+          apiRequest<Service[] | { items: Service[] }>(
+            `${base}/services?branchId=${context.branchId}`,
+          ).then((response) => list<Service>(response.data)),
+          [] as Service[],
+        ),
       ]);
       const responses = [
         mealResponse,
@@ -210,6 +244,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
         invoiceResponse,
         menuResponse,
         retailResponse,
+        serviceResponse,
       ];
       const requestedInvoice = !deepLinkAppliedRef.current && (initialInvoiceId || initialOrderId)
         ? invoiceResponse.data.find((invoice) => invoice.id === initialInvoiceId || invoice.orderId === initialOrderId)
@@ -226,6 +261,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       setInvoices(invoiceResponse.data);
       setMenu(menuResponse.data);
       setRetailProducts(retailResponse.data);
+      setServices(serviceResponse.data);
       const nextShift = shiftResponse.data.find(
         (shift) => shift.status === "OPEN",
       );
@@ -247,6 +283,11 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       );
       setProductId((current) =>
         retailResponse.data.some((product) => product.id === current)
+          ? current
+          : "",
+      );
+      setServiceId((current) =>
+        serviceResponse.data.some((service) => service.id === current)
           ? current
           : "",
       );
@@ -319,9 +360,18 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
   }
 
   async function checkoutAndPay() {
-    const targetId = saleKind === "MEAL" ? mealId : productId;
+    const targetId = saleKind === "MEAL" ? mealId : saleKind === "RETAIL" ? productId : serviceId;
     if (!context.organizationId || !context.branchId || !targetId)
       return;
+    const count = Number(quantity);
+    if (!Number.isInteger(count) || count < 1 || count > 100) {
+      setError("أدخل كمية صحيحة بين 1 و100.");
+      return;
+    }
+    if (saleKind === "SERVICE" && !serviceQuote) {
+      setError(serviceQuoteError || "انتظر تأكيد السعر النهائي للخدمة قبل البيع.");
+      return;
+    }
     if (customerMode === "MEMBER" && !selectedMember) {
       setError("ابحث عن العضو واختره، أو بدّل إلى «بيع لزائر».");
       return;
@@ -332,6 +382,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
     }
     setSaving(true);
     setError("");
+    let createdInvoiceId: string | undefined;
     try {
       const order = await apiRequest<{ invoiceId?: string }>(
         `/organizations/${context.organizationId}/orders`,
@@ -343,23 +394,33 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
             ...(customerMode === "MEMBER" && selectedMember ? { memberId: selectedMember.id } : {}),
             lines: [
               {
-                type: saleKind === "MEAL" ? "RESTAURANT" : "RETAIL",
+                type: saleKind === "MEAL" ? "RESTAURANT" : saleKind === "RETAIL" ? "RETAIL" : "SERVICE",
                 targetId,
-                quantity: Math.max(1, Number(quantity) || 1),
+                quantity: count,
               },
             ],
           }),
         },
       );
       if (!order.data.invoiceId) throw new Error("لم تُنشأ فاتورة للطلب.");
-      await recordPayment(order.data.invoiceId);
-      toast.success(saleKind === "MEAL" ? "تم التحصيل وتأكيد الطلب. وصل الآن إلى طابور المطبخ." : "تم التحصيل وتأكيد بيع المنتج وخصم الكمية من مخزون الفرع.");
+      createdInvoiceId = order.data.invoiceId;
+      await recordPayment(createdInvoiceId);
+      toast.success(saleKind === "MEAL" ? "تم التحصيل وتأكيد الطلب. وصل الآن إلى طابور المطبخ." : saleKind === "RETAIL" ? "تم التحصيل وتأكيد بيع المنتج وخصم الكمية من مخزون الفرع." : "تم بيع الخدمة وتحصيل فاتورتها بنجاح.");
       setMealId("");
       setProductId("");
+      setServiceId("");
       setQuantity("1");
       await load();
     } catch (reason) {
-      setError(humanError(reason, "تعذر إكمال البيع والتحصيل."));
+      if (createdInvoiceId) {
+        await load();
+        setPaymentInvoiceId(createdInvoiceId);
+        setCollectionSuccess("تم إنشاء الفاتورة لكن لم يكتمل تحصيلها. افتحها في قسم «تحصيل فاتورة معلقة» ولا تُنشئ طلب بيع جديدًا.");
+        setError(humanError(reason, "تم إنشاء الفاتورة، لكن تعذر تسجيل الدفع. حصّل الفاتورة المعلقة بدل إعادة البيع."));
+        collectionCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else {
+        setError(humanError(reason, "تعذر إكمال البيع والتحصيل."));
+      }
     } finally {
       setSaving(false);
     }
@@ -489,7 +550,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
           </Badge>
           <h1 className="text-2xl font-black sm:text-3xl">مساحة الكاشير</h1>
           <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">
-            بيع وجبات ومنتجات المتجر، تحصيل الفواتير، وإدارة وردية الصندوق في الفرع الحالي.
+            بيع الخدمات والوجبات ومنتجات المتجر، تحصيل الفواتير، وإدارة وردية الصندوق في الفرع الحالي.
           </p>
         </div>
         <Badge variant={missing.length ? "outline" : "success"}>
@@ -707,11 +768,11 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
                 <div>
                   <h2 className="font-black">بيع من الكاونتر</h2>
                   <p className="text-xs text-muted-foreground">
-                    اختر وجبة منشورة اليوم أو منتجًا متاحًا في مخزون الفرع.
+                    اختر خدمة متاحة في الفرع أو وجبة منشورة اليوم أو منتجًا متاحًا في المخزون.
                   </p>
                 </div>
               </div>
-              <div className="mt-4 flex gap-2"><Button type="button" variant={saleKind === "MEAL" ? "default" : "outline"} onClick={() => setSaleKind("MEAL")}>وجبة من قائمة اليوم</Button><Button type="button" variant={saleKind === "RETAIL" ? "default" : "outline"} onClick={() => setSaleKind("RETAIL")}>منتج من المتجر</Button></div>
+              <div className="mt-4 flex flex-wrap gap-2"><Button type="button" variant={saleKind === "SERVICE" ? "default" : "outline"} onClick={() => setSaleKind("SERVICE")}>خدمة</Button><Button type="button" variant={saleKind === "MEAL" ? "default" : "outline"} onClick={() => setSaleKind("MEAL")}>وجبة من قائمة اليوم</Button><Button type="button" variant={saleKind === "RETAIL" ? "default" : "outline"} onClick={() => setSaleKind("RETAIL")}>منتج من المتجر</Button></div>
               <CustomerSelector
                 organizationId={context.organizationId}
                 branchId={context.branchId}
@@ -739,7 +800,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
                       {meal.name}
                     </option>
                   ))}
-                </select> : <select value={productId} onChange={(event) => setProductId(event.target.value)} className="h-11 rounded-xl border bg-background px-3 text-sm"><option value="">اختر منتجًا متاحًا</option>{retailProducts.map((product) => <option key={product.id} value={product.id}>{product.name} — {product.barcode ?? product.code ?? "بدون باركود"} — متاح {product.quantityAvailable ?? 0} — {money(Number(product.grossMinor ?? product.amountMinor ?? 0))} ر.س</option>)}</select>}
+                </select> : saleKind === "RETAIL" ? <select value={productId} onChange={(event) => setProductId(event.target.value)} className="h-11 rounded-xl border bg-background px-3 text-sm"><option value="">اختر منتجًا متاحًا</option>{retailProducts.map((product) => <option key={product.id} value={product.id}>{product.name} — {product.barcode ?? product.code ?? "بدون باركود"} — متاح {product.quantityAvailable ?? 0} — {money(Number(product.grossMinor ?? product.amountMinor ?? 0))} ر.س</option>)}</select> : <select value={serviceId} onChange={(event) => setServiceId(event.target.value)} className="h-11 rounded-xl border bg-background px-3 text-sm"><option value="">اختر خدمة متاحة في الفرع</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}{service.code ? ` — ${service.code}` : ""}</option>)}</select>}
                 <Input
                   type="number"
                   min="1"
@@ -749,18 +810,25 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
                 />
                 <PaymentMethod value={method} onChange={setMethod} />
               </div>
+              {saleKind === "SERVICE" && serviceId && (
+                <div className="mt-3 rounded-xl border bg-secondary/40 p-3 text-xs" role="status">
+                  {loadingServiceQuote ? "جارٍ حساب السعر النهائي..." : serviceQuote ? <>الإجمالي المطلوب: <strong>{money(Number(serviceQuote.grossMinor))} ر.س</strong>، يشمل ضريبة {money(Number(serviceQuote.taxMinor))} ر.س{Number(serviceQuote.discountMinor) > 0 ? ` بعد خصم ${money(Number(serviceQuote.discountMinor))} ر.س` : ""}.</> : serviceQuoteError || "اختر عميلًا وكمية صحيحة لحساب السعر."}
+                </div>
+              )}
               <Button
                 className="mt-4"
                 onClick={() => void checkoutAndPay()}
                 disabled={
                   saving ||
-                  !(saleKind === "MEAL" ? mealId : productId) ||
+                  !(saleKind === "MEAL" ? mealId : saleKind === "RETAIL" ? productId : serviceId) ||
+                  !Number.isInteger(Number(quantity)) || Number(quantity) < 1 || Number(quantity) > 100 ||
                   (customerMode === "MEMBER" && !selectedMember) ||
+                  (saleKind === "SERVICE" && (!serviceQuote || loadingServiceQuote)) ||
                   (method === "CASH" && !selectedShift)
                 }
               >
                 {saving ? <Loader2 className="animate-spin" /> : <Banknote />}
-                {saleKind === "MEAL" ? "تحصيل وإرسال للمطبخ" : "تحصيل وخصم من المخزون"}
+                {saleKind === "MEAL" ? "تحصيل وإرسال للمطبخ" : saleKind === "RETAIL" ? "تحصيل وخصم من المخزون" : "بيع الخدمة وتحصيلها"}
               </Button>
               {saleKind === "MEAL" && menu?.status !== "PUBLISHED" && (
                 <p className="mt-3 text-xs text-amber-700">
