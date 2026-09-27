@@ -71,7 +71,7 @@ const freezePolicyConfiguration = (values: Values) => ({
   minimumActiveDaysBeforeFreeze: number(values.minimumActiveDaysBeforeFreeze),
   ...(String(values.maxTotalFreezeDays ?? "").trim() === "" ? {} : { maxTotalFreezeDays: number(values.maxTotalFreezeDays) }),
 })
-const totalFreezeDaysField: Field = { name: "maxTotalFreezeDays", label: "إجمالي أيام التجميد للاشتراك (اختياري)", type: "number", visibleWhen: { field: "policyType", values: ["FREEZE"] }, hint: "مثال: ٥ أيام إجماليًا على مرتين؛ يخصم النظام الأيام المستخدمة فعليًا، ويمنع تجاوز الرصيد. اتركه فارغًا للحفاظ على السلوك القديم." }
+const totalFreezeDaysField: Field = { name: "maxTotalFreezeDays", label: "إجمالي أيام التجميد للاشتراك (اختياري)", type: "number", visibleWhen: { field: "policyType", values: ["FREEZE"] }, hint: "مثال: عند طلب ٧ أيام يُخصم من الرصيد ٧ أيام كاملة حتى لو استؤنف الاشتراك مبكرًا. اتركه فارغًا للحفاظ على السلوك القديم." }
 const asArray = (value: Value | undefined) => Array.isArray(value) ? value : []
 const packageContractBody = (values: Values, drafts: ContractSectionDraft[]) => {
   if (values.contractType !== "GENERAL_ACTIVITY" && values.contractType !== "CHILD_ACADEMY") return null

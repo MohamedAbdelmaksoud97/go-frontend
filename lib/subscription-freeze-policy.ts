@@ -50,7 +50,7 @@ export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): 
   const remainingFreezes = Math.max(0, maxFreezesPerTerm - usedFreezes)
   const usedFreezeMilliseconds = array(record.freezePeriods).map(object).reduce((total, period) => {
     const start = validDate(period?.startedAt)?.getTime()
-    const end = validDate(period?.resumedAt ?? period?.plannedEndAt)?.getTime()
+    const end = validDate(period?.plannedEndAt)?.getTime()
     return total + (start === undefined || end === undefined ? 0 : Math.max(0, end - start))
   }, 0) + (pendingSchedule ? Math.max(0, Number(pendingSchedule.requestedDays) || 0) * DAY_MS : 0)
   const remainingTotalDays = maxTotalFreezeDays === undefined ? undefined : Math.max(0, Math.floor((maxTotalFreezeDays * DAY_MS - usedFreezeMilliseconds) / DAY_MS))
@@ -60,7 +60,7 @@ export function subscriptionFreezePolicy(record: RecordValue, at = new Date()): 
   const status = String(record.status ?? "").toUpperCase()
   let allowed = true
   let message = `الحد الأقصى ${maxDaysPerFreeze} يوم في المرة، والمتبقي ${remainingFreezes} من ${maxFreezesPerTerm} مرات.`
-  if (remainingTotalDays !== undefined) message += ` رصيد التجميد الإجمالي المتبقي ${remainingTotalDays} من ${maxTotalFreezeDays} يوم.`
+  if (remainingTotalDays !== undefined) message += ` رصيد التجميد الإجمالي المتبقي ${remainingTotalDays} من ${maxTotalFreezeDays} يوم، ويُخصم منه كامل العدد المطلوب حتى عند الاستئناف المبكر.`
 
   if (!["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status)) {
     allowed = false

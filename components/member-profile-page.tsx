@@ -393,9 +393,9 @@ function FreezeHistorySection({ subscriptions, branches, asOf, error }: { subscr
 function FreezeUsageMetrics({ period, asOf }: { period: Row; asOf: number }) {
   const usage = freezeUsage(period, asOf)
   return <dl className="mt-4 grid grid-cols-1 gap-2 border-t border-sky-500/15 pt-3 text-center sm:grid-cols-3">
-    <div className="rounded-xl bg-background/70 p-3"><dt className="text-[10px] font-bold text-muted-foreground">عدد أيام التجميد</dt><dd className="mt-1 text-sm font-black">{usage.total}</dd></div>
-    <div className="rounded-xl bg-background/70 p-3"><dt className="text-[10px] font-bold text-muted-foreground">الأيام المستخدمة</dt><dd className="mt-1 text-sm font-black text-sky-700 dark:text-sky-300">{usage.used}</dd></div>
-    <div className="rounded-xl bg-background/70 p-3"><dt className="text-[10px] font-bold text-muted-foreground">الأيام المتبقية</dt><dd className="mt-1 text-sm font-black text-emerald-700 dark:text-emerald-300">{usage.remaining}</dd></div>
+    <div className="rounded-xl bg-background/70 p-3"><dt className="text-[10px] font-bold text-muted-foreground">المخصوم من الرصيد</dt><dd className="mt-1 text-sm font-black">{usage.total}</dd></div>
+    <div className="rounded-xl bg-background/70 p-3"><dt className="text-[10px] font-bold text-muted-foreground">المدة الفعلية</dt><dd className="mt-1 text-sm font-black text-sky-700 dark:text-sky-300">{usage.used}</dd></div>
+    <div className="rounded-xl bg-background/70 p-3"><dt className="text-[10px] font-bold text-muted-foreground">المتبقي حتى الموعد</dt><dd className="mt-1 text-sm font-black text-emerald-700 dark:text-emerald-300">{usage.remaining}</dd></div>
   </dl>
 }
 
@@ -567,18 +567,16 @@ function subscriptionContractPrintRows(subscription: Row): Array<[string, string
     if (configuration.maxTotalFreezeDays !== undefined) rows.push(["إجمالي أيام التجميد المسموحة", `${minor(configuration.maxTotalFreezeDays)} يوم`])
     rows.push(["النشاط المطلوب قبل التجميد", `${minor(configuration.minimumActiveDaysBeforeFreeze)} يوم`])
     rows.push(["مرات التجميد المستخدمة", `${periods.length} مرة`])
-    rows.push(["أيام التجميد المستخدمة", `${totalUsedFreezeDays(periods, Date.now())} يوم`])
+    rows.push(["أيام التجميد المخصومة من الرصيد", `${totalChargedFreezeDays(periods)} يوم`])
     rows.push(["مرات التجميد المتبقية", `${Math.max(minor(configuration.maxFreezesPerTerm) - periods.length, 0)} مرة`])
   }
   return rows
 }
-function totalUsedFreezeDays(periods: Row[], asOf: number) {
+function totalChargedFreezeDays(periods: Row[]) {
   return periods.reduce((total, period) => {
     const startedAt = new Date(text(period.startedAt, "")).getTime()
     const plannedEndAt = new Date(text(period.plannedEndAt, "")).getTime()
-    const resumedAt = period.resumedAt ? new Date(text(period.resumedAt, "")).getTime() : asOf
-    if (!Number.isFinite(startedAt) || !Number.isFinite(plannedEndAt) || !Number.isFinite(resumedAt)) return total
-    const elapsedMilliseconds = Math.max(0, Math.min(plannedEndAt, Math.max(startedAt, resumedAt)) - startedAt)
-    return total + Math.ceil(elapsedMilliseconds / 86_400_000)
+    if (!Number.isFinite(startedAt) || !Number.isFinite(plannedEndAt)) return total
+    return total + Math.ceil(Math.max(0, plannedEndAt - startedAt) / 86_400_000)
   }, 0)
 }
