@@ -102,6 +102,8 @@
   .reports-metric-content p:nth-of-type(2) { font-size: 12pt !important; }
   .reports-metric-content p:nth-of-type(n + 3) { grid-column: 2 !important; font-size: 6.5pt !important; }
   .reports-details-card { break-inside: auto !important; overflow: visible !important; border-radius: 3mm !important; }
+  .reports-print-root .reports-details-card { break-inside: auto !important; }
+  .reports-details-card section { break-inside: auto !important; }
   .reports-details-heading { padding: 3mm 4mm !important; }
   .reports-details-heading h2 { font-size: 11pt !important; }
   .reports-details-heading p { margin-top: 1mm !important; font-size: 7.5pt !important; }
