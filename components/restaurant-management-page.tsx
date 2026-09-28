@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react"
-import { Check, ChefHat, ClipboardList, Clock3, Flame, Loader2, MapPin, PackageOpen, Plus, Save, Search, Send, ShoppingBag, Trash2, UserRound, X } from "lucide-react"
+import { Dialog } from "@base-ui/react/dialog"
+import { Check, ChefHat, ClipboardList, Clock3, Flame, Loader2, MapPin, PackageOpen, Pencil, Plus, Save, Search, Send, ShoppingBag, Trash2, UserRound, X } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { DateTimeInput } from "@/components/date-time-input"
 import { Badge } from "@/components/ui/badge"
@@ -14,8 +15,10 @@ import { humanError } from "@/lib/human-errors"
 
 type Row = Record<string, unknown>
 type MealPortionClass = "STANDARD_150G" | "LARGE_200G" | "UNRESTRICTED"
-type Meal = Row & { id: string; name: string; code: string; categoryId: string; kind?: string; status?: string; portionClass?: MealPortionClass; nutrition?: Nutrition; allergens?: string[] }
+type MealKind = "MEAL" | "PRODUCT" | "DRINK"
+type Meal = Row & { id: string; name: string; code: string; categoryId: string; description?: string; kind?: MealKind; status?: string; portionClass?: MealPortionClass; nutrition?: Nutrition; allergens?: string[] }
 type Nutrition = { caloriesKcal: number; proteinGrams: number; carbohydratesGrams: number; fatGrams: number; fiberGrams: number; sugarGrams: number; sodiumMilligrams: number }
+type MealMutationPayload = { branchId: string; categoryId: string; code: string; name: string; description: string | null; kind: MealKind; portionClass: MealPortionClass; nutrition: Nutrition; allergens: string[] }
 type MenuItem = { mealId: string; enabled: boolean; availableQuantity?: number; specialPriceMinor?: string }
 type Menu = { businessDate: string; status: "DRAFT" | "PUBLISHED" | "CLOSED"; version: number; items: MenuItem[] }
 type OrderLine = { id?: string; quote?: { targetName?: string; targetCode?: string; quantity?: number | string } }
@@ -42,6 +45,8 @@ export function RestaurantManagementPage() {
   const [loading, setLoading] = useState(hasRuntimeApi())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [editingMeal, setEditingMeal] = useState<Meal>()
+  const [deletingMeal, setDeletingMeal] = useState<Meal>()
   const [mealForm, setMealForm] = useState({ code: "", name: "", categoryId: "", description: "", kind: "MEAL", portionClass: "UNRESTRICTED", allergens: "", ...emptyNutrition })
   const [priceForm, setPriceForm] = useState({ mealId: "", amount: "", taxRatePercent: "15", taxInclusive: true })
   const [redemptionForm, setRedemptionForm] = useState({ memberId: "", subscriptionId: "", mealId: "", quantity: "1" })
@@ -86,13 +91,14 @@ export function RestaurantManagementPage() {
         canRedeemMealPlans && date !== redemptionDate ? apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${redemptionDate}`).catch(reason => isNotFound(reason) ? undefined : Promise.reject(reason)) : Promise.resolve(undefined),
       ])
       const nextCategories = list(categoryResponse.data)
-      const nextMeals = list(mealResponse.data) as Meal[]
+      const nextMeals = (list(mealResponse.data) as Meal[]).filter(meal => meal.status !== "INACTIVE")
+      const activeMealIds = new Set(nextMeals.map(meal => meal.id))
       const currentMenu = menuResult.status === "fulfilled" ? menuResult.value?.data : undefined
       const currentRedemptionMenu = date === redemptionDate ? currentMenu : redemptionMenuResult.status === "fulfilled" ? redemptionMenuResult.value?.data : undefined
       if (orderResult.status === "rejected") throw orderResult.reason
       if (redemptionMenuResult.status === "rejected") throw redemptionMenuResult.reason
       setCategories(nextCategories); setMeals(nextMeals); setOrders(orderList(orderResult.value.data)); setMenu(currentMenu); setRedemptionMenu(currentRedemptionMenu)
-      setMenuItems(currentMenu?.items ?? [])
+      setMenuItems(currentMenu?.items.filter(item => activeMealIds.has(item.mealId)) ?? [])
       setMealForm(current => current.categoryId || !nextCategories[0]?.id ? current : { ...current, categoryId: String(nextCategories[0].id) })
     } catch (reason) { setError(humanError(reason, "تعذر تحميل بيانات المطعم.")) }
     finally { setLoading(false) }
@@ -143,6 +149,39 @@ export function RestaurantManagementPage() {
       await apiRequest(`/organizations/${context.organizationId}/restaurant/meal-prices`, { method: "POST", body: JSON.stringify({ branchId: context.branchId, mealId: priceForm.mealId, amountMinor: String(Math.round(number(priceForm.amount) * 100)), taxRateBps: Math.round(number(priceForm.taxRatePercent) * 100), taxInclusive: priceForm.taxInclusive, validFrom: new Date(`${date}T00:00:00+03:00`).toISOString() }) })
       setPriceForm(current => ({ ...current, amount: "" })); toast.success("تم حفظ سعر الفرع من تاريخ القائمة.")
     } catch (reason) { setError(humanError(reason, "تعذر حفظ السعر.")) } finally { setSaving(false) }
+  }
+
+  async function updateCatalogMeal(meal: Meal, payload: MealMutationPayload): Promise<boolean> {
+    if (!context.organizationId) return false
+    setSaving(true); setError("")
+    try {
+      await apiRequest(`/organizations/${context.organizationId}/restaurant/meals/${meal.id}`, { method: "PATCH", body: JSON.stringify(payload) })
+      toast.success(`تم حفظ تعديلات ${payload.name}.`)
+      await load()
+      return true
+    } catch (reason) {
+      const message = humanError(reason, "تعذر حفظ تعديلات الصنف. راجع البيانات ثم أعد المحاولة.")
+      setError(message)
+      toast.error(message)
+      return false
+    } finally { setSaving(false) }
+  }
+
+  async function archiveCatalogMeal(meal: Meal): Promise<boolean> {
+    if (!context.organizationId || !context.branchId) return false
+    setSaving(true); setError("")
+    try {
+      await apiRequest(`/organizations/${context.organizationId}/restaurant/meals/${meal.id}?branchId=${encodeURIComponent(context.branchId)}`, { method: "DELETE" })
+      if (priceForm.mealId === meal.id) setPriceForm(current => ({ ...current, mealId: "", amount: "" }))
+      toast.success(`تم حذف ${meal.name} من الكتالوج وإيقاف إتاحته للبيع.`)
+      await load()
+      return true
+    } catch (reason) {
+      const message = humanError(reason, "تعذر حذف الصنف من الكتالوج. حاول مرة أخرى.")
+      setError(message)
+      toast.error(message)
+      return false
+    } finally { setSaving(false) }
   }
 
   async function publishMenu() {
@@ -201,7 +240,9 @@ export function RestaurantManagementPage() {
   return <div className="fade-up space-y-5">
     <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><nav aria-label="أقسام تشغيل المطعم" className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:flex-wrap">{availableTabs.map(item => <Button key={item.key} className="w-full justify-center lg:w-auto" variant={activeTab === item.key ? "default" : "outline"} onClick={() => setTab(item.key)}><item.icon />{item.label}</Button>)}</nav></header>
     {error && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel member={redemptionMember} setMember={member => setRedemptionMemberSelection({ organizationId: context.organizationId, branchId: context.branchId, ...(member ? { member } : {}) })} subscriptions={subscriptions} meals={meals} menu={redemptionMenu} form={scopedRedemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
+    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} onEdit={setEditingMeal} onDelete={setDeletingMeal} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel member={redemptionMember} setMember={member => setRedemptionMemberSelection({ organizationId: context.organizationId, branchId: context.branchId, ...(member ? { member } : {}) })} subscriptions={subscriptions} meals={meals} menu={redemptionMenu} form={scopedRedemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
+    {editingMeal && <MealEditDialog key={editingMeal.id} meal={editingMeal} categories={categories} branchId={context.branchId} saving={saving} onClose={() => setEditingMeal(undefined)} onSave={payload => updateCatalogMeal(editingMeal, payload)} />}
+    {deletingMeal && <MealDeleteDialog meal={deletingMeal} saving={saving} onClose={() => setDeletingMeal(undefined)} onConfirm={() => archiveCatalogMeal(deletingMeal)} />}
   </div>
 }
 
@@ -212,7 +253,7 @@ function MenuPanel({ date, setDate, meals, menu, menuItems, add, remove, update,
   return <Card><CardContent className="p-5"><div className="flex flex-col justify-between gap-3 border-b pb-4 sm:flex-row sm:items-end"><div><h2 className="font-black">قائمة الفرع اليومية</h2><p className="mt-1 text-xs text-muted-foreground">{menu?.status === "PUBLISHED" ? (hasVisibleItems ? "منشورة للمشتركين. يمكنك تعديل الوجبات أو إخفاء أي وجبة ثم حفظ التحديث." : "القائمة محفوظة لكن لا توجد وجبة معروضة للمشتركين حاليًا.") : closed ? "تم إيقاف عرض هذه القائمة للمشتركين." : "أضف الوجبات ثم انشرها مباشرة للمشتركين."}</p></div><DateTimeInput type="date" value={date} onChange={event => setDate(event.target.value)} className="w-full sm:w-48" /></div>{!canManage ? <p className="mt-4 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">عرض القائمة فقط — تعديل قائمة اليوم يحتاج صلاحية إدارة قائمة المطعم.</p> : null}<div className="mt-4 divide-y">{meals.map(meal => { const item = selected.get(meal.id); return <div key={meal.id} className="grid gap-3 py-4 md:grid-cols-[auto_1fr_130px_150px_auto]"><div className="self-center">{item ? <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={item.enabled} disabled={!canManage || closed} onChange={event => update(meal.id, { enabled: event.target.checked })} className="size-4 accent-primary" />ظاهر للمشتركين</label> : canManage ? <Button variant="outline" size="sm" disabled={closed} onClick={() => add(meal.id)}><Plus />إضافة</Button> : <span className="text-xs text-muted-foreground">غير مضافة</span>}</div><div><p className="font-bold">{meal.name}</p><p className="mt-1 text-xs text-muted-foreground">{meal.nutrition?.caloriesKcal ?? 0} سعرة · بروتين {meal.nutrition?.proteinGrams ?? 0}غ · كربوهيدرات {meal.nutrition?.carbohydratesGrams ?? 0}غ</p></div><Input type="number" min="1" disabled={!canManage || !item || closed} value={item?.availableQuantity ?? ""} onChange={event => update(meal.id, { availableQuantity: event.target.value ? number(event.target.value) : undefined })} placeholder="الكمية المتاحة" /><Input type="number" min="0" step="0.01" disabled={!canManage || !item || closed} value={item?.specialPriceMinor === undefined ? "" : String(Number(item.specialPriceMinor) / 100)} onChange={event => update(meal.id, { specialPriceMinor: event.target.value ? String(Math.round(number(event.target.value) * 100)) : undefined })} placeholder="سعر خاص (ر.س)" />{item && canManage ? <Button variant="ghost" size="icon" disabled={closed} onClick={() => remove(meal.id)} aria-label={`حذف ${meal.name} من قائمة اليوم`}><Trash2 className="size-4 text-destructive" /></Button> : <span />}</div> })}</div>{canManage ? <div className="mt-5 flex flex-wrap gap-2"><Button onClick={publish} disabled={saving || closed || menuItems.length === 0}><Send />{menu ? "حفظ التحديثات" : "نشر قائمة اليوم"}</Button><Button variant="outline" onClick={hide} disabled={saving || menu?.status !== "PUBLISHED" || !hasVisibleItems}><Save />إيقاف العرض للمشتركين</Button></div> : null}</CardContent></Card>
 }
 
-function CatalogPanel({ categories, categoryName, meals, mealForm, setMealField, priceForm, setPriceForm, createMeal, createPrice, saving, canManageCatalog, canManagePricing }: { categories: Row[]; categoryName: Map<string, string>; meals: Meal[]; mealForm: Record<string, string | boolean | number>; setMealField: (key: keyof typeof mealForm, value: string | boolean) => void; priceForm: { mealId: string; amount: string; taxRatePercent: string; taxInclusive: boolean }; setPriceForm: React.Dispatch<React.SetStateAction<{ mealId: string; amount: string; taxRatePercent: string; taxInclusive: boolean }>>; createMeal: () => void; createPrice: () => void; saving: boolean; canManageCatalog: boolean; canManagePricing: boolean }) {
+function CatalogPanel({ categories, categoryName, meals, mealForm, setMealField, priceForm, setPriceForm, createMeal, createPrice, saving, canManageCatalog, canManagePricing, onEdit, onDelete }: { categories: Row[]; categoryName: Map<string, string>; meals: Meal[]; mealForm: Record<string, string | boolean | number>; setMealField: (key: keyof typeof mealForm, value: string | boolean) => void; priceForm: { mealId: string; amount: string; taxRatePercent: string; taxInclusive: boolean }; setPriceForm: React.Dispatch<React.SetStateAction<{ mealId: string; amount: string; taxRatePercent: string; taxInclusive: boolean }>>; createMeal: () => void; createPrice: () => void; saving: boolean; canManageCatalog: boolean; canManagePricing: boolean; onEdit: (meal: Meal) => void; onDelete: (meal: Meal) => void }) {
   const nutrition = Object.entries(emptyNutrition) as [keyof Nutrition, number][]
   const breakdown = priceBreakdown(priceForm.amount, priceForm.taxRatePercent, priceForm.taxInclusive)
 
@@ -244,8 +285,83 @@ function CatalogPanel({ categories, categoryName, meals, mealForm, setMealField,
       <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={priceForm.taxInclusive} onChange={e => setPriceForm(current => ({ ...current, taxInclusive: e.target.checked }))} />السعر المُدخل شامل ضريبة القيمة المضافة</label>
       {breakdown !== undefined ? <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl border bg-muted/30 p-3 text-center text-xs"><div><p className="text-muted-foreground">قبل الضريبة</p><p className="mt-1 font-black">{sar(breakdown.net)}</p></div><div><p className="text-muted-foreground">الضريبة</p><p className="mt-1 font-black">{sar(breakdown.tax)}</p></div><div><p className="text-muted-foreground">السعر النهائي</p><p className="mt-1 font-black text-primary">{sar(breakdown.gross)}</p></div></div> : <p className="mt-3 text-xs text-muted-foreground">اكتب السعر ونسبة الضريبة لعرض تفصيل السعر قبل الضريبة وبعدها.</p>}
       <Button className="mt-5" onClick={createPrice} disabled={saving || !priceForm.mealId || !priceForm.amount}><Save />حفظ السعر للفرع</Button>
-    </CardContent></Card> : null}<Card><CardContent className="p-5"><h2 className="font-black">الكتالوج الحالي</h2>{!canManageCatalog && !canManagePricing ? <p className="mt-1 text-xs text-muted-foreground">يمكنك استعراض الوجبات. التعديل والتسعير يظهران فقط عند منح الصلاحية المناسبة.</p> : null}<div className="mt-3 max-h-72 divide-y overflow-auto">{meals.map(meal => <div key={meal.id} className="py-3"><div className="flex justify-between gap-3"><p className="font-bold">{meal.name}</p><span className="text-xs text-muted-foreground">{categoryName.get(meal.categoryId) ?? "—"}</span></div><p className="mt-1 text-xs text-muted-foreground"><Flame className="ml-1 inline size-3 text-orange-500" />{meal.nutrition?.caloriesKcal ?? 0} kcal · P {meal.nutrition?.proteinGrams ?? 0}g · C {meal.nutrition?.carbohydratesGrams ?? 0}g · F {meal.nutrition?.fatGrams ?? 0}g</p>{meal.allergens?.length ? <p className="mt-1 text-[11px] text-amber-700">حساسيات: {meal.allergens.join("، ")}</p> : null}</div>)}</div></CardContent></Card></div>
+    </CardContent></Card> : null}<Card><CardContent className="p-5"><h2 className="font-black">الكتالوج الحالي</h2>{!canManageCatalog && !canManagePricing ? <p className="mt-1 text-xs text-muted-foreground">يمكنك استعراض الوجبات. التعديل والتسعير يظهران فقط عند منح الصلاحية المناسبة.</p> : null}<div className="mt-3 max-h-96 divide-y overflow-auto">{meals.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">لا توجد أصناف في الكتالوج الحالي.</p> : meals.map(meal => <div key={meal.id} className="py-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-bold">{meal.name}</p><p className="mt-1 text-[11px] text-muted-foreground">{meal.code} · {categoryName.get(meal.categoryId) ?? "—"}</p></div>{canManageCatalog ? <div className="flex shrink-0 gap-1"><Button type="button" variant="ghost" size="icon-sm" onClick={() => onEdit(meal)} aria-label={`تعديل ${meal.name}`}><Pencil /></Button><Button type="button" variant="ghost" size="icon-sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(meal)} aria-label={`حذف ${meal.name}`}><Trash2 /></Button></div> : <span className="text-xs text-muted-foreground">{categoryName.get(meal.categoryId) ?? "—"}</span>}</div><p className="mt-2 text-xs text-muted-foreground"><Flame className="ml-1 inline size-3 text-orange-500" />{meal.nutrition?.caloriesKcal ?? 0} kcal · P {meal.nutrition?.proteinGrams ?? 0}g · C {meal.nutrition?.carbohydratesGrams ?? 0}g · F {meal.nutrition?.fatGrams ?? 0}g</p>{meal.allergens?.length ? <p className="mt-1 text-[11px] text-amber-700">حساسيات: {meal.allergens.join("، ")}</p> : null}</div>)}</div></CardContent></Card></div>
   </div>
+}
+
+function MealEditDialog({ meal, categories, branchId, saving, onClose, onSave }: { meal: Meal; categories: Row[]; branchId: string; saving: boolean; onClose: () => void; onSave: (payload: MealMutationPayload) => Promise<boolean> }) {
+  const [form, setForm] = useState(() => ({
+    code: meal.code,
+    name: meal.name,
+    categoryId: meal.categoryId,
+    description: meal.description ?? "",
+    kind: meal.kind ?? "MEAL" as MealKind,
+    portionClass: meal.portionClass ?? "UNRESTRICTED" as MealPortionClass,
+    allergens: meal.allergens?.join("، ") ?? "",
+    ...Object.fromEntries((Object.keys(emptyNutrition) as Array<keyof Nutrition>).map(key => [key, String(meal.nutrition?.[key] ?? 0)])) as Record<keyof Nutrition, string>,
+  }))
+  const [validationError, setValidationError] = useState("")
+  const nutritionFields = Object.keys(emptyNutrition) as Array<keyof Nutrition>
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!form.code.trim() || !form.name.trim() || !form.categoryId) {
+      setValidationError("أدخل رمز الصنف واسمه وتصنيفه قبل الحفظ.")
+      return
+    }
+    const nutrition = Object.fromEntries(nutritionFields.map(key => [key, number(form[key])])) as Nutrition
+    if (Object.values(nutrition).some(value => !Number.isInteger(value) || value < 0)) {
+      setValidationError("القيم الغذائية يجب أن تكون أرقامًا صحيحة لا تقل عن صفر.")
+      return
+    }
+    setValidationError("")
+    const saved = await onSave({ branchId, categoryId: form.categoryId, code: form.code.trim().toUpperCase(), name: form.name.trim(), description: form.description.trim() || null, kind: form.kind, portionClass: form.portionClass, nutrition, allergens: split(form.allergens) })
+    if (saved) onClose()
+  }
+
+  return <Dialog.Root open onOpenChange={open => { if (!open && !saving) onClose() }}>
+    <Dialog.Portal>
+      <Dialog.Backdrop className="fixed inset-0 z-[100] bg-black/65 backdrop-blur-sm" />
+      <Dialog.Viewport className="fixed inset-0 z-[101] grid items-end justify-items-center sm:items-center sm:p-5">
+        <Dialog.Popup dir="rtl" className="flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[28px] border bg-card text-card-foreground shadow-2xl outline-none sm:max-w-3xl sm:rounded-[28px]">
+          <div className="flex items-start gap-3 border-b p-5 sm:p-6">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/15 text-amber-700"><Pencil /></span>
+            <div className="min-w-0 flex-1"><Dialog.Title className="text-xl font-black">تعديل {meal.name}</Dialog.Title><Dialog.Description className="mt-1 text-xs leading-6 text-muted-foreground">حدّث بيانات الصنف وقيمه الغذائية. سيظهر التعديل في الكتالوج وقوائم البيع الجديدة.</Dialog.Description></div>
+            <Dialog.Close render={<Button type="button" variant="ghost" size="icon" disabled={saving} aria-label="إغلاق نافذة التعديل" />}><X /></Dialog.Close>
+          </div>
+          <form onSubmit={submit} className="overflow-y-auto p-5 sm:p-6">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-2 text-sm font-bold"><span>رمز الصنف</span><Input value={form.code} onChange={event => setForm(current => ({ ...current, code: event.target.value.toUpperCase() }))} maxLength={32} /></label>
+              <label className="grid gap-2 text-sm font-bold"><span>اسم الصنف</span><Input value={form.name} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} maxLength={160} /></label>
+              <label className="grid gap-2 text-sm font-bold"><span>التصنيف</span><select value={form.categoryId} onChange={event => setForm(current => ({ ...current, categoryId: event.target.value }))} className="h-10 rounded-xl border bg-background px-3 text-sm"><option value="">اختر التصنيف</option>{categories.map(category => <option key={String(category.id)} value={String(category.id)}>{String(category.name ?? category.nameAr ?? "تصنيف")}</option>)}</select></label>
+              <label className="grid gap-2 text-sm font-bold"><span>نوع الصنف</span><select value={form.kind} onChange={event => setForm(current => ({ ...current, kind: event.target.value as MealKind }))} className="h-10 rounded-xl border bg-background px-3 text-sm"><option value="MEAL">وجبة</option><option value="PRODUCT">منتج</option><option value="DRINK">مشروب</option></select></label>
+              <label className="grid gap-2 text-sm font-bold"><span>حجم الحصة</span><select value={form.portionClass} onChange={event => setForm(current => ({ ...current, portionClass: event.target.value as MealPortionClass }))} className="h-10 rounded-xl border bg-background px-3 text-sm"><option value="UNRESTRICTED">حصة قياسية يحددها الشيف</option><option value="STANDARD_150G">حصة 150 جرام</option><option value="LARGE_200G">حصة 200 جرام</option></select></label>
+              <label className="grid gap-2 text-sm font-bold"><span>الحساسيات</span><Input value={form.allergens} onChange={event => setForm(current => ({ ...current, allergens: event.target.value }))} placeholder="حليب، جلوتين..." /></label>
+            </div>
+            <label className="mt-4 grid gap-2 text-sm font-bold"><span>الوصف</span><textarea value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} maxLength={1000} rows={3} className="w-full resize-y rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label>
+            <div className="mt-5 rounded-xl border bg-secondary/30 p-4"><p className="text-sm font-black">القيم الغذائية للحصة الواحدة</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{nutritionFields.map(key => <label key={key} className="grid gap-2 text-xs font-bold text-muted-foreground"><span>{nutritionLabel(key)}</span><Input type="number" min="0" step="1" value={form[key]} onChange={event => setForm(current => ({ ...current, [key]: event.target.value }))} /></label>)}</div></div>
+            {validationError && <p role="alert" className="mt-4 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{validationError}</p>}
+            <div className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" className="sm:flex-1" onClick={onClose} disabled={saving}>إلغاء</Button><Button type="submit" className="sm:flex-1" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Save />}حفظ التعديلات</Button></div>
+          </form>
+        </Dialog.Popup>
+      </Dialog.Viewport>
+    </Dialog.Portal>
+  </Dialog.Root>
+}
+
+function MealDeleteDialog({ meal, saving, onClose, onConfirm }: { meal: Meal; saving: boolean; onClose: () => void; onConfirm: () => Promise<boolean> }) {
+  async function confirm() { if (await onConfirm()) onClose() }
+  return <Dialog.Root open onOpenChange={open => { if (!open && !saving) onClose() }}>
+    <Dialog.Portal>
+      <Dialog.Backdrop className="fixed inset-0 z-[100] bg-black/65 backdrop-blur-sm" />
+      <Dialog.Viewport className="fixed inset-0 z-[101] grid items-end justify-items-center sm:items-center sm:p-5">
+        <Dialog.Popup dir="rtl" className="w-full rounded-t-[28px] border bg-card p-5 text-card-foreground shadow-2xl outline-none sm:max-w-md sm:rounded-[28px] sm:p-6">
+          <div className="flex items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-destructive/10 text-destructive"><Trash2 /></span><div><Dialog.Title className="text-lg font-black">حذف {meal.name} من الكتالوج؟</Dialog.Title><Dialog.Description className="mt-2 text-sm leading-7 text-muted-foreground">سيتوقف ظهور الصنف في قوائم البيع الجديدة. ستبقى الطلبات والفواتير السابقة محفوظة كما هي.</Dialog.Description></div></div>
+          <div className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" className="sm:flex-1" onClick={onClose} disabled={saving}>إلغاء</Button><Button type="button" variant="destructive" className="sm:flex-1" onClick={() => void confirm()} disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Trash2 />}تأكيد الحذف</Button></div>
+        </Dialog.Popup>
+      </Dialog.Viewport>
+    </Dialog.Portal>
+  </Dialog.Root>
 }
 
 function MealPlanRedemptionPanel({ member, setMember, subscriptions, meals, menu, form, setForm, redeem, saving }: { member?: MemberOption; setMember: (member?: MemberOption) => void; subscriptions: SubscriptionOption[]; meals: Meal[]; menu?: Menu; form: { memberId: string; subscriptionId: string; mealId: string; quantity: string }; setForm: Dispatch<SetStateAction<{ memberId: string; subscriptionId: string; mealId: string; quantity: string }>>; redeem: () => void; saving: boolean }) {

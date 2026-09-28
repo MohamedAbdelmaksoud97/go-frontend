@@ -888,6 +888,22 @@
     "description": "Restaurant meal, product, or drink created."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/restaurant/meals/{mealId}",
+    "method": "patch",
+    "operationId": "updateRestaurantMeal",
+    "secured": true,
+    "idempotent": false,
+    "description": "Restaurant meal details updated."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/restaurant/meals/{mealId}",
+    "method": "delete",
+    "operationId": "archiveRestaurantMeal",
+    "secured": true,
+    "idempotent": false,
+    "description": "Restaurant meal archived while historical transactions remain intact."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/restaurant/meal-prices",
     "method": "get",
     "operationId": "listRestaurantMealPrices",
@@ -1293,7 +1309,7 @@
     "operationId": "getDetailedOperationalReport",
     "secured": true,
     "idempotent": false,
-    "description": "Source-of-truth member/subscription, package, promotion, service, attendance, booking, debt, expense, or treasury detail for an authorized branch/date range, with optional package or promotion subscription drill-down."
+    "description": "Source-of-truth member/subscription, package, promotion, service, attendance, booking, debt, expense, point-of-sale, restaurant-revenue, treasury, or payment-method revenue detail for an authorized branch/date range, with optional package or promotion subscription drill-down."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/reporting-rebuilds",
@@ -1686,6 +1702,14 @@
     "secured": true,
     "idempotent": false,
     "description": "Published and currently priced packages for the selected branch."
+  },
+  {
+    "path": "/api/v1/self/organizations/{organizationId}/promotions",
+    "method": "get",
+    "operationId": "listSelfServicePromotions",
+    "secured": true,
+    "idempotent": false,
+    "description": "Active branch-visible offers with their included packages and services."
   },
   {
     "path": "/api/v1/self/organizations/{organizationId}/quotes",
