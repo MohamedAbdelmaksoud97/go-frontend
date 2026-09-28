@@ -703,7 +703,7 @@ function RecordPreview({ columns, fields, row, record, operationId, organization
   const context = useAppContext()
   const toast = useToast()
   const [currentRecord, setCurrentRecord] = useState(record)
-  const [refreshing, setRefreshing] = useState(operationId === "listReservations")
+  const [refreshing, setRefreshing] = useState(operationId === "listReservations" || operationId === "listSubscriptions")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [actionResult, setActionResult] = useState("")
@@ -714,15 +714,16 @@ function RecordPreview({ columns, fields, row, record, operationId, organization
   const version = Number(currentRecord.version ?? 1)
   const freezePolicy = subscriptionFreezePolicy(currentRecord)
   const freezeSchedule = pendingFreezeSchedule(currentRecord)
-  const currentRow = operationId === "listReservations" ? fields.map(field => displayValue(currentRecord, field, context.branches)) : row
+  const currentRow = operationId === "listReservations" || operationId === "listSubscriptions" ? fields.map(field => displayValue(currentRecord, field, context.branches)) : row
   const actions: RecordAction[] = []
 
   useEffect(() => {
-    if (operationId !== "listReservations" || !organizationId || !id) return
+    if (!["listReservations", "listSubscriptions"].includes(operationId) || !organizationId || !id) return
     let cancelled = false
-    void apiRequest<ApiRecord>(`/organizations/${organizationId}/reservations/${id}`)
+    const resource = operationId === "listReservations" ? "reservations" : "subscriptions"
+    void apiRequest<ApiRecord>(`/organizations/${organizationId}/${resource}/${id}`)
       .then(response => { if (!cancelled) { setCurrentRecord(value => ({ ...value, ...response.data })); setError("") } })
-      .catch(reason => { if (!cancelled) setError(humanError(reason, "تعذر تحديث حالة الحجز. أغلق التفاصيل وحدّث القائمة ثم حاول مجددًا.")) })
+      .catch(reason => { if (!cancelled) setError(humanError(reason, operationId === "listReservations" ? "تعذر تحديث حالة الحجز. أغلق التفاصيل وحدّث القائمة ثم حاول مجددًا." : "تعذر تحديث حالة الاشتراك. أغلق التفاصيل وحدّث القائمة ثم حاول مجددًا.")) })
       .finally(() => { if (!cancelled) setRefreshing(false) })
     return () => { cancelled = true }
   }, [id, operationId, organizationId])
@@ -894,10 +895,13 @@ function RecordPreview({ columns, fields, row, record, operationId, organization
     setError("")
     try {
       let body = action.body(values)
-      if (operationId === "listReservations" && id) {
-        const latest = (await apiRequest<ApiRecord>(`/organizations/${organizationId}/reservations/${id}`)).data
+      if (["listReservations", "listSubscriptions"].includes(operationId) && id) {
+        const resource = operationId === "listReservations" ? "reservations" : "subscriptions"
+        const latest = (await apiRequest<ApiRecord>(`/organizations/${organizationId}/${resource}/${id}`)).data
         setCurrentRecord(value => ({ ...value, ...latest }))
-        const blockedReason = unavailableBookingActionReason(action.path, body, latest)
+        const blockedReason = operationId === "listReservations"
+          ? unavailableBookingActionReason(action.path, body, latest)
+          : unavailableSubscriptionActionReason(action.path, latest)
         if (blockedReason) { setError(blockedReason); return }
         body = { ...body, expectedVersion: Number(latest.version ?? 1) }
       }
@@ -909,15 +913,16 @@ function RecordPreview({ columns, fields, row, record, operationId, organization
         onChanged()
       }
     } catch (reason) {
-      if (operationId === "listReservations" && id && reason instanceof ApiError && reason.problem.code === "version_conflict") {
+      if (["listReservations", "listSubscriptions"].includes(operationId) && id && reason instanceof ApiError && reason.problem.code === "version_conflict") {
         try {
-          const latest = (await apiRequest<ApiRecord>(`/organizations/${organizationId}/reservations/${id}`)).data
+          const resource = operationId === "listReservations" ? "reservations" : "subscriptions"
+          const latest = (await apiRequest<ApiRecord>(`/organizations/${organizationId}/${resource}/${id}`)).data
           setCurrentRecord(value => ({ ...value, ...latest }))
-          setError(`تغيّرت حالة الحجز أثناء تنفيذ الإجراء، وتم تحديثها الآن إلى «${statusLabel(String(latest.status ?? ""))}». راجع الحالة الجديدة ثم اختر الإجراء المناسب.`)
+          setError(`تغيّرت حالة ${operationId === "listReservations" ? "الحجز" : "الاشتراك"} أثناء تنفيذ الإجراء، وتم تحديثها الآن إلى «${statusLabel(String(latest.status ?? ""))}». راجع الحالة الجديدة ثم اختر الإجراء المناسب.`)
         } catch {
-          setError("تغيّرت حالة الحجز أثناء تنفيذ الإجراء. أغلق التفاصيل وحدّث القائمة لمراجعة أحدث حالة قبل المحاولة.")
+          setError(`تغيّرت حالة ${operationId === "listReservations" ? "الحجز" : "الاشتراك"} أثناء تنفيذ الإجراء. أغلق التفاصيل وحدّث القائمة لمراجعة أحدث حالة قبل المحاولة.`)
         }
-      } else setError(humanError(reason, "تعذر تنفيذ إجراء الحجز. راجع حالة الموعد والبيانات ثم حاول مرة أخرى."))
+      } else setError(humanError(reason, operationId === "listSubscriptions" ? "تعذر تنفيذ إجراء الاشتراك. راجع حالته والبيانات ثم حاول مرة أخرى." : "تعذر تنفيذ إجراء الحجز. راجع حالة الموعد والبيانات ثم حاول مرة أخرى."))
     } finally {
       setBusy(false)
     }
@@ -926,8 +931,8 @@ function RecordPreview({ columns, fields, row, record, operationId, organization
   const visibleActions = actions.filter(action => context.canAccess([action.permission]))
   const showSubscriptionFreezeAction = operationId === "listSubscriptions" && Boolean(id) && context.canAccess(["subscriptions.freeze"]) && ["ACTIVE", "ACTIVE_PROVISIONAL", "FROZEN"].includes(status)
   const subscriptionFreezeActionDisabled = ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && !freezeSchedule && !freezePolicy.allowed
-  const showSubscriptionCancelAction = operationId === "listSubscriptions" && Boolean(id) && context.canAccess(["subscriptions.cancel"]) && !["EXPIRED", "CANCELLED"].includes(status) && !record.cancellationRequest
-  const cancellationPolicy = capturedPolicyConfiguration(record, "CANCELLATION")
+  const showSubscriptionCancelAction = operationId === "listSubscriptions" && Boolean(id) && context.canAccess(["subscriptions.cancel"]) && !["EXPIRED", "CANCELLED"].includes(status) && !currentRecord.cancellationRequest
+  const cancellationPolicy = capturedPolicyConfiguration(currentRecord, "CANCELLATION")
   function requestAction(action: RecordAction) {
     setError("")
     if (action.fields?.length || action.danger || action.requiresConfirmation) setPendingAction(action)
@@ -944,9 +949,9 @@ function RecordPreview({ columns, fields, row, record, operationId, organization
         {actionResult && <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"><p className="text-xs font-black text-emerald-600">تم إصدار بيانات التفعيل</p><p dir="ltr" className="mt-2 whitespace-pre-line text-left font-mono text-sm font-bold leading-7">{actionResult}</p><p className="mt-2 text-[10px] text-muted-foreground">لا يُحفظ الرمز بصورته الأصلية، لذلك انسخه الآن وسلّمه للعضو عبر قناة آمنة.</p></div>}
         {operationId === "listSubscriptions" && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <div role="status" className={`mt-5 rounded-2xl border p-4 text-xs ${freezePolicy.allowed ? "border-blue-500/25 bg-blue-500/5" : "border-amber-500/30 bg-amber-500/8"}`}><p className="font-black">سياسة التجميد المحفوظة مع الاشتراك</p><p className="mt-2 leading-6 text-muted-foreground">{freezePolicy.message} أيام النشاط المحسوبة: {freezePolicy.activeDays}، والحد الأدنى المطلوب: {freezePolicy.minimumActiveDaysBeforeFreeze}.</p></div>}
         {(visibleActions.length > 0 || showSubscriptionFreezeAction || showSubscriptionCancelAction) && <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">
-          {showSubscriptionFreezeAction && <Button variant="outline" disabled={busy || subscriptionFreezeActionDisabled} title={subscriptionFreezeActionDisabled ? freezePolicy.message : undefined} onClick={onFreeze}>{freezeSchedule ? "إدارة موعد التجميد" : status === "FROZEN" ? "استئناف الاشتراك" : "تجميد الاشتراك"}</Button>}
-          {showSubscriptionCancelAction && <Button variant="destructive" disabled={busy || !cancellationPolicy} title={cancellationPolicy ? "إلغاء الاشتراك وفق سياسة الباقة" : "لا توجد سياسة إلغاء محفوظة مع الاشتراك"} onClick={onCancel}>إلغاء الاشتراك</Button>}
-          {visibleActions.map(action => <Button key={action.label} variant={action.danger ? "destructive" : "outline"} disabled={busy || action.disabled} title={action.disabledReason} onClick={() => requestAction(action)}>{action.label}</Button>)}
+          {showSubscriptionFreezeAction && <Button variant="outline" disabled={busy || refreshing || subscriptionFreezeActionDisabled} title={refreshing ? "جارٍ تحديث حالة السجل" : subscriptionFreezeActionDisabled ? freezePolicy.message : undefined} onClick={onFreeze}>{freezeSchedule ? "إدارة موعد التجميد" : status === "FROZEN" ? "استئناف الاشتراك" : "تجميد الاشتراك"}</Button>}
+          {showSubscriptionCancelAction && <Button variant="destructive" disabled={busy || refreshing || !cancellationPolicy} title={refreshing ? "جارٍ تحديث حالة السجل" : cancellationPolicy ? "إلغاء الاشتراك وفق سياسة الباقة" : "لا توجد سياسة إلغاء محفوظة مع الاشتراك"} onClick={onCancel}>إلغاء الاشتراك</Button>}
+          {visibleActions.map(action => <Button key={action.label} variant={action.danger ? "destructive" : "outline"} disabled={busy || refreshing || action.disabled} title={refreshing ? "جارٍ تحديث حالة السجل" : action.disabledReason} onClick={() => requestAction(action)}>{action.label}</Button>)}
         </div>}
         <Button className="mt-6 w-full" size="lg" onClick={onClose} disabled={busy}>إغلاق</Button>
       </section>
@@ -993,6 +998,22 @@ function unavailableBookingActionReason(path: string, body: Record<string, unkno
     if (status === "PENDING_PAYMENT") return "الحجز ما زال بانتظار الدفع. أكمل تحصيل الفاتورة أولًا ليصبح الحجز مؤكدًا."
     if (status !== "CONFIRMED") return `تم إغلاق الحجز بحالة «${statusLabel(status)}»، لذلك لا يمكن تسجيل نتيجة جديدة له.`
     if (!started) return `لا يمكن تسجيل ${body.action === "NO_SHOW" ? "عدم الحضور" : "اكتمال الحجز"} قبل بداية الموعد في ${startsAt.toLocaleString("ar-SA")}.`
+  }
+  return ""
+}
+
+function unavailableSubscriptionActionReason(path: string, record: ApiRecord) {
+  const status = String(record.status ?? "").toUpperCase()
+  if (path.endsWith("/administrative-corrections")) {
+    if (status === "CANCELLED") return "هذا الاشتراك ملغى بالفعل؛ راجع الاشتراك الصحيح أو سجل المراجعة."
+    if (status === "EXPIRED") return "انتهى هذا الاشتراك بالفعل؛ لا يمكن تسجيله كتصحيح إداري بعد انتهاء مدته."
+    if (record.cancellationRequest) return "يوجد طلب إلغاء جارٍ لهذا الاشتراك. أكمل الطلب أو راجعه قبل التصحيح الإداري."
+  }
+  if (path.endsWith("/start-date-changes") && !["PENDING_ACTIVATION", "SCHEDULED"].includes(status)) {
+    return `أصبحت حالة الاشتراك «${statusLabel(status)}»، لذلك لم يعد تعديل موعد البداية متاحًا.`
+  }
+  if (path.endsWith("/adjustments") && !["ACTIVE", "FROZEN"].includes(status)) {
+    return `أصبحت حالة الاشتراك «${statusLabel(status)}»، لذلك لا يمكن تعديل المدة أو رصيد الزيارات الآن.`
   }
   return ""
 }
