@@ -19,7 +19,7 @@ import { humanError } from "@/lib/human-errors"
 import { cn } from "@/lib/utils"
 import { ownerFileValidationError, uploadOwnerFile, type OwnerFileKind } from "@/lib/owner-file-upload"
 import { useToast } from "@/components/toast-provider"
-import { escapePrintHtml, openBrandedPrintWindow } from "@/lib/branded-print"
+import { ContractPrintSheets, printContractDocument, printableContract, type ContractPrintContext, type ContractSnapshot, type MembershipPrintDetails } from "@/components/invoice-details-page"
 import { remainingSubscriptionDaysLabel } from "@/lib/subscription-term"
 import { accessDeviceReason, accessReader, accessSeverity, accessSystemReason, gateOpenedButSystemRejected, type GateAccessEvent } from "@/lib/access-event"
 
@@ -358,6 +358,13 @@ function ProfileSection({ member, contacts, branchName, identity, identityUrl, s
 }
 
 function SubscriptionSection({ rows: items, branches, activities, services, member, employeeName, asOf, error }: ListProps & { activities: Row[]; services: Row[]; member?: Row; employeeName?: string; asOf: number }) {
+  const [printable, setPrintable] = useState<{ context: ContractPrintContext; contract: ContractSnapshot }>()
+  function printSubscriptionContract(contract: Row, subscription: Row, branchName: string) {
+    const normalized = printableSubscriptionContract(contract, subscription)
+    if (!normalized) return
+    setPrintable({ context: subscriptionContractContext(subscription, member, branchName, employeeName), contract: normalized })
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => void printContractDocument()))
+  }
   return <SectionShell title="الاشتراكات والباقات" count={items.length} error={error}>{items.length ? <div className="grid gap-3 lg:grid-cols-2">{items.map(row => {
     const snapshot = isRow(row.commercialSnapshot) ? row.commercialSnapshot : {}
     const freezes = Array.isArray(row.freezePeriods) ? row.freezePeriods.filter(isRow) : []
@@ -368,9 +375,9 @@ function SubscriptionSection({ rows: items, branches, activities, services, memb
       <div className="mt-5 grid grid-cols-2 gap-3 text-xs"><Small label={frozen ? "المدة · النهاية بعد التجميد" : "مدة الاشتراك"} value={`${date(row.termStart)} — ${date(row.termEnd)}`}/><Small label="الأيام المتبقية لانتهاء الاشتراك" value={remainingSubscriptionDaysLabel(row, asOf)}/><Small label="الفرع" value={branchLabel(text(row.sellingBranchId), branches)}/><Small label="القيمة" value={money(minor(snapshot.grossMinor))}/><Small label="الاستخدام" value={row.visitAllowance == null ? "حسب صلاحيات الباقة" : `${minor(row.visitsUsed)} من ${minor(row.visitAllowance)} زيارة`}/></div>
       {frozen && <p className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/8 p-3 text-xs leading-6 text-sky-800 dark:text-sky-200">تاريخ النهاية المعروض يشمل مدة التجميد المعتمدة، وسيُعدّل تلقائيًا إذا استؤنف الاشتراك مبكرًا.</p>}
       {freezes.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black"><Snowflake className="size-4 text-sky-500"/>سجل التجميدات</p><div className="space-y-2">{freezes.map((freeze, index) => <div key={text(freeze.id, String(index))} className="rounded-xl bg-sky-500/8 p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{date(freeze.startedAt)} — {date(freeze.plannedEndAt)}</strong><StatusBadge status={freeze.resumedAt ? "COMPLETED" : "FROZEN"}/></div>{Boolean(freeze.reason) && <p className="mt-1 text-muted-foreground">{text(freeze.reason)}</p>}<FreezeUsageMetrics period={freeze} asOf={asOf}/></div>)}</div></div>}
-      {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printContract(contract, row, member, branchLabel(text(row.sellingBranchId), branches), employeeName)}><Printer/>طباعة العقد</Button></div>)}</div></div>}
+      {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printSubscriptionContract(contract, row, branchLabel(text(row.sellingBranchId), branches))}><Printer/>طباعة العقد</Button></div>)}</div></div>}
     </article>
-  })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}</SectionShell>
+  })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}{printable && <ContractPrintSheets context={printable.context} contracts={[printable.contract]}/>}</SectionShell>
 }
 
 function FreezeHistorySection({ subscriptions, branches, asOf, error }: { subscriptions: Row[]; branches: Branch[]; asOf: number; error?: string }) {
@@ -524,59 +531,64 @@ function subscriptionContracts(subscription: Row, services: Row[], activities: R
   const activityIds = new Set(services.filter(service => serviceIds.has(text(service.id))).flatMap(service => Array.isArray(service.activityIds) ? service.activityIds.map(String) : []))
   return activities.filter(activity => activityIds.has(text(activity.id)) && Boolean(activity.contractContent))
 }
-function printContract(contract: Row, subscription: Row, member: Row | undefined, branchName: string, employeeName?: string) {
-  const activityName = text(contract.name, "النشاط")
-  const title = text(contract.contractTitle, `عقد ${activityName}`)
-  const details = subscriptionContractPrintRows(subscription)
-  const contacts = member && Array.isArray(member.contacts) ? member.contacts.filter(isRow) : []
-  const phone = contacts.find(contact => text(contact.type, "") === "PHONE")
-  const email = contacts.find(contact => text(contact.type, "") === "EMAIL")
-  const memberRows: Array<[string, string]> = [["الاسم الكامل", text(member?.name)], ["رقم العضوية", text(member?.memberNumber)], ["رقم الهوية / الإقامة", text(member?.nationalId)], ["تاريخ الميلاد", date(member?.birthDate)], ["الجنسية", text(member?.nationalityCode)], ["رقم الجوال", text(phone?.value)], ["البريد الإلكتروني", text(email?.value)]]
-  const terms = contractSectionsPrintHtml(contract)
-  const contractDate = date(subscription.createdAt ?? subscription.termStart)
-  openBrandedPrintWindow({
-    title,
-    subtitle: "نسخة بنود عقد النشاط",
-    body: `<section class="document-heading"><p class="eyebrow">عقد ممارسة نشاط</p><h1>${escapePrintHtml(title)}</h1></section><section class="document-subject"><span>الباقة والنشاط</span><strong>${escapePrintHtml(text(contract.packageName, activityName))}</strong><small>${escapePrintHtml(activityName)} · ${escapePrintHtml(branchName)} · تاريخ العقد ${escapePrintHtml(contractDate)}</small></section><div class="document-grid"><section class="document-section"><h2>الطرف الأول: العضو</h2><table><tbody>${memberRows.map(([label, value]) => `<tr><th>${escapePrintHtml(label)}</th><td>${escapePrintHtml(value)}</td></tr>`).join("")}</tbody></table></section><section class="document-section"><h2>الطرف الثاني: النادي</h2><table><tbody><tr><th>اسم النادي</th><td>GO Fitness</td></tr><tr><th>الفرع</th><td>${escapePrintHtml(branchName)}</td></tr><tr><th>النشاط</th><td>${escapePrintHtml(activityName)}</td></tr><tr><th>الباقة</th><td>${escapePrintHtml(text(contract.packageName, activityName))}</td></tr></tbody></table></section></div><section class="document-section"><h2>بيانات الاشتراك والقيمة وسياسة التجميد</h2><table><tbody>${details.map(([label, value]) => `<tr><th>${escapePrintHtml(label)}</th><td>${escapePrintHtml(value)}</td></tr>`).join("")}</tbody></table></section><p class="document-preamble">تم إعداد هذه الوثيقة تلقائيًا وفق بيانات العضو والاشتراك والسياسة المحفوظة وقت البيع.</p>${terms}<section class="document-section"><h2>إقرار العضو</h2><p>أقر بصحة البيانات الموضحة وقراءتي لجميع بنود العقد وفهمها والموافقة عليها.</p></section><section class="document-signatures"><div><strong>${escapePrintHtml(text(member?.name))}</strong><br/>توقيع العضو</div><div><strong>${escapePrintHtml(employeeName ?? "موظف مخول")}</strong><br/>توقيع موظف النادي</div></section>`,
-  })
+function printableSubscriptionContract(contract: Row, subscription: Row): ContractSnapshot | undefined {
+  const commercial = isRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
+  const packageName = text(contract.packageName ?? commercial.packageName, text(contract.name, "باقة النادي"))
+  const normalized = printableContract({
+    ...contract,
+    packageId: contract.packageId ?? commercial.packageId ?? subscription.packageId,
+    packageCode: contract.packageCode ?? commercial.packageCode,
+    packageName,
+    activityName: contract.activityName ?? contract.name,
+    contractSections: contract.contractSections ?? contract.sections,
+  }, packageName)
+  if (!normalized) return undefined
+  return { ...normalized, membership: subscriptionMembershipPrintDetails(subscription) }
 }
-function contractSectionsPrintHtml(contract: Row) {
-  const raw = Array.isArray(contract.contractSections) ? contract.contractSections.filter(isRow) : Array.isArray(contract.sections) ? contract.sections.filter(isRow) : []
-  if (!raw.length) return `<section class="document-section"><h2>الشروط والأحكام</h2><div class="document-terms">${escapePrintHtml(text(contract.contractContent, ""))}</div></section>`
-  return raw.map(section => { const clauses = Array.isArray(section.clauses) ? section.clauses.map(value => text(value, "")).filter(Boolean) : []; const checklist = text(section.style, "") === "CHECKLIST"; return `<section class="document-section"><h2>${escapePrintHtml(text(section.title, "الشروط والأحكام"))}</h2><ol>${clauses.map(clause => `<li>${checklist ? "✓ " : ""}${escapePrintHtml(clause)}</li>`).join("")}</ol></section>` }).join("")
-}
-function subscriptionContractPrintRows(subscription: Row): Array<[string, string]> {
+function subscriptionMembershipPrintDetails(subscription: Row): MembershipPrintDetails {
   const commercial = isRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
   const promotion = isRow(commercial.promotion) ? commercial.promotion : undefined
   const policySnapshot = isRow(subscription.policySnapshot) ? subscription.policySnapshot : {}
   const policies = Array.isArray(policySnapshot.policies) ? policySnapshot.policies.filter(isRow) : []
   const freeze = policies.find(policy => text(policy.policyType, "") === "FREEZE")
   const configuration = freeze && isRow(freeze.configuration) ? freeze.configuration : undefined
-  const periods = Array.isArray(subscription.freezePeriods) ? subscription.freezePeriods.filter(isRow) : []
-  const rows: Array<[string, string]> = [
-    ["رقم الاشتراك", text(subscription.subscriptionNumber)],
-    ["الباقة", text(commercial.packageName, "باقة النادي")],
-    ["تاريخ بداية الاشتراك", date(subscription.termStart)],
-    ["تاريخ نهاية الاشتراك الحالية", date(subscription.termEnd)],
-    ["قيمة الاشتراك النهائية", money(minor(commercial.grossMinor))],
-  ]
-  if (promotion) rows.push(["العرض المطبق", text(promotion.name, text(promotion.code))])
-  if (configuration) {
-    rows.push(["مرات التجميد المسموحة", `${minor(configuration.maxFreezesPerTerm)} مرة`])
-    rows.push(["أقصى مدة للتجميد في المرة", `${minor(configuration.maxDaysPerFreeze)} يوم`])
-    if (configuration.maxTotalFreezeDays !== undefined) rows.push(["إجمالي أيام التجميد المسموحة", `${minor(configuration.maxTotalFreezeDays)} يوم`])
-    rows.push(["النشاط المطلوب قبل التجميد", `${minor(configuration.minimumActiveDaysBeforeFreeze)} يوم`])
-    rows.push(["مرات التجميد المستخدمة", `${periods.length} مرة`])
-    rows.push(["أيام التجميد المخصومة من الرصيد", `${totalChargedFreezeDays(periods)} يوم`])
-    rows.push(["مرات التجميد المتبقية", `${Math.max(minor(configuration.maxFreezesPerTerm) - periods.length, 0)} مرة`])
+  const maxDaysPerFreeze = configuration ? minor(configuration.maxDaysPerFreeze, Number.NaN) : Number.NaN
+  const maxFreezesPerTerm = configuration ? minor(configuration.maxFreezesPerTerm, Number.NaN) : Number.NaN
+  const configuredTotal = configuration ? minor(configuration.maxTotalFreezeDays, Number.NaN) : Number.NaN
+  const totalFreezeDays = Number.isFinite(configuredTotal) ? configuredTotal : Number.isFinite(maxDaysPerFreeze) && Number.isFinite(maxFreezesPerTerm) ? maxDaysPerFreeze * maxFreezesPerTerm : undefined
+  return {
+    lineId: text(subscription.id, text(subscription.subscriptionNumber)),
+    packageName: text(commercial.packageName, "باقة النادي"),
+    subscriptionNumber: text(subscription.subscriptionNumber),
+    status: text(subscription.status),
+    termStart: text(subscription.termStart),
+    termEnd: text(subscription.termEnd),
+    ...(promotion ? { promotionName: text(promotion.name, text(promotion.code)) } : {}),
+    ...(commercial.baseAmountMinor === undefined ? {} : { priceBeforeOfferMinor: text(commercial.baseAmountMinor, "0") }),
+    subscriptionValueMinor: text(commercial.grossMinor, "0"),
+    currency: text(commercial.currency, "SAR"),
+    ...(totalFreezeDays === undefined ? {} : { freezePolicy: { totalDays: totalFreezeDays } }),
   }
-  return rows
 }
-function totalChargedFreezeDays(periods: Row[]) {
-  return periods.reduce((total, period) => {
-    const startedAt = new Date(text(period.startedAt, "")).getTime()
-    const plannedEndAt = new Date(text(period.plannedEndAt, "")).getTime()
-    if (!Number.isFinite(startedAt) || !Number.isFinite(plannedEndAt)) return total
-    return total + Math.ceil(Math.max(0, plannedEndAt - startedAt) / 86_400_000)
-  }, 0)
+function subscriptionContractContext(subscription: Row, member: Row | undefined, branchName: string, employeeName?: string): ContractPrintContext {
+  const contacts = member && Array.isArray(member.contacts) ? member.contacts.filter(isRow) : []
+  const phone = contacts.find(contact => text(contact.type, "") === "PHONE")
+  const email = contacts.find(contact => text(contact.type, "") === "EMAIL")
+  const guardian = member && isRow(member.guardian) ? member.guardian : undefined
+  return {
+    branchName,
+    subscriptionNumber: text(subscription.subscriptionNumber),
+    issuedAt: text(subscription.createdAt ?? subscription.termStart),
+    employeeName,
+    member: {
+      name: text(member?.name),
+      memberNumber: text(member?.memberNumber),
+      ...(phone ? { phone: text(phone.value) } : {}),
+      ...(email ? { email: text(email.value) } : {}),
+      ...(member?.birthDate ? { birthDate: text(member.birthDate) } : {}),
+      ...(member?.nationalityCode ? { nationalityCode: text(member.nationalityCode) } : {}),
+      ...(member?.nationalId ? { nationalId: text(member.nationalId) } : {}),
+      ...(guardian ? { guardian: { name: text(guardian.name), relationship: text(guardian.relationship, "OTHER"), ...(guardian.phone ? { phone: text(guardian.phone) } : {}) } } : {}),
+    },
+  }
 }

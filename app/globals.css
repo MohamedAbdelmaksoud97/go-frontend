@@ -107,6 +107,12 @@
   .reports-details-heading { padding: 3mm 4mm !important; }
   .reports-details-heading h2 { font-size: 11pt !important; }
   .reports-details-heading p { margin-top: 1mm !important; font-size: 7.5pt !important; }
+  .treasury-management-summary { break-inside: auto !important; }
+  .treasury-source-cards { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 2mm !important; }
+  .treasury-source-cards > div { break-inside: avoid !important; border-color: #d1d5db !important; background: #f9fafb !important; padding: 2.5mm !important; }
+  .treasury-source-cards p { margin: 0 !important; }
+  .treasury-source-cards p:nth-child(2) { margin-top: 1mm !important; font-size: 11pt !important; }
+  .treasury-detail-section, .treasury-other-income-section { break-before: page !important; }
   .reports-table-wrap { width: 100% !important; overflow: visible !important; }
   .reports-table { width: 100% !important; min-width: 0 !important; table-layout: fixed !important; border-collapse: collapse !important; color: #111827 !important; }
   .reports-table thead { display: table-header-group !important; background: #f3f4f6 !important; }

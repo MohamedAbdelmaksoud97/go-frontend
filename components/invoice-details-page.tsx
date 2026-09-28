@@ -24,8 +24,8 @@ type InvoiceLine = {
   subscription?: { id: string; subscriptionNumber: string; status: string; termStart: string; termEnd: string; policySnapshot: Record<string, unknown>; freezesUsed: number; freezeDaysUsed: number }
   booking?: { id: string; status: string; startsAt: string; endsAt: string }
 }
-type FreezePolicyPrint = { totalDays: number }
-type MembershipPrintDetails = { lineId: string; packageName: string; subscriptionNumber?: string; status?: string; termStart?: string; termEnd?: string; promotionName?: string; priceBeforeOfferMinor?: string; subscriptionValueMinor: string; currency: string; freezePolicy?: FreezePolicyPrint }
+export type FreezePolicyPrint = { totalDays: number }
+export type MembershipPrintDetails = { lineId: string; packageName: string; subscriptionNumber?: string; status?: string; termStart?: string; termEnd?: string; promotionName?: string; priceBeforeOfferMinor?: string; subscriptionValueMinor: string; currency: string; freezePolicy?: FreezePolicyPrint }
 export type ContractSection = { title: string; style: "NUMBERED" | "CHECKLIST"; clauses: string[] }
 export type ContractSnapshot = { activityId: string; activityCode: string; activityName: string; packageId?: string; packageCode?: string; activityNames?: string[]; contractType: "GENERAL_ACTIVITY" | "CHILD_ACADEMY"; contractTitle: string; contractContent: string; contractSections: ContractSection[]; packageName?: string; source: "SALE" | "LEGACY_BACKFILL"; membership?: MembershipPrintDetails }
 export type ContractPrintContext = {
@@ -33,6 +33,7 @@ export type ContractPrintContext = {
   branchName: string
   branchAddress?: string
   invoiceNumber?: string
+  subscriptionNumber?: string
   issuedAt?: string
   employeeName?: string
   preview?: boolean
@@ -225,11 +226,16 @@ function InvoicePrintSheet({ invoice, invoiceType, memberships }: { invoice: Inv
 }
 
 export function ContractPrintSheets({ context, contracts }: { context: ContractPrintContext; contracts: ContractSnapshot[] }) {
+  const reference = context.invoiceNumber
+    ? { label: "رقم الفاتورة", value: context.invoiceNumber, description: `وثيقة مرتبطة بالفاتورة ${context.invoiceNumber}`, footer: `مرتبط بالفاتورة: ${context.invoiceNumber}`, notice: "تم تثبيت البنود عند إصدار الفاتورة حفاظًا على سلامة السجل." }
+    : context.subscriptionNumber
+      ? { label: "رقم الاشتراك", value: context.subscriptionNumber, description: `وثيقة مرتبطة بالاشتراك ${context.subscriptionNumber}`, footer: `مرتبط بالاشتراك: ${context.subscriptionNumber}`, notice: "تم تثبيت البنود عند إنشاء الاشتراك حفاظًا على سلامة السجل." }
+      : { label: "حالة الوثيقة", value: "معاينة قبل الشراء", description: "نسخة معاينة قبل الشراء", footer: "نسخة معاينة قبل الشراء", notice: "تُثبت البنود وتُربط بالفاتورة عند إتمام الشراء." }
   return <div data-contract-print className="contract-print-root" dir="rtl" aria-label="نسخة طباعة العقود">
     {contracts.map((contract, index) => <article className="contract-print-sheet" key={`${contract.activityId}-${index}`}>
       <header className="contract-print-header">
         <div className="contract-print-brand"><div className="print-logo-plate"><Image src="/go-fitness-logo.png" alt="شعار GO Fitness" width={104} height={58}/></div><div className="contract-print-brand-copy"><strong>{context.organizationName ?? "GO Fitness"}</strong><span>{context.branchName}</span></div></div>
-        <div className="contract-print-heading"><p>{contract.contractType === "CHILD_ACADEMY" ? "استمارة اشتراك أكاديمية" : "عقد ممارسة نشاط"}</p><h1>{contract.contractTitle}</h1><span>{context.invoiceNumber ? `وثيقة مرتبطة بالفاتورة ${context.invoiceNumber}` : "نسخة معاينة قبل الشراء"}</span></div>
+        <div className="contract-print-heading"><p>{contract.contractType === "CHILD_ACADEMY" ? "استمارة اشتراك أكاديمية" : "عقد ممارسة نشاط"}</p><h1>{contract.contractTitle}</h1><span>{reference.description}</span></div>
       </header>
 
       <section className="contract-print-subject" aria-label={contract.packageId ? "الباقة محل العقد" : "النشاط محل العقد"}>
@@ -242,7 +248,7 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
       </div>
 
       <section className="contract-print-reference" aria-label="بيانات مرجعية">
-        <PrintDatum label={context.invoiceNumber ? "رقم الفاتورة" : "حالة الوثيقة"} value={context.invoiceNumber ?? "معاينة قبل الشراء"}/><PrintDatum label="رمز الباقة" value={contract.packageCode ?? contract.activityCode}/><PrintDatum label={context.preview ? "تاريخ المعاينة" : "تاريخ العقد"} value={dateOnly(context.issuedAt ?? new Date().toISOString())}/><PrintDatum label="موظف الإصدار" value={context.employeeName ?? (context.preview ? "يحدد عند البيع" : "موظف مخول")}/>
+        <PrintDatum label={reference.label} value={reference.value}/><PrintDatum label="رمز الباقة" value={contract.packageCode ?? contract.activityCode}/><PrintDatum label={context.preview ? "تاريخ المعاينة" : "تاريخ العقد"} value={dateOnly(context.issuedAt ?? new Date().toISOString())}/><PrintDatum label="موظف الإصدار" value={context.employeeName ?? (context.preview ? "يحدد عند البيع" : "موظف مخول")}/>
       </section>
 
       {contract.membership && <MembershipContractSection membership={contract.membership} />}
@@ -258,7 +264,7 @@ export function ContractPrintSheets({ context, contracts }: { context: ContractP
       <section className="contract-print-signatures" aria-label="التوقيعات">
         <Signature label={contract.contractType === "CHILD_ACADEMY" ? "توقيع ولي الأمر" : "توقيع العضو"} value={contract.contractType === "CHILD_ACADEMY" ? context.member?.guardian?.name : context.member?.name}/><Signature label="توقيع موظف النادي" value={context.employeeName}/>
       </section>
-      <footer className="contract-print-footer"><span>{context.invoiceNumber ? `مرتبط بالفاتورة: ${context.invoiceNumber}` : "نسخة معاينة قبل الشراء"}</span><span>{context.invoiceNumber ? "تم تثبيت البنود عند إصدار الفاتورة حفاظًا على سلامة السجل." : "تُثبت البنود وتُربط بالفاتورة عند إتمام الشراء."}</span><span>صفحة {index + 1} من {contracts.length}</span></footer>
+      <footer className="contract-print-footer"><span>{reference.footer}</span><span>{reference.notice}</span><span>صفحة {index + 1} من {contracts.length}</span></footer>
     </article>)}
   </div>
 }
