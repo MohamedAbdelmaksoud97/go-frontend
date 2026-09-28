@@ -31,14 +31,14 @@ import {
 import { humanError } from "@/lib/human-errors";
 import { permissionArabicLabel } from "@/lib/permission-display";
 
-type Meal = { id: string; name: string };
+type Meal = { id: string; name: string; remainingQuantity?: number };
 type Service = { id: string; name: string; code?: string };
 type ServiceQuote = { grossMinor: string; taxMinor: string; discountMinor: string; currency: string };
 type CheckoutQuote = { grossMinor: string; taxMinor: string; discountMinor: string; netMinor: string; currency: "SAR" };
 type RetailProduct = { id: string; name: string; code?: string; barcode?: string; grossMinor?: string; amountMinor?: string; quantityAvailable?: number };
 type Menu = {
   status: "DRAFT" | "PUBLISHED" | "CLOSED";
-  items: Array<{ mealId: string; enabled: boolean }>;
+  items: Array<{ mealId: string; enabled: boolean; remainingQuantity?: number }>;
 };
 type Shift = { id: string; cashPointId: string; status: "OPEN" | "CLOSED" };
 type CashPoint = { id: string; name?: string; code?: string };
@@ -167,12 +167,12 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
   const serviceQuoteError = serviceQuoteResult?.key === serviceQuoteKey ? serviceQuoteResult.error ?? "" : "";
   const loadingServiceQuote = Boolean(serviceQuoteKey && serviceQuoteResult?.key !== serviceQuoteKey);
   const publishedMeals = useMemo(() => {
-    const allowed = new Set(
+    const allowed = new Map(
       (menu?.status === "PUBLISHED" ? menu.items : [])
         .filter((item) => item.enabled)
-        .map((item) => item.mealId),
+        .map((item) => [item.mealId, item] as const),
     );
-    return meals.filter((meal) => allowed.has(meal.id));
+    return meals.filter((meal) => allowed.has(meal.id)).map(meal => ({ ...meal, remainingQuantity: allowed.get(meal.id)?.remainingQuantity }));
   }, [meals, menu]);
 
   useEffect(() => {
@@ -448,6 +448,10 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       setError(`الكمية المتاحة من ${(source as RetailProduct).name} هي ${(source as RetailProduct).quantityAvailable ?? 0} فقط.`);
       return;
     }
+    if (saleKind === "MEAL" && (source as Meal).remainingQuantity !== undefined && nextQuantity > ((source as Meal).remainingQuantity ?? 0)) {
+      setError(`الكمية المتبقية من ${(source as Meal).name} هي ${(source as Meal).remainingQuantity ?? 0} فقط.`);
+      return;
+    }
     setCart((current) => current.some((line) => line.key === key)
       ? current.map((line) => line.key === key ? { ...line, quantity: nextQuantity } : line)
       : [...current, { key, type, targetId, name: source.name, quantity: count }]);
@@ -468,6 +472,13 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       const available = retailProducts.find((product) => product.id === line.targetId)?.quantityAvailable ?? 0;
       if (nextQuantity > available) {
         setError(`الكمية المتاحة من ${line.name} هي ${available} فقط.`);
+        return;
+      }
+    }
+    if (line.type === "RESTAURANT") {
+      const available = publishedMeals.find((meal) => meal.id === line.targetId)?.remainingQuantity;
+      if (available !== undefined && nextQuantity > available) {
+        setError(`الكمية المتبقية من ${line.name} هي ${available} فقط.`);
         return;
       }
     }
@@ -966,8 +977,8 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
                 >
                   <option value="">اختر وجبة اليوم</option>
                   {publishedMeals.map((meal) => (
-                    <option key={meal.id} value={meal.id}>
-                      {meal.name}
+                    <option key={meal.id} value={meal.id} disabled={meal.remainingQuantity === 0}>
+                      {meal.name}{meal.remainingQuantity === undefined ? "" : ` — متبقي ${meal.remainingQuantity}`}
                     </option>
                   ))}
                 </select> : saleKind === "RETAIL" ? <select value={productId} onChange={(event) => setProductId(event.target.value)} className="h-11 rounded-xl border bg-background px-3 text-sm"><option value="">اختر منتجًا متاحًا</option>{retailProducts.map((product) => <option key={product.id} value={product.id}>{product.name} — {product.barcode ?? product.code ?? "بدون باركود"} — متاح {product.quantityAvailable ?? 0} — {money(Number(product.grossMinor ?? product.amountMinor ?? 0))} ر.س</option>)}</select> : <select value={serviceId} onChange={(event) => setServiceId(event.target.value)} className="h-11 rounded-xl border bg-background px-3 text-sm"><option value="">اختر خدمة متاحة في الفرع</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}{service.code ? ` — ${service.code}` : ""}</option>)}</select>}

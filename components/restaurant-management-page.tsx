@@ -19,7 +19,7 @@ type MealKind = "MEAL" | "PRODUCT" | "DRINK"
 type Meal = Row & { id: string; name: string; code: string; categoryId: string; description?: string; kind?: MealKind; status?: string; portionClass?: MealPortionClass; nutrition?: Nutrition; allergens?: string[] }
 type Nutrition = { caloriesKcal: number; proteinGrams: number; carbohydratesGrams: number; fatGrams: number; fiberGrams: number; sugarGrams: number; sodiumMilligrams: number }
 type MealMutationPayload = { branchId: string; categoryId: string; code: string; name: string; description: string | null; kind: MealKind; portionClass: MealPortionClass; nutrition: Nutrition; allergens: string[] }
-type MenuItem = { mealId: string; enabled: boolean; availableQuantity?: number; specialPriceMinor?: string }
+type MenuItem = { mealId: string; enabled: boolean; availableQuantity?: number; preparedQuantity?: number; reservedQuantity?: number; soldQuantity?: number; remainingQuantity?: number; specialPriceMinor?: string }
 type Menu = { businessDate: string; status: "DRAFT" | "PUBLISHED" | "CLOSED"; version: number; items: MenuItem[] }
 type OrderLine = { id?: string; quote?: { targetName?: string; targetCode?: string; quantity?: number | string } }
 type RestaurantOrder = Row & { id: string; branchId: string; status: string; sourceType?: string; salesOrderId?: string; subscriptionId?: string; memberName?: string; memberNumber?: string; createdAt?: string; grossMinor?: string; currency?: string; version: number; lines?: OrderLine[] }
@@ -106,6 +106,21 @@ export function RestaurantManagementPage() {
 
   useEffect(() => { const frame = requestAnimationFrame(() => { void load() }); return () => cancelAnimationFrame(frame) // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context.organizationId, context.branchId, date, effectiveKitchenScope, canReadCatalog, canReadMenu, canReadOrders, canRedeemMealPlans])
+
+  useEffect(() => {
+    if (activeTab !== "kitchen" || !hasRuntimeApi() || !context.organizationId || !context.branchId || !canReadOrders) return
+    const refresh = () => {
+      const base = `/organizations/${context.organizationId}`
+      const orderBranch = effectiveKitchenScope === "ALL" ? "" : `&branchId=${encodeURIComponent(context.branchId)}`
+      const requests: Promise<unknown>[] = [
+        apiRequest<RestaurantOrder[] | { items: RestaurantOrder[] }>(`${base}/restaurant-orders?limit=100${orderBranch}`).then(response => setOrders(orderList(response.data))),
+      ]
+      if (canReadMenu) requests.push(apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${date}`).then(response => { setMenu(response.data); setMenuItems(response.data.items) }).catch(reason => { if (!isNotFound(reason)) throw reason }))
+      void Promise.allSettled(requests)
+    }
+    const interval = window.setInterval(refresh, 15_000)
+    return () => window.clearInterval(interval)
+  }, [activeTab, canReadMenu, canReadOrders, context.branchId, context.organizationId, date, effectiveKitchenScope])
 
   useEffect(() => {
     let active = true
@@ -240,10 +255,22 @@ export function RestaurantManagementPage() {
   return <div className="fade-up space-y-5">
     <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><nav aria-label="أقسام تشغيل المطعم" className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:flex-wrap">{availableTabs.map(item => <Button key={item.key} className="w-full justify-center lg:w-auto" variant={activeTab === item.key ? "default" : "outline"} onClick={() => setTab(item.key)}><item.icon />{item.label}</Button>)}</nav></header>
     {error && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+    {!loading && (activeTab === "menu" || activeTab === "kitchen") && menu ? <DailyMealAvailability menu={menu} meals={meals} /> : null}
     {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} onEdit={setEditingMeal} onDelete={setDeletingMeal} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel member={redemptionMember} setMember={member => setRedemptionMemberSelection({ organizationId: context.organizationId, branchId: context.branchId, ...(member ? { member } : {}) })} subscriptions={subscriptions} meals={meals} menu={redemptionMenu} form={scopedRedemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
     {editingMeal && <MealEditDialog key={editingMeal.id} meal={editingMeal} categories={categories} branchId={context.branchId} saving={saving} onClose={() => setEditingMeal(undefined)} onSave={payload => updateCatalogMeal(editingMeal, payload)} />}
     {deletingMeal && <MealDeleteDialog meal={deletingMeal} saving={saving} onClose={() => setDeletingMeal(undefined)} onConfirm={() => archiveCatalogMeal(deletingMeal)} />}
   </div>
+}
+
+function DailyMealAvailability({ menu, meals }: { menu: Menu; meals: Meal[] }) {
+  const names = new Map(meals.map(meal => [meal.id, meal.name]))
+  const tracked = menu.items.filter(item => item.enabled && item.preparedQuantity !== undefined)
+  if (!tracked.length) return <Card><CardContent className="p-4 text-sm text-muted-foreground">لم تُحدد كميات تجهيز يومية لهذه القائمة. أدخل «الكمية المتاحة» لكل وجبة لتفعيل متابعة المحجوز والمباع والمتبقي.</CardContent></Card>
+  return <Card><CardContent className="p-4"><div className="flex items-center justify-between gap-3"><div><p className="font-black">رصيد وجبات اليوم</p><p className="mt-1 text-xs text-muted-foreground">يتحدث الرصيد مع الطلبات؛ طلبات انتظار السداد تُحسب محجوزة، والطلبات المؤكدة وما بعدها تُحسب مباعة.</p></div><Badge variant="outline">{tracked.reduce((sum, item) => sum + (item.remainingQuantity ?? 0), 0)} متبقي</Badge></div><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tracked.map(item => <div key={item.mealId} className="rounded-xl border bg-secondary/25 p-3"><p className="font-bold">{names.get(item.mealId) ?? "وجبة"}</p><div className="mt-3 grid grid-cols-4 gap-2 text-center text-[10px]"><AvailabilityValue label="مجهز" value={item.preparedQuantity ?? 0} /><AvailabilityValue label="محجوز" value={item.reservedQuantity ?? 0} /><AvailabilityValue label="مباع" value={item.soldQuantity ?? 0} /><AvailabilityValue label="متبقي" value={item.remainingQuantity ?? 0} emphasis /></div></div>)}</div></CardContent></Card>
+}
+
+function AvailabilityValue({ label, value, emphasis = false }: { label: string; value: number; emphasis?: boolean }) {
+  return <div className={`rounded-lg px-2 py-2 ${emphasis ? "bg-primary/12 text-primary" : "bg-background"}`}><span className="block text-muted-foreground">{label}</span><strong className="mt-1 block text-sm">{value}</strong></div>
 }
 
 function MenuPanel({ date, setDate, meals, menu, menuItems, add, remove, update, publish, hide, saving, canManage }: { date: string; setDate: (value: string) => void; meals: Meal[]; menu?: Menu; menuItems: MenuItem[]; add: (id: string) => void; remove: (id: string) => void; update: (id: string, value: Partial<MenuItem>) => void; publish: () => void; hide: () => void; saving: boolean; canManage: boolean }) {
