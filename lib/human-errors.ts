@@ -242,6 +242,8 @@ const messages: Record<string, string> = {
     "الفاتورة مسددة جزئيًا. أكمل تسويتها أو استرد المبلغ الجزئي قبل تنفيذ تصحيح الاشتراك.",
   subscription_already_corrected:
     "سبق تصحيح هذا الاشتراك أو إلغاء فاتورته الأصلية.",
+  subscription_correction_service_unavailable:
+    "خدمة التصحيح الإداري غير متاحة حاليًا. حاول مرة أخرى، وإذا استمرت المشكلة فتواصل مع الدعم.",
   system_admin_permission_not_delegable:
     "صلاحيات التصحيح المالي والإداري محجوزة لمدير النظام ولا يمكن منحها لدور أو مسمى وظيفي آخر.",
   split_payment_parts_invalid:
