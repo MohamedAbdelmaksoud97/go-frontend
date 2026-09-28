@@ -811,7 +811,8 @@ function PermissionPicker({ field, value, choices, onChange }: { field: Field; v
   const selected = asArray(value)
   const permissions = useMemo(() => choices.map(choice => String(choice.code ?? choice.permission ?? itemId(choice))).filter(Boolean).map(permissionChoice).sort((a, b) => a.groupOrder - b.groupOrder || a.label.localeCompare(b.label, "ar")), [choices])
   const grouped = useMemo(() => Array.from(new Map(permissions.filter(permission => `${permission.label} ${permission.code}`.toLowerCase().includes(query.toLowerCase())).map(permission => [permission.group, [] as PermissionChoice[]])).entries()).map(([group]) => ({ group, entries: permissions.filter(permission => permission.group === group && `${permission.label} ${permission.code}`.toLowerCase().includes(query.toLowerCase())) })), [permissions, query])
-  const toggle = (code: string, checked: boolean) => onChange(checked ? [...selected, code] : selected.filter(value => value !== code))
+  const adminOnlyPermissions = new Set(["subscriptions.corrections.manage", "finance.payment-corrections.manage"])
+  const toggle = (code: string, checked: boolean) => { if (!adminOnlyPermissions.has(code)) onChange(checked ? [...selected, code] : selected.filter(value => value !== code)) }
   const toggleGroup = (codes: string[]) => { const allSelected = codes.every(code => selected.includes(code)); onChange(allSelected ? selected.filter(code => !codes.includes(code)) : [...new Set([...selected, ...codes])]) }
 
   return <fieldset className="sm:col-span-2">
@@ -825,7 +826,7 @@ function PermissionPicker({ field, value, choices, onChange }: { field: Field; v
     <div className="mt-3 max-h-[52vh] space-y-3 overflow-y-auto pl-1">
       <div className="grid gap-3 lg:grid-cols-2">
         {grouped.map(({ group, entries }) => {
-          const codes = entries.map(entry => entry.code)
+          const codes = entries.map(entry => entry.code).filter(code => !adminOnlyPermissions.has(code))
           const selectedCount = codes.filter(code => selected.includes(code)).length
           return <section key={group} className="overflow-hidden rounded-xl border bg-card">
             <header className="flex items-center justify-between gap-3 border-b bg-secondary/45 px-3 py-2.5">
@@ -834,9 +835,9 @@ function PermissionPicker({ field, value, choices, onChange }: { field: Field; v
             </header>
             <div className="divide-y">
               {entries.map(permission => <div key={permission.code} className="flex items-center gap-2 px-3 py-2 transition hover:bg-secondary/50">
-                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-0.5">
-                  <input type="checkbox" className="size-4 shrink-0 accent-amber-500" checked={selected.includes(permission.code)} onChange={event => toggle(permission.code, event.target.checked)} />
-                  <span className="min-w-0"><span className="block text-xs font-bold">{permission.label}</span><code className="mt-0.5 block truncate text-[9px] text-muted-foreground" dir="ltr">{permission.code}</code><span className="mt-0.5 block text-[9px] text-muted-foreground">مستوى التأثير: {permission.guidance.sensitivity}</span></span>
+                <label className={`flex min-w-0 flex-1 items-center gap-3 py-0.5 ${adminOnlyPermissions.has(permission.code)?"cursor-not-allowed opacity-75":"cursor-pointer"}`}>
+                  <input type="checkbox" className="size-4 shrink-0 accent-amber-500" checked={selected.includes(permission.code)} disabled={adminOnlyPermissions.has(permission.code)} onChange={event => toggle(permission.code, event.target.checked)} />
+                  <span className="min-w-0"><span className="block text-xs font-bold">{permission.label}</span><code className="mt-0.5 block truncate text-[9px] text-muted-foreground" dir="ltr">{permission.code}</code><span className="mt-0.5 block text-[9px] text-muted-foreground">{adminOnlyPermissions.has(permission.code)?"محجوزة لمدير النظام ولا يمكن تفويضها":"مستوى التأثير: "+permission.guidance.sensitivity}</span></span>
                 </label>
                 <button type="button" onClick={() => setExplainedPermission(permission)} className="grid size-8 shrink-0 place-items-center rounded-lg border bg-background text-amber-700 transition hover:border-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label={`شرح صلاحية ${permission.label}`} title="عرض دليل الصلاحية">
                   <CircleAlert className="size-4" />

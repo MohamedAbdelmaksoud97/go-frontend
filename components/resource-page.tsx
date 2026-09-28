@@ -802,6 +802,16 @@ function RecordPreview({ columns, fields, row, record, operationId, organization
         body: values => ({ expectedVersion: version, type: values.type, value: Number(values.value), reason: values.reason.trim() }),
       })
     }
+    if (!(["CANCELLED", "EXPIRED"].includes(status)) && !currentRecord.cancellationRequest) actions.push({
+      label: "تصحيح اشتراك مسجل بالخطأ",
+      permission: "subscriptions.corrections.manage",
+      path: `/organizations/${organizationId}/subscriptions/${id}/administrative-corrections`,
+      danger: true,
+      description: "إجراء إداري مخصص لمدير النظام. سيُلغي الاشتراك الخاطئ مع الاحتفاظ بسجله كاملًا. إذا لم تُسدد الفاتورة فستُلغى، وإذا سُددت فسينشئ النظام طلب استرداد مرتبطًا بها لمراجعته من قسم المالية. بعد ذلك أنشئ الاشتراك الصحيح من شاشة الكاشير.",
+      confirmLabel: "تأكيد التصحيح وإلغاء الاشتراك الخاطئ",
+      fields: [{ name: "reason", label: "سبب التصحيح الإداري", type: "textarea", required: true, placeholder: "مثال: تم اختيار الباقة الخطأ أثناء التسجيل" }],
+      body: values => ({ expectedVersion: version, reason: values.reason.trim() }),
+    })
   }
 
   const bookingStartsAt = operationId === "listReservations" ? new Date(String(currentRecord.startsAt ?? "")) : undefined
