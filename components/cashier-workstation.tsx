@@ -34,6 +34,7 @@ import { permissionArabicLabel } from "@/lib/permission-display";
 type Meal = { id: string; name: string };
 type Service = { id: string; name: string; code?: string };
 type ServiceQuote = { grossMinor: string; taxMinor: string; discountMinor: string; currency: string };
+type CheckoutQuote = { grossMinor: string; taxMinor: string; discountMinor: string; netMinor: string; currency: "SAR" };
 type RetailProduct = { id: string; name: string; code?: string; barcode?: string; grossMinor?: string; amountMinor?: string; quantityAvailable?: number };
 type Menu = {
   status: "DRAFT" | "PUBLISHED" | "CLOSED";
@@ -106,6 +107,10 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
   const [quantity, setQuantity] = useState("1");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [serviceQuoteResult, setServiceQuoteResult] = useState<{ key: string; quote?: ServiceQuote; error?: string }>();
+  const [cartQuoteResult, setCartQuoteResult] = useState<{ key: string; quote?: CheckoutQuote; error?: string }>();
+  const [saleMethod, setSaleMethod] = useState<PaymentMethodCode>("CASH");
+  const [salePaymentMode, setSalePaymentMode] = useState<"SINGLE" | "SPLIT">("SINGLE");
+  const [salePaymentParts, setSalePaymentParts] = useState<PaymentPart[]>(() => defaultPaymentParts());
   const [paymentInvoiceId, setPaymentInvoiceId] = useState("");
   const [method, setMethod] = useState<PaymentMethodCode>("CASH");
   const [invoicePaymentMode, setInvoicePaymentMode] = useState<"SINGLE" | "SPLIT">("SINGLE");
@@ -143,6 +148,17 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
   const selectedMember = memberSelection.organizationId === context.organizationId && memberSelection.branchId === context.branchId ? memberSelection.member : undefined;
   const cartLineType = cart[0]?.type;
   const quoteMemberId = customerMode === "MEMBER" ? selectedMember?.id : undefined;
+  const cartQuoteKey = cart.length > 0 && context.organizationId && context.branchId && (customerMode === "GUEST" || quoteMemberId)
+    ? JSON.stringify([context.organizationId, context.branchId, quoteMemberId ?? null, cart.map(({ type, targetId, quantity }) => [type, targetId, quantity])]) : "";
+  const cartQuote = cartQuoteResult?.key === cartQuoteKey ? cartQuoteResult.quote : undefined;
+  const cartQuoteError = cartQuoteResult?.key === cartQuoteKey ? cartQuoteResult.error ?? "" : "";
+  const loadingCartQuote = Boolean(cartQuoteKey && cartQuoteResult?.key !== cartQuoteKey);
+  const cartTotalMinor = Number(cartQuote?.grossMinor ?? 0);
+  const salePaymentPartsTotal = salePaymentParts.reduce((total, part) => total + Number(minor(part.amount)), 0);
+  const salePaymentPartsRemaining = cartTotalMinor - salePaymentPartsTotal;
+  const saleSplitUsesCash = salePaymentParts.some((part) => part.method === "CASH");
+  const saleSplitMethodsAreUnique = new Set(salePaymentParts.map((part) => part.method)).size === salePaymentParts.length;
+  const saleSplitIsValid = cartTotalMinor > 0 && salePaymentParts.length >= 2 && salePaymentParts.every((part) => Number(minor(part.amount)) > 0) && salePaymentPartsRemaining === 0 && saleSplitMethodsAreUnique && (!saleSplitUsesCash || selectedShift !== undefined);
   const quoteQuantity = Number(quantity);
   const serviceQuoteKey = saleKind === "SERVICE" && serviceId && context.organizationId && context.branchId &&
     (customerMode === "GUEST" || quoteMemberId) && Number.isInteger(quoteQuantity) && quoteQuantity >= 1 && quoteQuantity <= 100
@@ -170,6 +186,26 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       .catch((reason) => { if (!cancelled) setServiceQuoteResult({ key: serviceQuoteKey, error: humanError(reason, "الخدمة غير متاحة للبيع أو لا يوجد لها سعر ساري في هذا الفرع.") }); });
     return () => { cancelled = true; };
   }, [serviceQuoteKey, serviceId, quoteQuantity, quoteMemberId, context.organizationId, context.branchId]);
+
+  useEffect(() => {
+    if (!cartQuoteKey) return;
+    let cancelled = false;
+    void apiRequest<CheckoutQuote>(`/organizations/${context.organizationId}/order-quotes`, {
+      method: "POST",
+      body: JSON.stringify({
+        sellingBranchId: context.branchId,
+        ...(quoteMemberId ? { memberId: quoteMemberId } : {}),
+        lines: cart.map(({ type, targetId, quantity }) => ({ type, targetId, quantity })),
+      }),
+    }).then((response) => {
+      if (cancelled) return;
+      setCartQuoteResult({ key: cartQuoteKey, quote: response.data });
+      setSalePaymentParts((current) => distributePaymentParts(Number(response.data.grossMinor), current.length >= 2 ? current : defaultPaymentParts()));
+    }).catch((reason) => {
+      if (!cancelled) setCartQuoteResult({ key: cartQuoteKey, error: humanError(reason, "تعذر حساب إجمالي الفاتورة الحالية. راجع الأصناف والكميات ثم حاول مرة أخرى.") });
+    });
+    return () => { cancelled = true; };
+  }, [cart, cartQuoteKey, context.branchId, context.organizationId, quoteMemberId]);
 
   async function load() {
     if (!hasRuntimeApi() || !context.organizationId || !context.branchId) {
@@ -449,8 +485,16 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       setError("ابحث عن العضو واختره، أو بدّل إلى «بيع لزائر».");
       return;
     }
-    if (method === "CASH" && selectedShift === undefined) {
+    if (!cartQuote) {
+      setError(cartQuoteError || "انتظر اكتمال حساب إجمالي الفاتورة قبل التحصيل.");
+      return;
+    }
+    if (salePaymentMode === "SINGLE" && saleMethod === "CASH" && selectedShift === undefined) {
       setError("اختر وردية صندوق مفتوحة قبل تحصيل النقد.");
+      return;
+    }
+    if (salePaymentMode === "SPLIT" && !saleSplitIsValid) {
+      setError("راجع توزيع الدفعات. يجب أن يساوي مجموعها إجمالي الفاتورة، مع اختيار وسيلة مختلفة لكل دفعة.");
       return;
     }
     setSaving(true);
@@ -471,19 +515,26 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       );
       if (!order.data.invoiceId) throw new Error("لم تُنشأ فاتورة للطلب.");
       createdInvoiceId = order.data.invoiceId;
-      await recordPayment(createdInvoiceId);
-      toast.success(`تم تحصيل فاتورة واحدة تضم ${cart.length} ${cart.length === 1 ? "صنف" : "أصناف"} بنجاح.`);
+      if (salePaymentMode === "SPLIT") await recordSplitPayment(createdInvoiceId, salePaymentParts, cartTotalMinor);
+      else await recordPayment(createdInvoiceId, saleMethod, cartTotalMinor);
+      toast.success(`تم تحصيل فاتورة واحدة تضم ${cart.length} ${cart.length === 1 ? "صنف" : "أصناف"}${salePaymentMode === "SPLIT" ? ` عبر ${salePaymentParts.length} وسائل دفع` : ""} بنجاح.`);
       setCart([]);
       setMealId("");
       setProductId("");
       setServiceId("");
       setQuantity("1");
+      setSalePaymentMode("SINGLE");
+      setSalePaymentParts(defaultPaymentParts());
       await load();
     } catch (reason) {
       if (createdInvoiceId) {
         setCart([]);
         await load();
         setPaymentInvoiceId(createdInvoiceId);
+        if (salePaymentMode === "SPLIT") {
+          setInvoicePaymentMode("SPLIT");
+          setPaymentParts(distributePaymentParts(cartTotalMinor, salePaymentParts));
+        }
         setCollectionSuccess("تم إنشاء الفاتورة لكن لم يكتمل تحصيلها. افتحها في قسم «تحصيل فاتورة معلقة» ولا تُنشئ طلب بيع جديدًا.");
         setError(humanError(reason, "تم إنشاء الفاتورة، لكن تعذر تسجيل الدفع. حصّل الفاتورة المعلقة بدل إعادة البيع."));
         collectionCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -495,7 +546,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
     }
   }
 
-  async function recordPayment(invoiceId: string) {
+  async function recordPayment(invoiceId: string, paymentMethod: PaymentMethodCode = method, expectedOutstanding?: number) {
     if (!context.organizationId || !context.branchId) return;
     const invoice =
       invoices.find((item) => item.id === invoiceId) ??
@@ -514,17 +565,19 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       : "0";
     if (Number(amountMinor) <= 0)
       throw new Error("لا يوجد رصيد مستحق لهذه الفاتورة.");
-    if (method === "CASH" && selectedShift === undefined)
+    if (expectedOutstanding !== undefined && Number(amountMinor) !== expectedOutstanding)
+      throw new Error("تغيّر إجمالي الفاتورة أثناء الإصدار. افتح الفاتورة المعلقة وراجع الرصيد قبل التحصيل.");
+    if (paymentMethod === "CASH" && selectedShift === undefined)
       throw new Error("اختر وردية صندوق مفتوحة قبل تحصيل النقد.");
     await apiRequest(`/organizations/${context.organizationId}/payments`, {
       method: "POST",
       idempotencyKey: createIdempotencyKey(),
       body: JSON.stringify({
         collectionBranchId: context.branchId,
-        method,
+        method: paymentMethod,
         amountMinor,
         allocations: [{ invoiceId, amountMinor }],
-        ...(method === "CASH"
+        ...(paymentMethod === "CASH"
           ? {
               cashierShiftId: selectedShift!.id,
               cashPointId: selectedShift!.cashPointId,
@@ -534,7 +587,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
     });
   }
 
-  async function recordSplitInvoicePayment(invoiceId: string) {
+  async function recordSplitPayment(invoiceId: string, parts: PaymentPart[], expectedOutstanding?: number) {
     if (!context.organizationId || !context.branchId) return;
     const invoice = (
       await apiRequest<Invoice>(
@@ -542,10 +595,10 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       )
     ).data;
     const amountDueMinor = outstanding(invoice);
-    if (selectedInvoiceOutstanding > 0 && amountDueMinor !== selectedInvoiceOutstanding)
+    if (expectedOutstanding !== undefined && expectedOutstanding > 0 && amountDueMinor !== expectedOutstanding)
       throw new Error("تغيّر الرصيد المستحق للفاتورة. حدّث البيانات ثم أعد توزيع المبلغ.");
     if (amountDueMinor <= 0) throw new Error("لا يوجد رصيد مستحق لهذه الفاتورة.");
-    const normalizedParts = paymentParts.map((part) => ({ ...part, amountMinor: Number(minor(part.amount)) }));
+    const normalizedParts = parts.map((part) => ({ ...part, amountMinor: Number(minor(part.amount)) }));
     if (normalizedParts.length < 2 || normalizedParts.some((part) => part.amountMinor <= 0))
       throw new Error("أضف وسيلتي دفع على الأقل، وحدد مبلغًا أكبر من صفر لكل وسيلة.");
     if (normalizedParts.reduce((total, part) => total + part.amountMinor, 0) !== amountDueMinor)
@@ -595,6 +648,27 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
     setError("");
   }
 
+  function updateSalePaymentPart(id: string, changes: Partial<Omit<PaymentPart, "id">>) {
+    setSalePaymentParts((current) => current.map((part) => part.id === id ? { ...part, ...changes } : part));
+    setError("");
+  }
+
+  function addSalePaymentPart() {
+    const used = new Set(salePaymentParts.map((part) => part.method));
+    const nextMethod = paymentMethods.find((option) => !used.has(option.value))?.value;
+    if (!nextMethod) return;
+    setSalePaymentParts((current) => distributePaymentParts(cartTotalMinor, [
+      ...current,
+      { id: crypto.randomUUID(), method: nextMethod, amount: "", reference: "" },
+    ]));
+    setError("");
+  }
+
+  function removeSalePaymentPart(id: string) {
+    setSalePaymentParts((current) => current.length <= 2 ? current : distributePaymentParts(cartTotalMinor, current.filter((part) => part.id !== id)));
+    setError("");
+  }
+
   async function collectExistingInvoice() {
     if (!paymentInvoiceId) {
       setError("اختر فاتورة أولًا.");
@@ -606,7 +680,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
     try {
       const invoiceNumber = selectedPaymentInvoice?.invoiceNumber ?? "الفاتورة";
       if (invoicePaymentMode === "SPLIT") {
-        await recordSplitInvoicePayment(paymentInvoiceId);
+        await recordSplitPayment(paymentInvoiceId, paymentParts, selectedInvoiceOutstanding);
         setCollectionSuccess(`تم تحصيل ${invoiceNumber} عبر ${paymentParts.length} وسائل دفع وتحديث حالة الفاتورة.`);
         toast.success(`تم تسجيل ${paymentParts.length} دفعات معًا وتحديث حالة الفاتورة.`);
       } else {
@@ -933,17 +1007,68 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
                     </div>
                   </li>)}
                 </ul>}
-                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                  <label className="text-xs font-bold">طريقة تحصيل الفاتورة<PaymentMethod className="mt-2 w-full" value={method} onChange={setMethod}/></label>
-                  <Button
-                    onClick={() => void checkoutAndPay()}
-                    disabled={saving || cart.length === 0 || (customerMode === "MEMBER" && !selectedMember) || (method === "CASH" && !selectedShift)}
-                  >
-                    {saving ? <Loader2 className="animate-spin" /> : <ReceiptText />}
-                    إصدار فاتورة واحدة وتحصيلها
-                  </Button>
+                {cart.length > 0 && <div className="mt-4 rounded-xl border bg-background/80 p-3" role="status" aria-live="polite">
+                  {loadingCartQuote ? <p className="flex items-center gap-2 text-xs font-semibold text-muted-foreground"><Loader2 className="size-4 animate-spin"/>جارٍ حساب إجمالي الفاتورة...</p>
+                    : cartQuote ? <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
+                      <PaymentMetric label="قبل الضريبة" value={`${money(Number(cartQuote.netMinor))} ر.س`}/>
+                      <PaymentMetric label="الخصم" value={`${money(Number(cartQuote.discountMinor))} ر.س`}/>
+                      <PaymentMetric label="الضريبة" value={`${money(Number(cartQuote.taxMinor))} ر.س`}/>
+                      <PaymentMetric label="إجمالي الفاتورة" value={`${money(cartTotalMinor)} ر.س`} highlight/>
+                    </div>
+                    : <p className="text-xs font-semibold leading-6 text-red-600">{cartQuoteError || "تعذر حساب إجمالي الفاتورة الحالية."}</p>}
+                </div>}
+                <div className="mt-4 space-y-4">
+                  <div className="inline-flex rounded-xl border bg-background p-1" aria-label="طريقة توزيع التحصيل">
+                    <Button type="button" size="sm" variant={salePaymentMode === "SINGLE" ? "default" : "ghost"} aria-pressed={salePaymentMode === "SINGLE"} onClick={() => { setSalePaymentMode("SINGLE"); setError(""); }}>وسيلة دفع واحدة</Button>
+                    <Button type="button" size="sm" variant={salePaymentMode === "SPLIT" ? "default" : "ghost"} aria-pressed={salePaymentMode === "SPLIT"} onClick={() => { setSalePaymentMode("SPLIT"); setSalePaymentParts((current) => distributePaymentParts(cartTotalMinor, current.length >= 2 ? current : defaultPaymentParts())); setError(""); }}>تقسيم على عدة وسائل</Button>
+                  </div>
+                  {salePaymentMode === "SINGLE" ? <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                    <label className="text-xs font-bold">طريقة تحصيل الفاتورة<PaymentMethod className="mt-2 w-full" value={saleMethod} onChange={setSaleMethod}/></label>
+                    <Button
+                      onClick={() => void checkoutAndPay()}
+                      disabled={saving || cart.length === 0 || loadingCartQuote || !cartQuote || (customerMode === "MEMBER" && !selectedMember) || (saleMethod === "CASH" && !selectedShift)}
+                    >
+                      {saving ? <Loader2 className="animate-spin" /> : <ReceiptText />}
+                      إصدار فاتورة واحدة وتحصيلها
+                    </Button>
+                  </div> : <div className="space-y-3 rounded-2xl border bg-secondary/30 p-3 sm:p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div><p className="text-xs font-black">توزيع إجمالي الفاتورة</p><p className="mt-1 text-[11px] text-muted-foreground">اختر وسيلة مختلفة لكل دفعة، ويمكن استخدام حتى {paymentMethods.length} وسائل.</p></div>
+                      <Button type="button" size="sm" variant="outline" onClick={addSalePaymentPart} disabled={!cartQuote || salePaymentParts.length >= paymentMethods.length}><Plus/>إضافة وسيلة</Button>
+                    </div>
+                    <div className="space-y-3">
+                      {salePaymentParts.map((part, index) => <PaymentPartEditor
+                        key={part.id}
+                        title={`الدفعة ${index + 1}`}
+                        method={part.method}
+                        onMethodChange={(value) => updateSalePaymentPart(part.id, { method: value })}
+                        amount={part.amount}
+                        onAmountChange={(value) => updateSalePaymentPart(part.id, { amount: value })}
+                        reference={part.reference}
+                        onReferenceChange={(value) => updateSalePaymentPart(part.id, { reference: value })}
+                        onRemove={salePaymentParts.length > 2 ? () => removeSalePaymentPart(part.id) : undefined}
+                      />)}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 rounded-xl bg-background/80 p-3 text-center text-xs sm:grid-cols-3">
+                      <PaymentMetric label="مجموع الدفعات" value={`${money(salePaymentPartsTotal)} ر.س`} highlight={salePaymentPartsRemaining === 0 && salePaymentPartsTotal > 0}/>
+                      <PaymentMetric label={salePaymentPartsRemaining >= 0 ? "المتبقي" : "الزيادة"} value={`${money(Math.abs(salePaymentPartsRemaining))} ر.س`} highlight={salePaymentPartsRemaining === 0}/>
+                      <PaymentMetric label="عدد الوسائل" value={`${salePaymentParts.length}`} highlight={saleSplitIsValid}/>
+                    </div>
+                    {!saleSplitMethodsAreUnique && <p className="rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">اختر وسيلة مختلفة لكل دفعة.</p>}
+                    {salePaymentParts.some((part) => Number(minor(part.amount)) <= 0) && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">يجب أن يكون مبلغ كل دفعة أكبر من صفر.</p>}
+                    {cartQuote && salePaymentPartsRemaining !== 0 && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">{salePaymentPartsRemaining > 0 ? `وزّع ${money(salePaymentPartsRemaining)} ر.س المتبقية على وسائل الدفع.` : `خفّض مجموع الدفعات بمقدار ${money(Math.abs(salePaymentPartsRemaining))} ر.س.`}</p>}
+                    {saleSplitUsesCash && !selectedShift && <p className="rounded-xl bg-red-500/10 p-3 text-xs font-semibold leading-6 text-red-600">الجزء النقدي يحتاج إلى وردية صندوق مفتوحة.</p>}
+                    {saleSplitUsesCash && selectedShift && <p className="rounded-xl bg-emerald-500/8 p-3 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">سيُربط الجزء النقدي تلقائيًا بالوردية المفتوحة ونقطة التحصيل الحالية.</p>}
+                    <Button
+                      onClick={() => void checkoutAndPay()}
+                      disabled={saving || cart.length === 0 || loadingCartQuote || !cartQuote || (customerMode === "MEMBER" && !selectedMember) || !saleSplitIsValid}
+                    >
+                      {saving ? <Loader2 className="animate-spin" /> : <ReceiptText />}
+                      إصدار فاتورة واحدة وتسجيل {salePaymentParts.length} دفعات
+                    </Button>
+                  </div>}
+                  {salePaymentMode === "SINGLE" && saleMethod === "CASH" && !selectedShift && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">افتح وردية صندوق أولًا لتحصيل الفاتورة نقدًا.</p>}
                 </div>
-                {method === "CASH" && !selectedShift && <p className="mt-3 rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">افتح وردية صندوق أولًا لتحصيل الفاتورة نقدًا.</p>}
               </section>
             </CardContent>
           </Card>
