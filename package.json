@@ -11,7 +11,8 @@
     "check:errors": "node scripts/check-error-safety.mjs",
     "test:security": "node --test scripts/test-request-security.mjs",
     "test:security:http": "node scripts/test-request-security-http.mjs",
-    "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run lint"
+    "test:audit": "node --test scripts/test-audit-display.mjs",
+    "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run test:audit && npm run lint"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
