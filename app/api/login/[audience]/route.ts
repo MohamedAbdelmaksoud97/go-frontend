@@ -2,10 +2,12 @@ import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { toPublicApiProblem } from "@/lib/api-problem"
 import { accessTokenCookieOptions,refreshTokenCookieOptions } from "@/lib/server-session"
+import { rejectUnsafeRequest } from "@/lib/request-security"
 
 const API_BASE=(process.env.API_BASE_URL??process.env.NEXT_PUBLIC_API_BASE_URL??"http://127.0.0.1:3001").replace(/\/$/,"")
 
 export async function POST(request:Request,{params}:{params:Promise<{audience:string}>}){
+ const rejected=rejectUnsafeRequest(request,{requireJson:true});if(rejected)return rejected
  const {audience}=await params
  const target=audience==="staff"?"/api/v1/auth/staff/password/sign-ins":audience==="member"?"/api/v1/auth/member/password/sign-ins":audience==="member-test"&&process.env.NEXT_PUBLIC_MEMBER_TEST_EMAIL_LOGIN==="true"?"/api/v1/auth/member/test-email/password/sign-ins":undefined
  const correlationId=request.headers.get("x-correlation-id")??undefined

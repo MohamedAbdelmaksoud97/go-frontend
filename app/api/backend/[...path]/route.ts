@@ -1,9 +1,11 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { toPublicApiProblem } from "@/lib/api-problem"
+import { rejectUnsafeRequest } from "@/lib/request-security"
 
 const API_BASE=(process.env.API_BASE_URL??process.env.NEXT_PUBLIC_API_BASE_URL??"http://127.0.0.1:3001").replace(/\/$/,"")
 async function proxy(request:Request,{params}:{params:Promise<{path:string[]}>}){
+ const rejected=rejectUnsafeRequest(request);if(rejected)return rejected
  const {path}=await params;const incoming=new URL(request.url);const targetPath=`/${path.join("/")}${incoming.search}`;if(targetPath.startsWith("/hooks/"))return NextResponse.json(toPublicApiProblem({code:"server_hook_forbidden"},403,request.headers.get("x-correlation-id")??undefined),{status:403})
  const headers=new Headers();for(const name of ["accept","content-type","x-correlation-id","idempotency-key","x-device-id"]) {const value=request.headers.get(name);if(value)headers.set(name,value)}
  const store=await cookies();const token=store.get("go_access_token")?.value

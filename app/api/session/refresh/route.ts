@@ -2,8 +2,10 @@ import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { toPublicApiProblem } from "@/lib/api-problem"
 import { accessTokenCookieOptions,refreshSessionOnce,refreshTokenCookieOptions } from "@/lib/server-session"
+import { rejectUnsafeRequest } from "@/lib/request-security"
 
-export async function POST(){
+export async function POST(request:Request){
+ const rejected=rejectUnsafeRequest(request);if(rejected)return rejected
  const store=await cookies()
  const refreshToken=store.get("go_refresh_token")?.value
  if(!refreshToken)return NextResponse.json(toPublicApiProblem({code:"refresh_unavailable"},401),{status:401})

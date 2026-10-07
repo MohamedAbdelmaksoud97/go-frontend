@@ -9,7 +9,9 @@
     "lint": "eslint",
     "check:coverage": "node scripts/check-endpoint-coverage.mjs",
     "check:errors": "node scripts/check-error-safety.mjs",
-    "test": "npm run check:coverage && npm run check:errors && npm run lint"
+    "test:security": "node --test scripts/test-request-security.mjs",
+    "test:security:http": "node scripts/test-request-security-http.mjs",
+    "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run lint"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
