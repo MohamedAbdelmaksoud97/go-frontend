@@ -2726,5 +2726,37 @@
     "secured": true,
     "idempotent": false,
     "description": "All own inbox notifications marked as read."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/orders/{orderId}/lines/{lineId}/administrative-corrections",
+    "method": "get",
+    "operationId": "previewServiceAdministrativeCorrection",
+    "secured": true,
+    "idempotent": false,
+    "description": "Read-only administrator preview of the item, customer, versions, captured amount and settlement."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/orders/{orderId}/lines/{lineId}/administrative-corrections",
+    "method": "post",
+    "operationId": "correctServiceAdministrativeError",
+    "secured": true,
+    "idempotent": true,
+    "description": "Atomically cancel an erroneous item with a mandatory reason, immutable ledger and financial settlement. Partial payments are rejected."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reservations/{reservationId}/administrative-corrections",
+    "method": "get",
+    "operationId": "previewBookingAdministrativeCorrection",
+    "secured": true,
+    "idempotent": false,
+    "description": "Read-only administrator preview of the item, customer, versions, captured amount and settlement."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/reservations/{reservationId}/administrative-corrections",
+    "method": "post",
+    "operationId": "correctBookingAdministrativeError",
+    "secured": true,
+    "idempotent": true,
+    "description": "Atomically cancel an erroneous item with a mandatory reason, immutable ledger and financial settlement. Partial payments are rejected."
   }
 ]

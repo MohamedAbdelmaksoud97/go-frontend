@@ -22,10 +22,10 @@ class ApiError extends Error {
   constructor(code) { super(code); this.problem = { code, status: 409 }; this.status = 409 }
 }
 
-async function mount() {
+async function mount({ initialInvoices = [] } = {}) {
   const calls = []
   const notices = []
-  const invoices = []
+  const invoices = initialInvoices
   let failPayment = false
   let slowReply
   const context = { organizationId: "org", branchId: "branch", canAccess: () => true }
@@ -280,4 +280,23 @@ test("promotion settings expose invoice scope, hide item targets, and send the c
     assert.ok(!container.textContent.includes("الخدمات المشمولة"))
     assert.ok(![...container.querySelectorAll("option")].some(option => option.value === "FIXED_FINAL_PRICE"))
   } finally { await React.act(async () => root.unmount()); container.remove() }
+})
+
+test("pending invoice collection uses the server's reduced balance, preserving the original gross", async () => {
+  const view = await mount({ initialInvoices: [{ id: "invoice-1", invoiceNumber: "INV-1", grossMinor: "23000", paidMinor: "0", receivableReductionMinor: "11500", balanceMinor: "11500", status: "ISSUED" }] })
+  try {
+    const invoiceSelect = [...view.container.querySelectorAll("select")].find(select => [...select.options].some(option => option.value === "invoice-1"))
+    await React.act(async () => { invoiceSelect.value = "invoice-1"; invoiceSelect.dispatchEvent(new browser.Event("change", { bubbles: true })); await pause() })
+    const methodSelect = [...view.container.querySelectorAll("select")].find(select => [...select.options].some(option => option.value === "CARD"))
+    await React.act(async () => { methodSelect.value = "CARD"; methodSelect.dispatchEvent(new browser.Event("change", { bubbles: true })); await pause() })
+    const collect = [...view.container.querySelectorAll("button")].find(button => button.textContent.trim() === "تحصيل كامل الرصيد")
+    assert.ok(collect)
+    assert.equal(collect.disabled, false)
+    await React.act(async () => { collect.click(); await pause() })
+    const payment = view.calls.find(call => call.path.endsWith("/payments"))
+    assert.ok(payment)
+    assert.equal(payment.body.amountMinor, "11500")
+    assert.equal(payment.body.allocations[0].amountMinor, "11500")
+    assert.ok(view.calls.some(call => call.path.endsWith("/invoices/invoice-1")))
+  } finally { await view.close() }
 })

@@ -10,6 +10,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { DateTimeInput } from "@/components/date-time-input"
+import { AdministrativeCorrectionDialog } from "@/components/administrative-correction-dialog"
 import { useAppContext } from "@/components/app-context"
 import { endpoints } from "@/lib/endpoint-catalog"
 import { ApiError, apiRequest, hasRuntimeApi } from "@/lib/api-client"
@@ -702,6 +703,7 @@ function ResourceBookingScheduleDialog({ organizationId, resource, onClose }: { 
 function RecordPreview({ columns, fields, row, record, operationId, organizationId, statusIndex, onFreeze, onCancel, onClose, onChanged }: { columns: string[]; fields: string[]; row: string[]; record: ApiRecord; operationId: string; organizationId: string; statusIndex?: number; onFreeze: () => void; onCancel: () => void; onClose: () => void; onChanged: () => void }) {
   const context = useAppContext()
   const toast = useToast()
+  const [administrativeCorrection, setAdministrativeCorrection] = useState(false)
   const [currentRecord, setCurrentRecord] = useState(record)
   const [refreshing, setRefreshing] = useState(operationId === "listReservations" || operationId === "listSubscriptions")
   const [busy, setBusy] = useState(false)
@@ -928,6 +930,7 @@ function RecordPreview({ columns, fields, row, record, operationId, organization
     }
   }
 
+  const showBookingCorrection = operationId === "listReservations" && Boolean(id) && ["PENDING_PAYMENT", "CONFIRMED", "COMPLETED", "NO_SHOW"].includes(status) && context.canAccess(["bookings.corrections.manage"])
   const visibleActions = actions.filter(action => context.canAccess([action.permission]))
   const showSubscriptionFreezeAction = operationId === "listSubscriptions" && Boolean(id) && context.canAccess(["subscriptions.freeze"]) && ["ACTIVE", "ACTIVE_PROVISIONAL", "FROZEN"].includes(status)
   const subscriptionFreezeActionDisabled = ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && !freezeSchedule && !freezePolicy.allowed
@@ -948,14 +951,16 @@ function RecordPreview({ columns, fields, row, record, operationId, organization
         {error && !pendingAction && <p className="mt-4 rounded-xl bg-destructive/10 p-3 text-xs font-bold text-destructive">{error}</p>}
         {actionResult && <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"><p className="text-xs font-black text-emerald-600">تم إصدار بيانات التفعيل</p><p dir="ltr" className="mt-2 whitespace-pre-line text-left font-mono text-sm font-bold leading-7">{actionResult}</p><p className="mt-2 text-[10px] text-muted-foreground">لا يُحفظ الرمز بصورته الأصلية، لذلك انسخه الآن وسلّمه للعضو عبر قناة آمنة.</p></div>}
         {operationId === "listSubscriptions" && ["ACTIVE", "ACTIVE_PROVISIONAL"].includes(status) && <div role="status" className={`mt-5 rounded-2xl border p-4 text-xs ${freezePolicy.allowed ? "border-blue-500/25 bg-blue-500/5" : "border-amber-500/30 bg-amber-500/8"}`}><p className="font-black">سياسة التجميد المحفوظة مع الاشتراك</p><p className="mt-2 leading-6 text-muted-foreground">{freezePolicy.message} أيام النشاط المحسوبة: {freezePolicy.activeDays}، والحد الأدنى المطلوب: {freezePolicy.minimumActiveDaysBeforeFreeze}.</p></div>}
-        {(visibleActions.length > 0 || showSubscriptionFreezeAction || showSubscriptionCancelAction) && <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">
+        {(visibleActions.length > 0 || showSubscriptionFreezeAction || showSubscriptionCancelAction || showBookingCorrection) && <div className="mt-5 flex flex-wrap gap-2 border-t pt-4">
           {showSubscriptionFreezeAction && <Button variant="outline" disabled={busy || refreshing || subscriptionFreezeActionDisabled} title={refreshing ? "جارٍ تحديث حالة السجل" : subscriptionFreezeActionDisabled ? freezePolicy.message : undefined} onClick={onFreeze}>{freezeSchedule ? "إدارة موعد التجميد" : status === "FROZEN" ? "استئناف الاشتراك" : "تجميد الاشتراك"}</Button>}
           {showSubscriptionCancelAction && <Button variant="destructive" disabled={busy || refreshing || !cancellationPolicy} title={refreshing ? "جارٍ تحديث حالة السجل" : cancellationPolicy ? "إلغاء الاشتراك وفق سياسة الباقة" : "لا توجد سياسة إلغاء محفوظة مع الاشتراك"} onClick={onCancel}>إلغاء الاشتراك</Button>}
+          {showBookingCorrection && <Button variant="destructive" disabled={busy || refreshing} onClick={() => setAdministrativeCorrection(true)}>تصحيح حجز مسجل بالخطأ</Button>}
           {visibleActions.map(action => <Button key={action.label} variant={action.danger ? "destructive" : "outline"} disabled={busy || refreshing || action.disabled} title={refreshing ? "جارٍ تحديث حالة السجل" : action.disabledReason} onClick={() => requestAction(action)}>{action.label}</Button>)}
         </div>}
         <Button className="mt-6 w-full" size="lg" onClick={onClose} disabled={busy}>إغلاق</Button>
       </section>
     </div>
+    {administrativeCorrection && <AdministrativeCorrectionDialog path={`/organizations/${organizationId}/reservations/${id}/administrative-corrections`} onClose={() => setAdministrativeCorrection(false)} onSaved={() => { setAdministrativeCorrection(false); onChanged(); onClose() }}/>}
     {pendingAction && <RecordOperationDialog key={pendingAction.label} action={pendingAction} busy={busy} error={error} onClose={() => { if (!busy) { setPendingAction(undefined); setError("") } }} onSubmit={values => run(pendingAction, values)} />}
   </>
 }
@@ -979,7 +984,7 @@ function BookingStateGuidance({ record, refreshing }: { record: ApiRecord; refre
             : { tone: "border-slate-500/25 bg-slate-500/8 text-foreground", title: "تم تسجيل عدم حضور", detail: "أُغلق الحجز كعدم حضور وظهر بهذه النتيجة في سجل العضو والتقارير." }
   return <section className={`mt-4 rounded-2xl border p-4 text-xs leading-6 ${guidance.tone}`} aria-live="polite">
     <p className="flex items-center gap-2 font-black">{refreshing && <RefreshCw className="size-4 animate-spin" />}{refreshing ? "جارٍ جلب أحدث حالة للحجز…" : guidance.title}</p>
-    {!refreshing && <><p className="mt-1 opacity-80">{guidance.detail}</p>{status === "PENDING_PAYMENT" && salesOrderId && <Link href={`/cashier?orderId=${encodeURIComponent(salesOrderId)}`} className={buttonVariants({ size: "sm", className: "mt-3" })}><CreditCard />فتح الفاتورة وتحصيل {money(Number.isFinite(grossMinor) ? grossMinor : 0)}</Link>}{status === "CANCELLED" && record.refundRequestId && <p className="mt-2 font-bold">أُنشئ طلب استرداد مالي وفق سياسة الإلغاء، ويحتاج متابعة من قسم المالية.</p>}</>}
+    {!refreshing && <><p className="mt-1 opacity-80">{guidance.detail}</p>{status === "PENDING_PAYMENT" && salesOrderId && <Link href={`/cashier?orderId=${encodeURIComponent(salesOrderId)}`} className={buttonVariants({ size: "sm", className: "mt-3" })}><CreditCard />فتح الفاتورة وتحصيل {money(Number.isFinite(grossMinor) ? grossMinor : 0)}</Link>}{status === "CANCELLED" && record.refundRequestId && <p className="mt-2 font-bold">أُنشئ طلب استرداد مالي مرتبط بهذا الإلغاء، ويحتاج متابعة من قسم المالية.</p>}</>}
   </section>
 }
 
@@ -1104,7 +1109,7 @@ function displayValue(record: ApiRecord, field: string, branches: BranchLookup[]
     const compactId = String(record.id).replaceAll("-", "").slice(0, 12).toUpperCase()
     value = compactId ? `RSV-${compactId}` : undefined
   }
-  if ((value === undefined || value === null || value === "") && field === "outstandingMinor" && record.grossMinor !== undefined && record.paidMinor !== undefined) value = String(Number(record.grossMinor) - Number(record.paidMinor))
+  if ((value === undefined || value === null || value === "") && field === "outstandingMinor" && record.grossMinor !== undefined && record.paidMinor !== undefined) value = String(Math.max(0, Number(record.grossMinor) - Number(record.receivableReductionMinor ?? 0) - Number(record.paidMinor)))
   if ((value === undefined || value === null || value === "") && field === "phoneE164") value = phoneFromContacts(record)
   if ((value === undefined || value === null || value === "") && field === "branchName") { const branchId = record.branchId ?? record.registrationBranchId ?? record.sellingBranchId ?? record.collectionBranchId ?? readPath(record, "assignments.0.branchId"); const branch = branches.find(candidate => candidate.id === branchId); value = branch?.nameAr ?? branch?.name }
   if (value === undefined || value === null || value === "") for (const alias of aliases[field] ?? []) { const candidate = readPath(record, alias); if (candidate !== undefined && candidate !== null && candidate !== "") { value = candidate; break } }
@@ -1148,7 +1153,7 @@ function metricValue(operationId: string, index: number, records: ApiRecord[]) {
   if (operationId === "listInvoices") return index === 0
     ? money(records.reduce((total, record) => total + amountMinor(record, "grossMinor"), 0))
     : index === 1
-      ? money(records.reduce((total, record) => total + Math.max(0, amountMinor(record, "grossMinor") - amountMinor(record, "paidMinor")), 0))
+      ? money(records.reduce((total, record) => total + Math.max(0, Number(record.outstandingMinor ?? record.balanceMinor ?? (amountMinor(record, "grossMinor") - Number(record.receivableReductionMinor ?? 0) - amountMinor(record, "paidMinor")))), 0))
       : String(count)
   if (operationId === "listCrmLeads") return index === 0
     ? String(records.filter(record => !["CONVERTED", "LOST", "CLOSED"].includes(recordStatus(record))).length)

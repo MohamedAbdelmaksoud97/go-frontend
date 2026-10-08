@@ -190,7 +190,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
   const photoUrl = photo ? data.fileUrls[text(photo.id)] : ""
   const activeSubscriptions = data.subscriptions.filter(row => text(row.status) === "ACTIVE").length
   const upcomingBookings = data.bookings.filter(row => new Date(text(row.startsAt)).getTime() >= loadedAt && text(row.status) !== "CANCELLED").length
-  const outstanding = data.invoices.reduce((total, row) => total + minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.paidMinor))), 0)
+  const outstanding = data.invoices.reduce((total, row) => total + minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.receivableReductionMinor) - minor(row.paidMinor))), 0)
   const branchName = branchLabel(text(member.registrationBranchId), context.branches)
   const tabs = [
     { key: "profile" as const, label: "الملف الشخصي", icon: UserRound, show: true },
@@ -477,7 +477,7 @@ function InvoiceSection({ rows: items, payments, branches, error }: ListProps & 
     <div className="space-y-5">
       <div>
         <h3 className="mb-3 text-sm font-black">الفواتير</h3>
-        {items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-4 p-5 md:grid-cols-[1fr_repeat(3,auto)] md:items-center"><div><div className="flex flex-wrap items-center gap-2"><Link href={`/finance/invoices/${text(row.id)}`} className="font-black text-primary hover:underline">فاتورة <span dir="ltr">{text(row.invoiceNumber)}</span></Link><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.issuedAt)} · {branchLabel(text(row.sellingBranchId), branches)}</p></div><Small label="الإجمالي" value={money(minor(row.grossMinor))}/><Small label="المدفوع" value={money(minor(row.paidMinor))}/><Small label="المتبقي" value={money(minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.paidMinor))))}/></article>)}</div> : <Empty compact text="لا توجد فواتير أو ذمم مالية لهذا العضو."/>}
+        {items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-4 p-5 md:grid-cols-[1fr_repeat(3,auto)] md:items-center"><div><div className="flex flex-wrap items-center gap-2"><Link href={`/finance/invoices/${text(row.id)}`} className="font-black text-primary hover:underline">فاتورة <span dir="ltr">{text(row.invoiceNumber)}</span></Link><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.issuedAt)} · {branchLabel(text(row.sellingBranchId), branches)}</p></div><Small label="الإجمالي" value={money(minor(row.grossMinor))}/><Small label="المدفوع" value={money(minor(row.paidMinor))}/><Small label="المتبقي" value={money(minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.receivableReductionMinor) - minor(row.paidMinor))))}/></article>)}</div> : <Empty compact text="لا توجد فواتير أو ذمم مالية لهذا العضو."/>}
       </div>
       <div>
         <h3 className="mb-3 text-sm font-black">سجل المدفوعات</h3>

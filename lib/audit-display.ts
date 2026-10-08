@@ -55,6 +55,8 @@ export const aggregateTypes = [
 ] as const
 
 const exactActionLabels: Record<string, string> = {
+  "sales.service-administratively-corrected": "تصحيح خدمة مسجلة بالخطأ",
+  "booking.reservation-administratively-corrected": "تصحيح حجز مسجل بالخطأ",
   "subscription.expired": "انتهاء مدة اشتراك", "subscription.activated": "تفعيل اشتراك",
   "subscription.frozen": "تجميد اشتراك", "subscription.resumed": "استئناف اشتراك",
   "subscription.cancelled": "إلغاء اشتراك", "subscription.cancellation-requested": "طلب إلغاء اشتراك",
@@ -112,6 +114,7 @@ const fieldLabels: Record<string, string> = {
   netMinor: "الصافي", discountMinor: "الخصم", taxMinor: "الضريبة", allocatedMinor: "المبلغ الموزع على الفواتير",
   requestedAmountMinor: "مبلغ الاسترداد المطلوب", eligibleRefundMinor: "المبلغ المستحق للاسترداد",
   currency: "العملة", taxRateBps: "نسبة الضريبة", taxInclusive: "السعر شامل الضريبة",
+  settlement: "التسوية المالية", balanceMinor: "المستحق بعد التصحيح",
   invoicePromotion: "كود خصم الفاتورة", applicationScope: "نطاق تطبيق العرض", grossBeforeMinor: "الإجمالي قبل الكود", grossDiscountMinor: "توفير الكود شامل الضريبة",
   benefitType: "نوع العرض", benefitValue: "قيمة العرض", targetType: "ينطبق على", targetName: "الخدمة أو الباقة",
   targetCode: "رمز الخدمة أو الباقة", enabled: "الخدمة متاحة", durationDays: "المدة بالأيام",
@@ -136,6 +139,8 @@ const values: Record<string, string> = {
   CURRENT_BRANCH: "الفرع الحالي", ALL_BRANCHES: "كل الفروع", SELECTED_BRANCHES: "فروع محددة", DAILY: "يوميًا",
   WEEKLY: "أسبوعيًا", MONTHLY: "شهريًا", SYSTEM: "داخل النظام", WHATSAPP: "واتساب", BOTH: "داخل النظام وواتساب",
   HIGH: "عالية", NORMAL: "عادية", LOW: "منخفضة", COMPLAINT: "شكوى", SUGGESTION: "اقتراح",
+  VOIDED_UNPAID: "إلغاء فاتورة غير مسددة", REDUCED_UNPAID: "تخفيض المستحق", REFUND_REQUIRED: "طلب استرداد", NO_FINANCIAL_SETTLEMENT: "دون تسوية مالية",
+  NOT_REQUIRED: "لا يتطلب تنفيذًا إضافيًا", FULFILLED: "تم التنفيذ",
   COUNTER_INVOICE: "فاتورة الكاونتر", LINE: "الباقات والخدمات",
   FIXED_DISCOUNT: "خصم بمبلغ ثابت", PERCENTAGE: "خصم بنسبة مئوية", FIXED_FINAL_PRICE: "سعر نهائي ثابت",
   SERVICE: "خدمة", PACKAGE: "باقة", MEMBER: "عضو", EMPLOYEE: "موظف", SAR: "ريال سعودي",

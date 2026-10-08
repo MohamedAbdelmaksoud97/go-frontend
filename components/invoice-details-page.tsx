@@ -8,6 +8,7 @@ import {
   Hash, Loader2, Package, ReceiptText, RefreshCw, RotateCcw, ShoppingBag,
   UserRound, WalletCards, Printer, FileSignature, Files,
 } from "lucide-react"
+import { AdministrativeCorrectionDialog, correctionSettlementLabel, type Correction } from "@/components/administrative-correction-dialog"
 import { useAppContext } from "@/components/app-context"
 import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
@@ -49,7 +50,7 @@ type InvoiceRefund = { id: string; paymentId: string; amountMinor: string; curre
 type InvoiceCreditNote = { id: string; creditNoteNumber: string; refundRequestId: string; netMinor: string; taxMinor: string; grossMinor: string; currency: string; reason: string; issuedByName?: string; issuedAt: string; documentSnapshot?: Record<string, unknown> }
 type InvoiceDetails = {
   id: string; invoiceNumber: string; orderId?: string; memberId?: string; sellingBranchId: string; status: string
-  netMinor: string; discountMinor: string; taxMinor: string; grossMinor: string; paidMinor: string; balanceMinor: string; currency: string
+  netMinor: string; discountMinor: string; taxMinor: string; grossMinor: string; paidMinor: string; balanceMinor: string; receivableReductionMinor?: string; payableGrossMinor?: string; corrections?: Correction[]; currency: string
   taxSnapshot: Record<string, unknown>; issuedAt: string; voidedAt?: string; voidReason?: string; version: number; createdAt: string; updatedAt: string
   member?: { id: string; memberNumber: string; legacyMemberNumber?: string; name: string; phone?: string; email?: string; birthDate?: string; nationalityCode?: string; nationalId?: string; guardian?: { name: string; phone?: string; relationship: string } }
   organization?: { id: string; code: string; name: string }
@@ -63,6 +64,7 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
   const [invoice, setInvoice] = useState<InvoiceDetails>()
   const [loading, setLoading] = useState(hasRuntimeApi())
   const [error, setError] = useState("")
+  const [correctionPath, setCorrectionPath] = useState<string>()
   const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
@@ -111,6 +113,7 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
       <div><p className="font-bold">{contracts.length ? `${contracts.length === 1 ? "عقد واحد مرتبط" : `${contracts.length} عقود مرتبطة`} بهذه الفاتورة` : "لا يوجد عقد مرتبط بهذه الفاتورة"}</p><p className="mt-1 text-xs leading-6 text-muted-foreground">{contracts.length ? "يمكن طباعة العقد منفردًا أو مع الفاتورة. البنود والعرض والقيمة وسياسة الباقة محفوظة وقت البيع، بينما تعكس النهاية وإحصاءات التجميد حالة الاشتراك الحالية." : "ترتبط العقود بفواتير الاشتراكات عندما تحتوي الباقة على عنوان وبنود عقد."}</p></div>
     </div>
 
+    <InvoiceCorrectionDetails invoice={invoice}/>
     <InvoicePromotionDetails lines={invoice.lines} currency={invoice.currency}/>
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Metric title="إجمالي الفاتورة" value={money(invoice.grossMinor, invoice.currency)} hint="شامل الضريبة بعد الخصم" icon={ReceiptText}/>
@@ -131,7 +134,7 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
 
     <Card className="overflow-hidden">
       <CardHeader><div><CardTitle className="flex items-center gap-2"><Package className="text-primary"/>بنود الفاتورة</CardTitle><p className="mt-1 text-sm text-muted-foreground">اسم كل بند ونوعه وكميته وقيمته والضريبة المطبقة عليه.</p></div><Badge variant="secondary">{invoice.lines.length} بند</Badge></CardHeader>
-      <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[980px] text-right"><thead className="bg-secondary/50"><tr>{["البند","النوع","الكمية","سعر الوحدة قبل الضريبة","الخصم","الضريبة","الإجمالي","التنفيذ"].map(label=><th key={label} className="px-5 py-4 text-xs text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y">{invoice.lines.map(line=><tr key={line.id}><td className="px-5 py-4"><p className="font-bold">{line.targetName || line.description}</p>{line.targetCode&&<p className="mt-1 text-xs text-muted-foreground">{line.targetCode}</p>}{line.booking&&<p className="mt-2 max-w-sm text-xs font-semibold leading-5 text-primary"><span className="text-muted-foreground">مدة الحجز: </span>{bookingPeriod(line.booking)}</p>}</td><td className="px-5 py-4"><Badge variant="outline">{lineTypeLabel(line.lineType)}</Badge></td><td className="px-5 py-4 font-semibold">{line.quantity}</td><td className="px-5 py-4">{money(line.unitNetMinor, invoice.currency)}</td><td className="px-5 py-4">{money(line.discountMinor, invoice.currency)}</td><td className="px-5 py-4"><p>{money(line.taxMinor, invoice.currency)}</p><p className="text-xs text-muted-foreground">{taxRate(line.taxRateBps)} · {line.taxInclusive ? "شاملة" : "مضافة"}</p></td><td className="px-5 py-4 font-bold">{money(line.grossMinor, invoice.currency)}</td><td className="px-5 py-4">{line.fulfillmentStatus ? statusLabel(line.fulfillmentStatus) : "غير مرتبط بتنفيذ"}</td></tr>)}</tbody></table></div>
+      <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[980px] text-right"><thead className="bg-secondary/50"><tr>{["البند","النوع","الكمية","سعر الوحدة قبل الضريبة","الخصم","الضريبة","الإجمالي","التنفيذ"].map(label=><th key={label} className="px-5 py-4 text-xs text-muted-foreground">{label}</th>)}</tr></thead><tbody className="divide-y">{invoice.lines.map(line=><tr key={line.id}><td className="px-5 py-4"><p className="font-bold">{line.targetName || line.description}</p>{line.targetCode&&<p className="mt-1 text-xs text-muted-foreground">{line.targetCode}</p>}{line.booking&&<p className="mt-2 max-w-sm text-xs font-semibold leading-5 text-primary"><span className="text-muted-foreground">مدة الحجز: </span>{bookingPeriod(line.booking)}</p>}</td><td className="px-5 py-4"><Badge variant="outline">{lineTypeLabel(line.lineType)}</Badge></td><td className="px-5 py-4 font-semibold">{line.quantity}</td><td className="px-5 py-4">{money(line.unitNetMinor, invoice.currency)}</td><td className="px-5 py-4">{money(line.discountMinor, invoice.currency)}</td><td className="px-5 py-4"><p>{money(line.taxMinor, invoice.currency)}</p><p className="text-xs text-muted-foreground">{taxRate(line.taxRateBps)} · {line.taxInclusive ? "شاملة" : "مضافة"}</p></td><td className="px-5 py-4 font-bold">{money(line.grossMinor, invoice.currency)}</td><td className="px-5 py-4">{line.fulfillmentStatus ? statusLabel(line.fulfillmentStatus) : "غير مرتبط بتنفيذ"}{invoice.status !== "VOIDED" && line.fulfillmentStatus !== "CANCELLED" && ((line.lineType === "SERVICE" && context.canAccess(["sales.corrections.manage"]) && line.orderLineId && invoice.orderId) || (line.lineType === "BOOKING" && context.canAccess(["bookings.corrections.manage"]) && line.booking && line.booking.status !== "CANCELLED")) && <Button variant="destructive" size="sm" className="mt-2" onClick={() => setCorrectionPath(line.lineType === "SERVICE" ? `/organizations/${context.organizationId}/orders/${invoice.orderId}/lines/${line.orderLineId}/administrative-corrections` : `/organizations/${context.organizationId}/reservations/${line.booking!.id}/administrative-corrections`)}>تصحيح {line.lineType === "SERVICE" ? "خدمة مسجلة" : "حجز مسجل"} بالخطأ</Button>}</td></tr>)}</tbody></table></div>
       {!invoice.lines.length&&<p className="p-10 text-center text-sm text-muted-foreground">لا توجد بنود مسجلة لهذه الفاتورة.</p>}
       {invoice.lines.some(line=>line.commercialSnapshot)&&<div className="grid gap-3 border-t p-5 lg:grid-cols-2">{invoice.lines.filter(line=>line.commercialSnapshot).map(line=><LineSpecificDetails key={line.id} line={line}/>)}</div>}
     </Card>
@@ -149,6 +152,7 @@ export function InvoiceDetailsPage({ invoiceId }: { invoiceId: string }) {
 
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Hash className="text-primary"/>البيانات المرجعية</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Info label="معرّف الفاتورة" value={invoice.id} mono/><Info label="معرّف طلب البيع" value={invoice.orderId} mono/><Info label="إصدار السجل" value={String(invoice.version)}/><Info label="صافي البنود" value={money(invoice.netMinor, invoice.currency)}/><Info label="وقت الإنشاء" value={dateTime(invoice.createdAt)}/><Info label="عملة الفاتورة" value={invoice.currency}/></div>{Object.keys(invoice.taxSnapshot??{}).length>0&&<details className="mt-5 rounded-xl border bg-secondary/20 p-4"><summary className="cursor-pointer font-bold">مرجع الضريبة المحفوظ وقت الإصدار</summary><SnapshotGrid value={invoice.taxSnapshot}/></details>}</CardContent></Card>
   </div>
+  {correctionPath && <AdministrativeCorrectionDialog path={correctionPath} onClose={() => setCorrectionPath(undefined)} onSaved={() => { setCorrectionPath(undefined); setReloadKey(value => value + 1) }}/> }
   <InvoicePrintSheet invoice={invoice} invoiceType={invoiceType} memberships={memberships}/>
   <ContractPrintSheets context={{ organizationName: invoice.organization?.name, branchName: invoice.branch.name, branchAddress: invoice.branch.address, invoiceNumber: invoice.invoiceNumber, issuedAt: invoice.issuedAt, employeeName: invoice.order?.createdByName, member: invoice.member }} contracts={contracts}/>
   </>
@@ -181,6 +185,7 @@ function InvoicePrintSheet({ invoice, invoiceType, memberships }: { invoice: Inv
       {memberships.map(membership => <PrintParty key={membership.lineId} title={`تفاصيل الاشتراك · ${membership.packageName}`} rows={membershipRows(membership)}/>) }
     </div>}
 
+    <InvoiceCorrectionDetails invoice={invoice}/>
     <InvoicePromotionDetails lines={invoice.lines} currency={invoice.currency}/>
     <div className="invoice-print-lines">
       <h2>تفاصيل البنود</h2>
@@ -214,6 +219,7 @@ function InvoicePrintSheet({ invoice, invoiceType, memberships }: { invoice: Inv
         <PrintTotal label="الخصم" value={money(invoice.discountMinor, invoice.currency)}/>
         <PrintTotal label="الضريبة" value={money(invoice.taxMinor, invoice.currency)}/>
         <PrintTotal label="إجمالي الفاتورة" value={money(invoice.grossMinor, invoice.currency)} strong/>
+        {Number(invoice.receivableReductionMinor ?? 0) > 0 && <><PrintTotal label="تخفيض المستحق للتصحيح الإداري" value={money(invoice.receivableReductionMinor ?? "0", invoice.currency)}/><PrintTotal label="قيمة البنود الصحيحة" value={money(invoice.payableGrossMinor ?? invoice.grossMinor, invoice.currency)}/></>}
         <PrintTotal label="المبلغ المحصل" value={money(invoice.paidMinor, invoice.currency)}/>
         <PrintTotal label="المتبقي" value={money(invoice.balanceMinor, invoice.currency)} strong/>
       </div>
@@ -410,5 +416,13 @@ function InvoicePromotionDetails({ lines, currency }: { lines: InvoiceLine[]; cu
   return <section className="invoice-print-parties rounded-xl border bg-emerald-500/5 p-4" aria-label="خصم فاتورة الكاونتر">
     <div><h2 className="text-sm font-bold">كود خصم الفاتورة: <span dir="ltr">{asText(allocations[0].code)}</span></h2><p className="mt-1 text-xs">{asText(allocations[0].name)}</p></div>
     <div className="text-xs"><p>الإجمالي قبل الكود شامل الضريبة: {money(before.toString(), currency)}</p><p className="mt-1 font-bold">توفير الكود شامل الضريبة: {money(savings.toString(), currency)}</p></div>
+  </section>
+}
+
+function InvoiceCorrectionDetails({ invoice }: { invoice: InvoiceDetails }) {
+  if (!invoice.corrections?.length) return null
+  return <section className="invoice-print-parties rounded-xl border bg-secondary/25 p-4" aria-label="التصحيحات الإدارية">
+    <div><h2 className="text-sm font-bold">التصحيحات الإدارية</h2>{invoice.corrections.map(item => <div className="mt-3 text-xs leading-6" key={item.id}><p className="font-bold">{item.sourceType === "SERVICE" ? "خدمة مسجلة بالخطأ" : "حجز مسجل بالخطأ"} · {money(item.amountMinor, invoice.currency)}</p><p>{correctionSettlementLabel(item.settlement)}</p><p>السبب: {item.reason}</p><p>{item.correctedByName ? `المنفذ: ${item.correctedByName} · ` : ""}{dateTime(item.correctedAt)}</p>{item.refundRequestId && <p>طلب الاسترداد مرتبط بالتصحيح ويُتابع من المالية.</p>}</div>)}</div>
+    <div className="text-xs leading-6"><p>تخفيض المستحق: {money(invoice.receivableReductionMinor ?? "0", invoice.currency)}</p><p className="font-bold">المستحق الحالي: {money(invoice.balanceMinor, invoice.currency)}</p></div>
   </section>
 }

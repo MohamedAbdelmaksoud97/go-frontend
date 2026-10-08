@@ -8,6 +8,8 @@ type StatusItem = {
 }
 
 const statuses: Record<string, StatusItem> = {
+  NOT_REQUIRED: { label: "لا يتطلب تنفيذًا إضافيًا", variant: "secondary", icon: CircleMinus },
+  FULFILLED: { label: "تم التنفيذ", variant: "success", icon: CircleCheck },
   ACTIVE: { label: "نشط", variant: "success", icon: CircleCheck },
   ACTIVE_PROVISIONAL: { label: "نشط مؤقتًا", variant: "warning", icon: Clock3 },
   CONFIRMED: { label: "مؤكد", variant: "success", icon: CircleCheck },

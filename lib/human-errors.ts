@@ -234,6 +234,15 @@ const messages: Record<string, string> = {
     "اختر طريقة دفع مختلفة عن الطريقة المسجلة حاليًا.",
   payment_already_corrected:
     "سبق تصحيح هذه الدفعة. استخدم القيد البديل الظاهر في قائمة المدفوعات.",
+  correction_source_not_found: "تعذر العثور على الخدمة أو الحجز وفاتورته الأصلية للتصحيح.",
+  correction_reason_required: "اكتب سببًا واضحًا للتصحيح يتراوح بين ثلاثة أحرف وألف حرف.",
+  correction_invoice_version_required: "أعد فتح معاينة التصحيح للحصول على إصدار الفاتورة الحالي قبل التأكيد.",
+  correction_partial_payment: "الفاتورة مسددة جزئيًا. أكمل تسويتها قبل تنفيذ التصحيح الإداري.",
+  correction_refund_capacity_insufficient: "الاستردادات أو طلبات الاسترداد القائمة لا تترك مبلغًا متاحًا كافيًا لتصحيح هذا البند.",
+  correction_invoice_voided: "الفاتورة الأصلية ملغاة بالفعل ولا تقبل تصحيحًا جديدًا.",
+  sale_already_corrected: "سبق تصحيح هذا البند أو إلغاؤه. حدّث التفاصيل لمراجعة السجل.",
+  booking_correction_not_allowed: "حالة الحجز الحالية لا تسمح بالتصحيح الإداري.",
+  correction_service_unavailable: "خدمة التصحيح الإداري غير متاحة حاليًا. حاول لاحقًا.",
   subscription_correction_source_not_found:
     "تعذر العثور على الفاتورة الأصلية المرتبطة بهذا الاشتراك. راجع سجل الفاتورة قبل التصحيح.",
   subscription_correction_mixed_invoice:

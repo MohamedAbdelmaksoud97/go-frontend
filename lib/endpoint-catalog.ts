@@ -24,6 +24,7 @@ export function moduleEndpoints(slug:string){const selectedModule=endpointModule
 export function endpointModule(operation:EndpointOperation){return endpointModules.find(item=>item.match(operation))??endpointModules[0]}
 
 export const bodyPresets:Record<string,Record<string,unknown>>={
+ correctServiceAdministrativeError:{reason:"",expectedVersion:1,expectedInvoiceVersion:1},correctBookingAdministrativeError:{reason:"",expectedVersion:1},
  requestPhoneOtp:{phone:"+9665XXXXXXXX"},verifyPhoneOtp:{phone:"+9665XXXXXXXX",code:"000000"},verifyMfaChallenge:{factorId:"",challengeId:"",code:"000000"},
  updateOwnAccountProfile:{displayName:"",preferredLocale:"ar",preferredTimezone:"Asia/Riyadh",smsNotificationsEnabled:true,whatsappNotificationsEnabled:true,expectedVersion:1},changeOwnPassword:{currentPassword:"",newPassword:""},
  registerMember:{branchId:"",fullNameAr:"",gender:"MALE",birthDate:"2000-01-01",nationality:"SA",registeredOn:"2026-08-12",contacts:[]},

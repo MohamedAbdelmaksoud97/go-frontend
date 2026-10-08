@@ -52,6 +52,9 @@ type Invoice = {
   invoiceNumber?: string;
   grossMinor?: string;
   paidMinor?: string;
+  balanceMinor?: string;
+  outstandingMinor?: string;
+  receivableReductionMinor?: string;
   buyerName?: string;
   memberName?: string;
   status?: string;
@@ -595,18 +598,14 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
 
   async function recordPayment(invoiceId: string, paymentMethod: PaymentMethodCode = method, expectedOutstanding?: number) {
     if (!context.organizationId || !context.branchId) return;
-    const invoice =
-      invoices.find((item) => item.id === invoiceId) ??
-      (
-        await apiRequest<Invoice>(
-          `/organizations/${context.organizationId}/invoices/${invoiceId}`,
-        )
-      ).data;
+    const invoice = (await apiRequest<Invoice>(
+      `/organizations/${context.organizationId}/invoices/${invoiceId}`,
+    )).data;
     const amountMinor = invoice
       ? String(
           Math.max(
             0,
-            Number(invoice.grossMinor ?? 0) - Number(invoice.paidMinor ?? 0),
+            Number(invoice.balanceMinor ?? invoice.outstandingMinor ?? (Number(invoice.grossMinor ?? 0) - Number(invoice.receivableReductionMinor ?? 0) - Number(invoice.paidMinor ?? 0))),
           ),
         )
       : "0";
@@ -1339,7 +1338,7 @@ function memberSecondary(member: Member) {
 function outstanding(invoice: Invoice) {
   return Math.max(
     0,
-    Number(invoice.grossMinor ?? 0) - Number(invoice.paidMinor ?? 0),
+    Number(invoice.balanceMinor ?? invoice.outstandingMinor ?? (Number(invoice.grossMinor ?? 0) - Number(invoice.receivableReductionMinor ?? 0) - Number(invoice.paidMinor ?? 0))),
   );
 }
 function money(value: number) {

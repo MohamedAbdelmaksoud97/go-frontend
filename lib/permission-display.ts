@@ -31,6 +31,8 @@ const permissionLabelOverrides: Record<string, string> = {
   "members.block": "حظر الأعضاء ورفع الحظر",
   "members.contacts.read": "عرض أرقام هواتف الأعضاء وبريدهم كاملًا",
   "sales.checkout": "إتمام عمليات البيع",
+  "sales.corrections.manage": "تصحيح الخدمات المسجلة بالخطأ (مدير النظام فقط)",
+  "bookings.corrections.manage": "تصحيح الحجوزات المسجلة بالخطأ (مدير النظام فقط)",
   "subscriptions.corrections.manage": "تصحيح الاشتراكات المسجلة بالخطأ (مدير النظام فقط)",
   "finance.payment-corrections.manage": "تصحيح طريقة الدفع المسجلة (مدير النظام فقط)",
   "attendance.check-in": "تسجيل دخول الأعضاء",

@@ -821,7 +821,7 @@ function PermissionPicker({ field, value, choices, onChange }: { field: Field; v
   const selected = asArray(value)
   const permissions = useMemo(() => choices.map(choice => String(choice.code ?? choice.permission ?? itemId(choice))).filter(Boolean).map(permissionChoice).sort((a, b) => a.groupOrder - b.groupOrder || a.label.localeCompare(b.label, "ar")), [choices])
   const grouped = useMemo(() => Array.from(new Map(permissions.filter(permission => `${permission.label} ${permission.code}`.toLowerCase().includes(query.toLowerCase())).map(permission => [permission.group, [] as PermissionChoice[]])).entries()).map(([group]) => ({ group, entries: permissions.filter(permission => permission.group === group && `${permission.label} ${permission.code}`.toLowerCase().includes(query.toLowerCase())) })), [permissions, query])
-  const adminOnlyPermissions = new Set(["subscriptions.corrections.manage", "finance.payment-corrections.manage"])
+  const adminOnlyPermissions = new Set(["subscriptions.corrections.manage", "finance.payment-corrections.manage", "sales.corrections.manage", "bookings.corrections.manage"])
   const toggle = (code: string, checked: boolean) => { if (!adminOnlyPermissions.has(code)) onChange(checked ? [...selected, code] : selected.filter(value => value !== code)) }
   const toggleGroup = (codes: string[]) => { const allSelected = codes.every(code => selected.includes(code)); onChange(allSelected ? selected.filter(code => !codes.includes(code)) : [...new Set([...selected, ...codes])]) }
 

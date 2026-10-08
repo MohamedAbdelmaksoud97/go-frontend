@@ -5,6 +5,8 @@ const keys=operations.map(operation=>`${operation.method.toUpperCase()} ${operat
 const duplicates=keys.filter((key,index)=>keys.indexOf(key)!==index)
 const uncovered=operations.filter(operation=>!operation.operationId||!operation.method||!operation.path)
 const requiredIdempotencyOperations=new Set([
+ "correctServiceAdministrativeError",
+ "correctBookingAdministrativeError",
  "checkoutOrder",
  "checkoutSelfMemberOrder",
  "createCrmLead",
