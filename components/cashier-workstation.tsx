@@ -34,7 +34,7 @@ import { permissionArabicLabel } from "@/lib/permission-display";
 type Meal = { id: string; name: string; remainingQuantity?: number };
 type Service = { id: string; name: string; code?: string };
 type ServiceQuote = { grossMinor: string; taxMinor: string; discountMinor: string; currency: string };
-type CheckoutQuote = { grossMinor: string; taxMinor: string; discountMinor: string; netMinor: string; currency: "SAR" };
+type CheckoutQuote = { grossMinor: string; taxMinor: string; discountMinor: string; netMinor: string; currency: "SAR"; invoicePromotion?: { id: string; code: string; name: string; grossBeforeMinor: string; grossDiscountMinor: string } };
 type RetailProduct = { id: string; name: string; code?: string; barcode?: string; grossMinor?: string; amountMinor?: string; quantityAvailable?: number };
 type Menu = {
   status: "DRAFT" | "PUBLISHED" | "CLOSED";
@@ -105,6 +105,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
   const [serviceId, setServiceId] = useState("");
   const [saleKind, setSaleKind] = useState<SaleKind>("MEAL");
   const [quantity, setQuantity] = useState("1");
+  const [invoiceCodeState, setInvoiceCodeState] = useState({ organizationId: "", branchId: "", entered: "", applied: "", attempt: 0, validationError: "" });
   const [cart, setCart] = useState<CartLine[]>([]);
   const [serviceQuoteResult, setServiceQuoteResult] = useState<{ key: string; quote?: ServiceQuote; error?: string }>();
   const [cartQuoteResult, setCartQuoteResult] = useState<{ key: string; quote?: CheckoutQuote; error?: string }>();
@@ -148,8 +149,11 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
   const selectedMember = memberSelection.organizationId === context.organizationId && memberSelection.branchId === context.branchId ? memberSelection.member : undefined;
   const cartLineType = cart[0]?.type;
   const quoteMemberId = customerMode === "MEMBER" ? selectedMember?.id : undefined;
+  const invoiceCode = invoiceCodeState.organizationId === context.organizationId && invoiceCodeState.branchId === context.branchId
+    ? invoiceCodeState : { entered: "", applied: "", attempt: 0, validationError: "" };
+  const invoiceCodeHasChanges = invoiceCode.entered.trim().toUpperCase() !== invoiceCode.applied;
   const cartQuoteKey = cart.length > 0 && context.organizationId && context.branchId && (customerMode === "GUEST" || quoteMemberId)
-    ? JSON.stringify([context.organizationId, context.branchId, quoteMemberId ?? null, cart.map(({ type, targetId, quantity }) => [type, targetId, quantity])]) : "";
+    ? JSON.stringify([context.organizationId, context.branchId, quoteMemberId ?? null, invoiceCode.applied, invoiceCode.attempt, cart.map(({ type, targetId, quantity }) => [type, targetId, quantity])]) : "";
   const cartQuote = cartQuoteResult?.key === cartQuoteKey ? cartQuoteResult.quote : undefined;
   const cartQuoteError = cartQuoteResult?.key === cartQuoteKey ? cartQuoteResult.error ?? "" : "";
   const loadingCartQuote = Boolean(cartQuoteKey && cartQuoteResult?.key !== cartQuoteKey);
@@ -195,17 +199,39 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       body: JSON.stringify({
         sellingBranchId: context.branchId,
         ...(quoteMemberId ? { memberId: quoteMemberId } : {}),
+        ...(invoiceCode.applied ? { invoicePromoCode: invoiceCode.applied } : {}),
         lines: cart.map(({ type, targetId, quantity }) => ({ type, targetId, quantity })),
       }),
     }).then((response) => {
       if (cancelled) return;
       setCartQuoteResult({ key: cartQuoteKey, quote: response.data });
-      setSalePaymentParts((current) => distributePaymentParts(Number(response.data.grossMinor), current.length >= 2 ? current : defaultPaymentParts()));
     }).catch((reason) => {
       if (!cancelled) setCartQuoteResult({ key: cartQuoteKey, error: humanError(reason, "تعذر حساب إجمالي الفاتورة الحالية. راجع الأصناف والكميات ثم حاول مرة أخرى.") });
     });
     return () => { cancelled = true; };
-  }, [cart, cartQuoteKey, context.branchId, context.organizationId, quoteMemberId]);
+  }, [cart, cartQuoteKey, context.branchId, context.organizationId, quoteMemberId, invoiceCode.applied]);
+
+  function updateInvoiceCode(entered: string) {
+    setInvoiceCodeState({ organizationId: context.organizationId, branchId: context.branchId, entered, applied: invoiceCode.applied, attempt: invoiceCode.attempt, validationError: "" });
+  }
+
+  function applyInvoiceCode() {
+    const code = invoiceCode.entered.trim().toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9_-]{1,31}$/u.test(code)) {
+      setInvoiceCodeState({ organizationId: context.organizationId, branchId: context.branchId, ...invoiceCode, validationError: "أدخل كودًا من 2 إلى 32 حرفًا إنجليزيًا أو رقمًا، ويمكن استخدام _ و-." });
+      return;
+    }
+    setInvoiceCodeState({ organizationId: context.organizationId, branchId: context.branchId, entered: code, applied: code, attempt: invoiceCode.attempt + 1, validationError: "" });
+  }
+
+  function clearInvoiceCode() {
+    setInvoiceCodeState({ organizationId: context.organizationId, branchId: context.branchId, entered: "", applied: "", attempt: 0, validationError: "" });
+  }
+
+  function clearCurrentInvoice() {
+    setCart([]);
+    clearInvoiceCode();
+  }
 
   async function load() {
     if (!hasRuntimeApi() || !context.organizationId || !context.branchId) {
@@ -358,6 +384,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
+      clearCurrentInvoice();
       void load();
     });
     return () => cancelAnimationFrame(frame); // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -464,7 +491,8 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
     const line = cart.find((item) => item.key === key);
     if (!line) return;
     if (nextQuantity < 1) {
-      setCart((current) => current.filter((item) => item.key !== key));
+      if (cart.length === 1) clearCurrentInvoice();
+      else setCart((current) => current.filter((item) => item.key !== key));
       return;
     }
     if (nextQuantity > 100) return;
@@ -496,15 +524,19 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       setError("ابحث عن العضو واختره، أو بدّل إلى «بيع لزائر».");
       return;
     }
+    if (invoiceCodeHasChanges || invoiceCode.validationError) {
+      setError("طبّق كود الخصم أو أزله قبل إصدار الفاتورة.");
+      return;
+    }
     if (!cartQuote) {
       setError(cartQuoteError || "انتظر اكتمال حساب إجمالي الفاتورة قبل التحصيل.");
       return;
     }
-    if (salePaymentMode === "SINGLE" && saleMethod === "CASH" && selectedShift === undefined) {
+    if (cartTotalMinor > 0 && salePaymentMode === "SINGLE" && saleMethod === "CASH" && selectedShift === undefined) {
       setError("اختر وردية صندوق مفتوحة قبل تحصيل النقد.");
       return;
     }
-    if (salePaymentMode === "SPLIT" && !saleSplitIsValid) {
+    if (cartTotalMinor > 0 && salePaymentMode === "SPLIT" && !saleSplitIsValid) {
       setError("راجع توزيع الدفعات. يجب أن يساوي مجموعها إجمالي الفاتورة، مع اختيار وسيلة مختلفة لكل دفعة.");
       return;
     }
@@ -512,7 +544,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
     setError("");
     let createdInvoiceId: string | undefined;
     try {
-      const order = await apiRequest<{ invoiceId?: string }>(
+      const order = await apiRequest<{ invoiceId?: string; grossMinor: string }>(
         `/organizations/${context.organizationId}/orders`,
         {
           method: "POST",
@@ -520,16 +552,20 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
           body: JSON.stringify({
             sellingBranchId: context.branchId,
             ...(customerMode === "MEMBER" && selectedMember ? { memberId: selectedMember.id } : {}),
+            ...(invoiceCode.applied ? { invoicePromoCode: invoiceCode.applied } : {}),
             lines: cart.map(({ type, targetId, quantity }) => ({ type, targetId, quantity })),
           }),
         },
       );
       if (!order.data.invoiceId) throw new Error("لم تُنشأ فاتورة للطلب.");
       createdInvoiceId = order.data.invoiceId;
-      if (salePaymentMode === "SPLIT") await recordSplitPayment(createdInvoiceId, salePaymentParts, cartTotalMinor);
-      else await recordPayment(createdInvoiceId, saleMethod, cartTotalMinor);
+      if (Number(order.data.grossMinor) !== cartTotalMinor) throw new Error("تغيّر إجمالي الفاتورة أثناء الإصدار. راجع الفاتورة المعلقة قبل التحصيل.");
+      if (cartTotalMinor > 0) {
+        if (salePaymentMode === "SPLIT") await recordSplitPayment(createdInvoiceId, salePaymentParts, cartTotalMinor);
+        else await recordPayment(createdInvoiceId, saleMethod, cartTotalMinor);
+      }
       toast.success(`تم تحصيل فاتورة واحدة تضم ${cart.length} ${cart.length === 1 ? "صنف" : "أصناف"}${salePaymentMode === "SPLIT" ? ` عبر ${salePaymentParts.length} وسائل دفع` : ""} بنجاح.`);
-      setCart([]);
+      clearCurrentInvoice();
       setMealId("");
       setProductId("");
       setServiceId("");
@@ -539,7 +575,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       await load();
     } catch (reason) {
       if (createdInvoiceId) {
-        setCart([]);
+        clearCurrentInvoice();
         await load();
         setPaymentInvoiceId(createdInvoiceId);
         if (salePaymentMode === "SPLIT") {
@@ -1005,19 +1041,39 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
               <section aria-labelledby="current-invoice-title" className="mt-5 rounded-2xl border bg-secondary/20 p-3 sm:p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div><h3 id="current-invoice-title" className="text-sm font-black">الفاتورة الحالية</h3><p className="mt-1 text-[11px] text-muted-foreground">{cart.length ? `${cart.length} ${cart.length === 1 ? "صنف" : "أصناف"} · ستصدر في فاتورة واحدة` : "أضف الأصناف المطلوبة قبل التحصيل"}</p></div>
-                  {cart.length > 0 && <Button type="button" size="sm" variant="ghost" onClick={() => setCart([])}><Trash2/>إفراغ الفاتورة</Button>}
+                  {cart.length > 0 && <Button type="button" size="sm" variant="ghost" disabled={saving} onClick={clearCurrentInvoice}><Trash2/>إفراغ الفاتورة</Button>}
                 </div>
                 {cart.length === 0 ? <div className="mt-4 grid min-h-28 place-items-center rounded-xl border border-dashed bg-background/55 text-center"><div><ShoppingCart className="mx-auto size-6 text-muted-foreground"/><p className="mt-2 text-xs font-semibold text-muted-foreground">لم تضف أي أصناف بعد.</p></div></div> : <ul className="mt-4 space-y-2">
                   {cart.map((line) => <li key={line.key} className="flex flex-col gap-3 rounded-xl border bg-background p-3 sm:flex-row sm:items-center">
                     <div className="min-w-0 flex-1"><p className="truncate text-sm font-black">{line.name}</p><p className="mt-1 text-[10px] text-muted-foreground">{saleTypeLabel(line.type)}</p></div>
                     <div className="flex items-center gap-1" aria-label={`كمية ${line.name}`}>
-                      <Button type="button" size="icon-sm" variant="outline" onClick={() => changeCartQuantity(line.key, line.quantity - 1)} aria-label={`إنقاص كمية ${line.name}`}><Minus/></Button>
+                      <Button type="button" size="icon-sm" variant="outline" disabled={saving} onClick={() => changeCartQuantity(line.key, line.quantity - 1)} aria-label={`إنقاص كمية ${line.name}`}><Minus/></Button>
                       <span className="grid h-8 min-w-10 place-items-center rounded-lg bg-secondary px-2 text-xs font-black" aria-live="polite">{line.quantity}</span>
-                      <Button type="button" size="icon-sm" variant="outline" onClick={() => changeCartQuantity(line.key, line.quantity + 1)} aria-label={`زيادة كمية ${line.name}`}><Plus/></Button>
-                      <Button type="button" size="icon-sm" variant="ghost" className="text-red-600" onClick={() => setCart((current) => current.filter((item) => item.key !== line.key))} aria-label={`حذف ${line.name} من الفاتورة`}><Trash2/></Button>
+                      <Button type="button" size="icon-sm" variant="outline" disabled={saving} onClick={() => changeCartQuantity(line.key, line.quantity + 1)} aria-label={`زيادة كمية ${line.name}`}><Plus/></Button>
+                      <Button type="button" size="icon-sm" variant="ghost" className="text-red-600" disabled={saving} onClick={() => changeCartQuantity(line.key, 0)} aria-label={`حذف ${line.name} من الفاتورة`}><Trash2/></Button>
                     </div>
                   </li>)}
                 </ul>}
+                {cart.length > 0 && <section className="mt-4 rounded-xl border bg-background p-3" aria-label="كود خصم فاتورة الكاونتر">
+                  <label htmlFor="counter-invoice-promo" className="text-xs font-bold">كود خصم الفاتورة</label>
+                  <p className="mt-1 text-[11px] text-muted-foreground">يُحسب مرة واحدة على الإجمالي شامل الضريبة، بعد الخصومات التلقائية.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Input id="counter-invoice-promo" dir="ltr" maxLength={32} autoComplete="off" placeholder="COUNTER10" className="min-w-40 flex-1 font-mono uppercase" disabled={saving} value={invoiceCode.entered} onChange={event => updateInvoiceCode(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); applyInvoiceCode(); } }}/>
+                    <Button type="button" variant="outline" disabled={saving || loadingCartQuote || !invoiceCode.entered.trim()} onClick={applyInvoiceCode}>تطبيق الكود</Button>
+                    {(invoiceCode.entered || invoiceCode.applied) && <Button type="button" variant="ghost" disabled={saving} onClick={clearInvoiceCode}><X/>إزالة</Button>}
+                  </div>
+                  <div className="mt-2 text-xs" aria-live="polite">
+                    {invoiceCode.validationError ? <p className="text-red-600">{invoiceCode.validationError}</p>
+                      : invoiceCodeHasChanges ? <p className="text-amber-700 dark:text-amber-300">طبّق الكود أو أزله قبل إصدار الفاتورة.</p>
+                      : invoiceCode.applied && loadingCartQuote ? <p>جارٍ التحقق من الكود...</p>
+                      : invoiceCode.applied && cartQuoteError ? <p className="text-red-600">{cartQuoteError}</p>
+                      : cartQuote?.invoicePromotion && <p className="font-bold text-emerald-700 dark:text-emerald-400">تم قبول {cartQuote.invoicePromotion.code} — {cartQuote.invoicePromotion.name}.</p>}
+                  </div>
+                </section>}
+                {cartQuote?.invoicePromotion && <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-emerald-500/10 p-3 text-center text-xs">
+                  <PaymentMetric label="الإجمالي قبل كود الفاتورة" value={`${money(Number(cartQuote.invoicePromotion.grossBeforeMinor))} ر.س`}/>
+                  <PaymentMetric label="توفير الكود شامل الضريبة" value={`${money(Number(cartQuote.invoicePromotion.grossDiscountMinor))} ر.س`} highlight/>
+                </div>}
                 {cart.length > 0 && <div className="mt-4 rounded-xl border bg-background/80 p-3" role="status" aria-live="polite">
                   {loadingCartQuote ? <p className="flex items-center gap-2 text-xs font-semibold text-muted-foreground"><Loader2 className="size-4 animate-spin"/>جارٍ حساب إجمالي الفاتورة...</p>
                     : cartQuote ? <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
@@ -1037,10 +1093,10 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
                     <label className="text-xs font-bold">طريقة تحصيل الفاتورة<PaymentMethod className="mt-2 w-full" value={saleMethod} onChange={setSaleMethod}/></label>
                     <Button
                       onClick={() => void checkoutAndPay()}
-                      disabled={saving || cart.length === 0 || loadingCartQuote || !cartQuote || (customerMode === "MEMBER" && !selectedMember) || (saleMethod === "CASH" && !selectedShift)}
+                      disabled={saving || invoiceCodeHasChanges || Boolean(invoiceCode.validationError) || cart.length === 0 || loadingCartQuote || !cartQuote || (customerMode === "MEMBER" && !selectedMember) || (cartTotalMinor > 0 && saleMethod === "CASH" && !selectedShift)}
                     >
                       {saving ? <Loader2 className="animate-spin" /> : <ReceiptText />}
-                      إصدار فاتورة واحدة وتحصيلها
+                      {cartQuote && cartTotalMinor === 0 ? "إصدار فاتورة دون مبلغ مستحق" : "إصدار فاتورة واحدة وتحصيلها"}
                     </Button>
                   </div> : <div className="space-y-3 rounded-2xl border bg-secondary/30 p-3 sm:p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1065,20 +1121,20 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
                       <PaymentMetric label={salePaymentPartsRemaining >= 0 ? "المتبقي" : "الزيادة"} value={`${money(Math.abs(salePaymentPartsRemaining))} ر.س`} highlight={salePaymentPartsRemaining === 0}/>
                       <PaymentMetric label="عدد الوسائل" value={`${salePaymentParts.length}`} highlight={saleSplitIsValid}/>
                     </div>
-                    {!saleSplitMethodsAreUnique && <p className="rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">اختر وسيلة مختلفة لكل دفعة.</p>}
-                    {salePaymentParts.some((part) => Number(minor(part.amount)) <= 0) && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">يجب أن يكون مبلغ كل دفعة أكبر من صفر.</p>}
+                    {cartTotalMinor > 0 && !saleSplitMethodsAreUnique && <p className="rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">اختر وسيلة مختلفة لكل دفعة.</p>}
+                    {cartTotalMinor > 0 && salePaymentParts.some((part) => Number(minor(part.amount)) <= 0) && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">يجب أن يكون مبلغ كل دفعة أكبر من صفر.</p>}
                     {cartQuote && salePaymentPartsRemaining !== 0 && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">{salePaymentPartsRemaining > 0 ? `وزّع ${money(salePaymentPartsRemaining)} ر.س المتبقية على وسائل الدفع.` : `خفّض مجموع الدفعات بمقدار ${money(Math.abs(salePaymentPartsRemaining))} ر.س.`}</p>}
-                    {saleSplitUsesCash && !selectedShift && <p className="rounded-xl bg-red-500/10 p-3 text-xs font-semibold leading-6 text-red-600">الجزء النقدي يحتاج إلى وردية صندوق مفتوحة.</p>}
+                    {cartTotalMinor > 0 && saleSplitUsesCash && !selectedShift && <p className="rounded-xl bg-red-500/10 p-3 text-xs font-semibold leading-6 text-red-600">الجزء النقدي يحتاج إلى وردية صندوق مفتوحة.</p>}
                     {saleSplitUsesCash && selectedShift && <p className="rounded-xl bg-emerald-500/8 p-3 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">سيُربط الجزء النقدي تلقائيًا بالوردية المفتوحة ونقطة التحصيل الحالية.</p>}
                     <Button
                       onClick={() => void checkoutAndPay()}
-                      disabled={saving || cart.length === 0 || loadingCartQuote || !cartQuote || (customerMode === "MEMBER" && !selectedMember) || !saleSplitIsValid}
+                      disabled={saving || invoiceCodeHasChanges || Boolean(invoiceCode.validationError) || cart.length === 0 || loadingCartQuote || !cartQuote || (customerMode === "MEMBER" && !selectedMember) || (cartTotalMinor > 0 && !saleSplitIsValid)}
                     >
                       {saving ? <Loader2 className="animate-spin" /> : <ReceiptText />}
-                      إصدار فاتورة واحدة وتسجيل {salePaymentParts.length} دفعات
+                      {cartQuote && cartTotalMinor === 0 ? "إصدار فاتورة دون مبلغ مستحق" : `إصدار فاتورة واحدة وتسجيل ${salePaymentParts.length} دفعات`}
                     </Button>
                   </div>}
-                  {salePaymentMode === "SINGLE" && saleMethod === "CASH" && !selectedShift && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">افتح وردية صندوق أولًا لتحصيل الفاتورة نقدًا.</p>}
+                  {cartTotalMinor > 0 && salePaymentMode === "SINGLE" && saleMethod === "CASH" && !selectedShift && <p className="rounded-xl bg-amber-500/10 p-3 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">افتح وردية صندوق أولًا لتحصيل الفاتورة نقدًا.</p>}
                 </div>
               </section>
             </CardContent>

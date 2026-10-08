@@ -445,7 +445,7 @@
     "operationId": "createPromotion",
     "secured": true,
     "idempotent": false,
-    "description": "Typed promotion created."
+    "description": "Typed promotion created. applicationScope defaults to LINE; COUNTER_INVOICE requires PROMO_CODE, no targets, and FIXED_DISCOUNT or PERCENTAGE."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/quotes",
@@ -541,7 +541,15 @@
     "operationId": "checkoutOrder",
     "secured": true,
     "idempotent": true,
-    "description": "Order, invoice, and pending fulfillment created atomically."
+    "description": "Order, invoice, and pending fulfillment created atomically. Optional invoicePromoCode applies a cashier invoice discount once to remaining VAT-inclusive gross; the normalized code participates in idempotency. Zero-gross invoices are paid without payment."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/order-quotes",
+    "method": "post",
+    "operationId": "previewCheckoutOrder",
+    "secured": true,
+    "idempotent": false,
+    "description": "Authoritative checkout totals from the same pricing sources used to issue the invoice. Optional invoicePromoCode returns invoicePromotion (id, code, name, benefitType, benefitValue, grossBeforeMinor, grossDiscountMinor) and per-line allocations, stacked after automatic discounts."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/orders/{orderId}",
@@ -2237,7 +2245,7 @@
     "operationId": "updatePromotion",
     "secured": true,
     "idempotent": false,
-    "description": "Promotion rules, scope, dates, and status updated."
+    "description": "Promotion rules, applicationScope, dates, and status updated. Omitted applicationScope preserves the current value."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/cash-points/{cashPointId}",

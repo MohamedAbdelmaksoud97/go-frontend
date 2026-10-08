@@ -112,6 +112,7 @@ const fieldLabels: Record<string, string> = {
   netMinor: "الصافي", discountMinor: "الخصم", taxMinor: "الضريبة", allocatedMinor: "المبلغ الموزع على الفواتير",
   requestedAmountMinor: "مبلغ الاسترداد المطلوب", eligibleRefundMinor: "المبلغ المستحق للاسترداد",
   currency: "العملة", taxRateBps: "نسبة الضريبة", taxInclusive: "السعر شامل الضريبة",
+  invoicePromotion: "كود خصم الفاتورة", applicationScope: "نطاق تطبيق العرض", grossBeforeMinor: "الإجمالي قبل الكود", grossDiscountMinor: "توفير الكود شامل الضريبة",
   benefitType: "نوع العرض", benefitValue: "قيمة العرض", targetType: "ينطبق على", targetName: "الخدمة أو الباقة",
   targetCode: "رمز الخدمة أو الباقة", enabled: "الخدمة متاحة", durationDays: "المدة بالأيام",
   branchAccessPolicy: "نطاق دخول الفروع", visitsPerPeriod: "الزيارات المسموحة", visitAllowance: "رصيد الزيارات",
@@ -135,6 +136,7 @@ const values: Record<string, string> = {
   CURRENT_BRANCH: "الفرع الحالي", ALL_BRANCHES: "كل الفروع", SELECTED_BRANCHES: "فروع محددة", DAILY: "يوميًا",
   WEEKLY: "أسبوعيًا", MONTHLY: "شهريًا", SYSTEM: "داخل النظام", WHATSAPP: "واتساب", BOTH: "داخل النظام وواتساب",
   HIGH: "عالية", NORMAL: "عادية", LOW: "منخفضة", COMPLAINT: "شكوى", SUGGESTION: "اقتراح",
+  COUNTER_INVOICE: "فاتورة الكاونتر", LINE: "الباقات والخدمات",
   FIXED_DISCOUNT: "خصم بمبلغ ثابت", PERCENTAGE: "خصم بنسبة مئوية", FIXED_FINAL_PRICE: "سعر نهائي ثابت",
   SERVICE: "خدمة", PACKAGE: "باقة", MEMBER: "عضو", EMPLOYEE: "موظف", SAR: "ريال سعودي",
   CLEAN: "اجتاز الفحص", UPLOADED: "تم الرفع", SCANNING: "جارٍ الفحص", FAILED: "تعذر التنفيذ", INFECTED: "ملف ضار",
@@ -179,9 +181,9 @@ export function readableDetails(summary?: Record<string, unknown>): Array<{ key:
   const details: Array<{ key: string; label: string; value: string }> = []
   for (const [key, value] of Object.entries(summary)) {
     if (!fieldLabels[key] || !isDisplayable(value)) continue
-    if ((key === "before" || key === "after") && typeof value === "object" && !Array.isArray(value)) {
+    if ((key === "before" || key === "after" || key === "invoicePromotion") && typeof value === "object" && !Array.isArray(value)) {
       for (const nested of readableDetails(value as Record<string, unknown>)) {
-        details.push({ ...nested, key: `${key}.${nested.key}`, label: `${nested.label} ${key === "before" ? "قبل التعديل" : "بعد التعديل"}` })
+        details.push({ ...nested, key: `${key}.${nested.key}`, label: `${nested.label} ${key === "invoicePromotion" ? "لكود الفاتورة" : key === "before" ? "قبل التعديل" : "بعد التعديل"}` })
       }
     } else {
       const formatted = displayValue(key, value, summary)

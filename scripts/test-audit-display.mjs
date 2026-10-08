@@ -33,6 +33,16 @@ test("percentage discounts use basis points and fixed final prices use currency"
   assert.match(fixed.find(item => item.key === "benefitValue").value, /١٥٠.*ر\.س\./)
 })
 
+test("counter invoice audit shows the saved code and VAT-inclusive savings", () => {
+  const details = readableDetails({ orderNumber: "ORD-1", invoicePromotion: {
+    id: "private-id", code: "COUNTER10", name: "خصم الكاونتر", benefitType: "FIXED_DISCOUNT", benefitValue: 1000,
+    grossBeforeMinor: "11500", grossDiscountMinor: "1000",
+  } })
+  assert.equal(details.find(item => item.key === "invoicePromotion.code").value, "COUNTER10")
+  assert.match(details.find(item => item.key === "invoicePromotion.grossDiscountMinor").value, /١٠.*ر\.س\./)
+  assert.ok(!details.some(item => item.key.endsWith(".id")))
+})
+
 test("structured prices and before/after states are readable", () => {
   const details = readableDetails({
     amount: { minorUnits: "25000", currency: "SAR" },

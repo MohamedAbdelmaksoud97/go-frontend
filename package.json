@@ -11,8 +11,9 @@
     "check:errors": "node scripts/check-error-safety.mjs",
     "test:security": "node --test scripts/test-request-security.mjs",
     "test:security:http": "node scripts/test-request-security-http.mjs",
+    "test:counter": "node --test scripts/test-counter-discount.mjs",
     "test:audit": "node --test scripts/test-audit-display.mjs",
-    "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run test:audit && npm run lint"
+    "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run test:audit && npm run test:counter && npm run lint"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -33,6 +34,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
+    "happy-dom": "^20.14.5",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
