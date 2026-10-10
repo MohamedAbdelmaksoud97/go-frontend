@@ -22,6 +22,12 @@ export const permissionImplications:Readonly<Record<string,readonly string[]>>={
 export function permissionSatisfies(granted:string,required:string){if(granted===required)return true;const visited=new Set<string>();const pending=[...(permissionImplications[granted]??[])];while(pending.length){const candidate=pending.pop();if(!candidate||visited.has(candidate))continue;if(candidate===required)return true;visited.add(candidate);pending.push(...(permissionImplications[candidate]??[]))}return false}
 export function can(grants:Grant[],permission:string,organizationId:string,branchId?:string){return grants.some(grant=>grant.organizationId===organizationId&&permissionSatisfies(grant.permission,permission)&&(grant.scopeType==="ORGANIZATION"||Boolean(branchId&&grant.branchIds.includes(branchId))))}
 
+// These master-data endpoints authorize reads at organization scope.
+const organizationReadPermissions = new Set(["organization.read", "branch.read"])
+export function canAccessPermissions(grants:Grant[],permissions:string[],organizationId:string,branchId?:string){
+ return permissions.length===0||permissions.some(permission=>can(grants,permission,organizationId,organizationReadPermissions.has(permission)?undefined:branchId))
+}
+
 export const operationPermissions:Record<string,string>={
  previewServiceAdministrativeCorrection:"sales.corrections.manage",correctServiceAdministrativeError:"sales.corrections.manage",
  previewBookingAdministrativeCorrection:"bookings.corrections.manage",correctBookingAdministrativeError:"bookings.corrections.manage",
@@ -33,11 +39,11 @@ export const operationPermissions:Record<string,string>={
 export const systemSettingsPermissions=[
  "organization.read","branch.read","catalog.read","commercial.read","iam.roles.read",
  "finance.cash-points.read","lockers.read","measurements.read","workforce.read","bookings.read",
- "notification-templates.read","retail.catalog.read","retail.inventory.read","finance.expenses.read","restaurant.catalog.read",
+ "notification-templates.read","retail.catalog.read","retail.inventory.read","finance.expenses.read","finance.other-income.read","restaurant.catalog.read",
  "branch.manage","iam.accounts.read","iam.roles.manage","iam.assignments.manage",
  "workforce.manage","catalog.manage","commercial.manage","pricing.manage","promotions.manage","policies.manage",
  "bookings.facilities.manage","finance.cash-points.manage","lockers.manage","measurement-types.manage","restaurant.catalog.manage",
- "retail.catalog.manage","retail.pricing.manage","retail.inventory.manage","finance.expenses.manage","notification-templates.manage",
+ "retail.catalog.manage","retail.pricing.manage","retail.inventory.manage","finance.expenses.manage","finance.other-income.manage","notification-templates.manage",
 ] as const
 
 export const routePermissions:Record<string,string[]>={

@@ -226,6 +226,7 @@ const configs: MasterConfig[] = [
     columns: [{ label: "الرمز", key: "code" }, { label: "اسم نقطة التحصيل", key: "name" }, { label: "الحالة", key: "status" }],
     createFields: [{ name: "code", label: "رمز نقطة التحصيل", required: true }, { name: "name", label: "اسم نقطة التحصيل", required: true }],
     editFields: [{ name: "name", label: "اسم نقطة التحصيل", required: true }, { name: "status", label: "الحالة", type: "select", required: true, options: [{ value: "ACTIVE", label: "نشطة" }, { value: "INACTIVE", label: "محذوفة / مؤرشفة" }] }],
+    editBody: values => ({ name: values.name, status: values.status }),
   },
   {
     id: "lockers", label: "الخزائن", description: "الخزائن المتاحة والمخصصة للفرع المحدد حاليًا.", permission: "lockers.read", managePermission: "lockers.manage", path: "/organizations/{organizationId}/lockers", createPath: "/organizations/{organizationId}/lockers", updatePath: id => `/organizations/{organizationId}/lockers/${id}/transitions`, updateMethod: "POST", branchScoped: true,
@@ -313,6 +314,14 @@ const configs: MasterConfig[] = [
   {
     id: "meal-categories", label: "تصنيفات المطعم", description: "تصنيفات الوجبات والمنتجات في المطعم على مستوى النادي.", permission: "restaurant.catalog.read", managePermission: "restaurant.catalog.manage", path: "/organizations/{organizationId}/restaurant/meal-categories", createPath: "/organizations/{organizationId}/restaurant/meal-categories", updatePath: id => `/organizations/{organizationId}/restaurant/meal-categories/${id}`, authorizationBranchScoped: true,
     columns: [{ label: "الرمز", key: "code" }, { label: "التصنيف", key: "name" }, { label: "الحالة", key: "status" }], createFields: [{ name: "code", label: "رمز التصنيف", required: true }, { name: "name", label: "اسم التصنيف", required: true }], editFields: [{ name: "name", label: "اسم التصنيف", required: true }, { name: "status", label: "الحالة", type: "select", required: true, options: [{ value: "ACTIVE", label: "نشط" }, { value: "INACTIVE", label: "محذوف / مؤرشف" }] }],
+    editBody: values => ({ name: values.name, status: values.status }),
+  },
+  {
+    id: "other-income-categories", label: "تصنيفات الإيرادات الأخرى", description: "تصنيف الإيرادات غير المرتبطة بفواتير البيع قبل تسجيلها في السجل المالي.", permission: "finance.other-income.read", managePermission: "finance.other-income.manage", organizationManageOnly: true,
+    path: "/organizations/{organizationId}/other-income-categories", createPath: "/organizations/{organizationId}/other-income-categories",
+    columns: [{ label: "الرمز", key: "code" }, { label: "التصنيف", key: "name" }, { label: "الحالة", key: "status" }],
+    createFields: [{ name: "code", label: "رمز التصنيف", required: true }, { name: "name", label: "اسم التصنيف", required: true }],
+    createBody: values => ({ code: values.code, name: values.name }),
   },
 ]
 
@@ -324,7 +333,7 @@ const navigationGroups = [
   { label: "التدريب", ids: ["measurement-types"] },
   { label: "المطعم", ids: ["meal-categories"] },
   { label: "المتجر والمخزون", ids: ["retail-categories", "retail-products", "retail-prices", "retail-inventory"] },
-  { label: "المالية", ids: ["expense-categories"] },
+  { label: "المالية", ids: ["expense-categories", "other-income-categories"] },
   { label: "التواصل", ids: ["notification-templates"] },
 ] as const
 

@@ -18,6 +18,7 @@ export type WorkflowField = {
   options?: Choice[]
   source?: ReferenceSource
   min?: string
+  step?: string
 }
 export type WorkflowContext = { organizationId: string; branchId: string }
 export type Workflow = {
@@ -55,17 +56,17 @@ const measurementTypes: ReferenceSource = { path: c => `/organizations/${c.organ
 export const workflows: Record<string, Workflow> = {
   recordExpense: {
     title: "تسجيل مصروف", description: "سجّل المصروف أولًا، ثم أرسله للاعتماد والسداد من السجل المالي حسب حد التصنيف.", submitLabel: "تسجيل المصروف", successMessage: "تم تسجيل المصروف وأصبح جاهزًا لدورة الاعتماد.",
-    fields:[{name:"categoryId",label:"تصنيف المصروف",type:"reference",source:expenseCategories,required:true},{name:"amount",label:"المبلغ (ر.س)",type:"number",min:"0.01",required:true},{name:"description",label:"البيان والغرض",type:"textarea",required:true}],
+    fields:[{name:"categoryId",label:"تصنيف المصروف",type:"reference",source:expenseCategories,required:true},{name:"amount",label:"المبلغ (ر.س)",type:"number",min:"0.01",step:"0.01",required:true},{name:"description",label:"البيان والغرض",type:"textarea",required:true}],
     initial:()=>({categoryId:"",amount:"",description:""}),body:(v,c)=>({branchId:c.branchId,categoryId:v.categoryId,amountMinor:String(Math.round(Number(v.amount)*100)),description:v.description}),
   },
   recordSelfTrainerMeasurement: {
     title: "تسجيل قياس للمتدرب", description: "اختر العضو ونوع القياس وسجّل القيمة كما ظهرت في جهاز القياس.", submitLabel: "حفظ القياس", successMessage: "تم حفظ القياس في ملف العضو.",
-    fields:[{name:"memberId",label:"العضو",type:"reference",source:selfTrainerMembers,required:true},{name:"measurementTypeId",label:"نوع القياس",type:"reference",source:measurementTypes,required:true},{name:"value",label:"القيمة",type:"number",required:true},{name:"notes",label:"ملاحظات",type:"textarea"}],
+    fields:[{name:"memberId",label:"العضو",type:"reference",source:selfTrainerMembers,required:true},{name:"measurementTypeId",label:"نوع القياس",type:"reference",source:measurementTypes,required:true},{name:"value",label:"القيمة",type:"number",step:"any",required:true},{name:"notes",label:"ملاحظات",type:"textarea"}],
     initial:()=>({memberId:"",measurementTypeId:"",value:"",notes:""}),body:(v,c)=>({branchId:c.branchId,memberId:v.memberId,values:[{measurementTypeId:v.measurementTypeId,value:String(v.value)}],measuredAt:new Date().toISOString(),notes:v.notes||undefined}),
   },
   recordOtherIncome: {
     title: "تسجيل إيراد آخر", description: "سجّل إيرادًا غير مرتبط بفاتورة. التحصيل النقدي يتم من نقطة البيع لربطه بالوردية والصندوق.", submitLabel: "تسجيل الإيراد", successMessage: "تم تسجيل الإيراد في السجل المالي.",
-    fields: [{name:"categoryId",label:"تصنيف الإيراد",type:"reference",source:otherIncomeCategories,required:true},{name:"amount",label:"المبلغ (ر.س)",type:"number",min:"0.01",required:true},{name:"paymentMethodCode",label:"طريقة التحصيل",type:"select",required:true,options:[{value:"CARD",label:"بطاقة بنكية"},{value:"BANK_TRANSFER",label:"تحويل بنكي"},{value:"GATEWAY",label:"بوابة دفع"},{value:"WALLET",label:"محفظة إلكترونية"}]},{name:"description",label:"البيان",type:"textarea",required:true}],
+    fields: [{name:"categoryId",label:"تصنيف الإيراد",type:"reference",source:otherIncomeCategories,required:true},{name:"amount",label:"المبلغ (ر.س)",type:"number",min:"0.01",step:"0.01",required:true},{name:"paymentMethodCode",label:"طريقة التحصيل",type:"select",required:true,options:[{value:"CARD",label:"بطاقة بنكية"},{value:"BANK_TRANSFER",label:"تحويل بنكي"},{value:"GATEWAY",label:"بوابة دفع"},{value:"WALLET",label:"محفظة إلكترونية"}]},{name:"description",label:"البيان",type:"textarea",required:true}],
     initial:()=>({categoryId:"",amount:"",paymentMethodCode:"CARD",description:""}),body:(v,c)=>({branchId:c.branchId,categoryId:v.categoryId,amountMinor:String(Math.round(Number(v.amount)*100)),paymentMethodCode:v.paymentMethodCode,description:v.description,occurredAt:new Date().toISOString()}),
   },
   scheduleEmployeeShift: {
@@ -134,7 +135,7 @@ export const workflows: Record<string, Workflow> = {
     title: "تسجيل دفعة غير نقدية", description: "للتحويل أو البطاقة. أما النقد فيُسجل من نقطة البيع لربطه بالصندوق والوردية.", submitLabel: "تسجيل الدفعة", successMessage: "تم تسجيل الدفعة بنجاح.", confirm: "راجع المبلغ وطريقة الدفع قبل التأكيد؛ سيُضاف التحصيل إلى السجل المالي.",
     fields: [
       { name: "invoiceId", label: "الفاتورة", type: "reference", source: invoices, required: true },
-      { name: "amount", label: "المبلغ (ر.س)", type: "number", min: "0.01", required: true, placeholder: "0.00" },
+      { name: "amount", label: "المبلغ (ر.س)", type: "number", min: "0.01", step: "0.01", required: true, placeholder: "0.00" },
       { name: "method", label: "طريقة الدفع", type: "select", required: true, options: [{ value: "CARD", label: "بطاقة بنكية" }, { value: "BANK_TRANSFER", label: "تحويل بنكي" }] },
       { name: "externalReference", label: "مرجع الدفع", placeholder: "اختياري" },
     ], initial: () => ({ invoiceId: "", amount: "", method: "CARD", externalReference: "" }),
