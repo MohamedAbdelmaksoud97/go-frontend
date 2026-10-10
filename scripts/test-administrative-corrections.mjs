@@ -148,3 +148,24 @@ test("treasury attributes correction refunds to the correct source and payment m
   assert.equal(card.find(item => item.source === "SERVICE").refunded, 2000)
   assert.equal(card.find(item => item.source === "BOOKING").refunded, 0)
 })
+
+test("member service history distinguishes a cancelled line within a fulfilled paid order", () => {
+  const exports = loadModule("components/member-profile-page.tsx", {}, "\nexports.testPurchasedServices=PurchasedServicesSection")
+  const html = renderToStaticMarkup(React.createElement(exports.testPurchasedServices, {
+    branches: [], canViewInvoice: true,
+    rows: [{ id: "paid-order", orderNumber: "ORD-1", status: "FULFILLED", invoiceId: "invoice", createdAt: result.correctedAt,
+      lineItems: [
+        { id: "cancelled-line", lineType: "SERVICE", name: "Mistaken service", quantity: 1, grossMinor: "12000", fulfillmentStatus: "CANCELLED" },
+        { id: "valid-line", lineType: "BOOKING", name: "Valid booking", quantity: 1, grossMinor: "6000", fulfillmentStatus: "FULFILLED" },
+      ],
+    }],
+  }))
+  const document = new Window().document
+  document.body.innerHTML = html
+  const rows = [...document.querySelectorAll("tbody tr")]
+  assert.equal(rows.length, 2)
+  assert.equal(rows[0].querySelectorAll("td")[7].textContent, "CANCELLED")
+  assert.equal(rows[1].querySelectorAll("td")[7].textContent, "FULFILLED")
+  assert.ok(rows[0].querySelector("a").getAttribute("href").endsWith("/finance/invoices/invoice"))
+  assert.ok(document.body.textContent.includes("حالة الخدمة"))
+})

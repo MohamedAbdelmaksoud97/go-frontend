@@ -506,11 +506,11 @@ function PurchasedServicesSection({ rows: orders, branches, canViewInvoice, erro
   })
 
   return <SectionShell title="سجل الخدمات المشتراة" count={purchases.length} error={error}>
-    <p className="mb-4 text-xs leading-6 text-muted-foreground">الخدمات المباعة مباشرة وحجوزات الخدمات، مع قيمتها وقت الشراء وحالة طلب البيع.</p>
+    <p className="mb-4 text-xs leading-6 text-muted-foreground">الخدمات المباعة مباشرة وحجوزات الخدمات، مع قيمتها وقت الشراء وحالة كل خدمة بعد الإلغاء أو التصحيح.</p>
     {purchases.length ? <div className="overflow-x-auto rounded-2xl border bg-card">
       <table className="w-full min-w-[1000px] text-right text-xs">
-        <thead className="bg-secondary/50 text-muted-foreground"><tr>{["الخدمة", "نوع الشراء", "تاريخ الشراء", "الفرع", "رقم الطلب", "الكمية", "إجمالي الخدمة", "حالة الطلب", "الفاتورة"].map(label => <th key={label} className="p-4">{label}</th>)}</tr></thead>
-        <tbody className="divide-y">{purchases.map(({ order, line, index }) => <tr key={`${text(order.id)}-${index}`}>
+        <thead className="bg-secondary/50 text-muted-foreground"><tr>{["الخدمة", "نوع الشراء", "تاريخ الشراء", "الفرع", "رقم الطلب", "الكمية", "إجمالي الخدمة", "حالة الخدمة", "الفاتورة"].map(label => <th key={label} className="p-4">{label}</th>)}</tr></thead>
+        <tbody className="divide-y">{purchases.map(({ order, line, index }) => <tr key={text(line.id, `${text(order.id)}-${index}`)}>
           <td className="p-4"><p className="font-black">{text(line.name, "خدمة")}</p>{Boolean(line.code) && <p className="mt-1 text-muted-foreground" dir="ltr">{text(line.code)}</p>}</td>
           <td className="whitespace-nowrap p-4">{text(line.lineType) === "BOOKING" ? "حجز خدمة" : "شراء مباشر"}</td>
           <td className="whitespace-nowrap p-4">{dateTime(order.createdAt)}</td>
@@ -518,7 +518,7 @@ function PurchasedServicesSection({ rows: orders, branches, canViewInvoice, erro
           <td className="p-4 font-bold" dir="ltr">{text(order.orderNumber)}</td>
           <td className="p-4">{minor(line.quantity, 1)}</td>
           <td className="whitespace-nowrap p-4 font-black">{money(minor(line.grossMinor))}</td>
-          <td className="p-4"><StatusBadge status={text(order.status)}/></td>
+          <td className="p-4"><StatusBadge status={text(line.fulfillmentStatus) === "CANCELLED" ? "CANCELLED" : text(order.status)}/></td>
           <td className="whitespace-nowrap p-4">{canViewInvoice && order.invoiceId ? <Link href={`/finance/invoices/${encodeURIComponent(text(order.invoiceId))}`} className="font-bold text-primary underline-offset-4 hover:underline">عرض الفاتورة</Link> : "—"}</td>
         </tr>)}</tbody>
       </table>

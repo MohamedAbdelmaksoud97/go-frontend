@@ -904,7 +904,7 @@ function GuideSection({ icon: Icon, title, items, tone }: { icon: typeof CircleA
 }
 
 function MasterField({ field, value, choices, onChange }: { field: Field; value: Value | undefined; choices: RecordItem[]; onChange: (value: Value) => void }) {
-  const choicesFor = choices.map(choice => {
+  const choicesFor = choices.filter(choice => field.source !== "policies" || choice.status === "ACTIVE" || itemId(choice) === String(value ?? "")).map(choice => {
     const primaryLabel = String(
       choice.name ??
       choice.displayName ??
