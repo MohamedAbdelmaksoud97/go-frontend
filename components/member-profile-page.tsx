@@ -26,7 +26,7 @@ import { accessDeviceReason, accessReader, accessSeverity, accessSystemReason, g
 
 type Row = Record<string, unknown>
 type Branch = { id: string; nameAr?: string; name?: string }
-type SectionKey = "profile" | "access" | "subscriptions" | "legacySubscriptions" | "freezes" | "renewals" | "cancellations" | "blocks" | "bookings" | "finance" | "purchases" | "restaurant" | "files"
+type SectionKey = "profile" | "access" | "subscriptions" | "legacySubscriptions" | "freezes" | "renewals" | "cancellations" | "blocks" | "bookings" | "finance" | "purchases" | "purchasedServices" | "restaurant" | "files"
 type ProfileData = {
   member?: Row
   subscriptions: Row[]
@@ -207,6 +207,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     { key: "bookings" as const, label: "الحجوزات", icon: CalendarDays, show: permissions.bookings },
     { key: "finance" as const, label: "المالية والفواتير", icon: FileText, show: permissions.finance },
     { key: "purchases" as const, label: "المشتريات", icon: ShoppingBag, show: permissions.purchases },
+    { key: "purchasedServices" as const, label: "الخدمات المشتراة", icon: FileText, show: permissions.purchases },
     { key: "restaurant" as const, label: "طلبات المطبخ", icon: UtensilsCrossed, show: permissions.restaurant },
     { key: "files" as const, label: "المستندات", icon: FileBadge, show: permissions.files },
   ].filter(tab => tab.show)
@@ -241,6 +242,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     {active === "bookings" && <BookingSection rows={data.bookings} branches={context.branches} error={data.errors.bookings}/>} 
     {active === "finance" && <InvoiceSection rows={data.invoices} payments={data.payments} branches={context.branches} error={data.errors.finance}/>} 
     {active === "purchases" && <PurchaseSection rows={data.orders} branches={context.branches} error={data.errors.purchases}/>} 
+    {active === "purchasedServices" && <PurchasedServicesSection rows={data.orders} branches={context.branches} canViewInvoice={permissions.finance} error={data.errors.purchases}/>}
     {active === "restaurant" && <RestaurantSection rows={data.restaurantOrders} branches={context.branches} error={data.errors.restaurant}/>} 
     {active === "files" && <div className="space-y-5">
       {canUploadFiles && <Card><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center"><div><p className="text-sm font-black">إضافة ملفات إلى ملف العضو</p><p className="mt-1 text-xs leading-6 text-muted-foreground">تُربط الملفات بهذا العضو مباشرة، وتظهر هنا بعد الرفع والفحص الأمني.</p></div><div className="flex flex-wrap gap-2 sm:mr-auto">
@@ -496,6 +498,33 @@ function PurchaseSection({ rows: items, branches, error }: ListProps) { return <
 function RestaurantSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="طلبات المطبخ" count={items.length} error={error}>{items.length ? <div className="grid gap-3 lg:grid-cols-2">{items.map(row => { const lines = Array.isArray(row.lines) ? row.lines.filter(isRow) : []; return <article key={text(row.id)} className="rounded-2xl border bg-card p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-black">طلب مطبخ <span dir="ltr">#{text(row.id).slice(0, 8).toUpperCase()}</span></p><p className="mt-1 text-xs text-muted-foreground">{dateTime(row.createdAt)} · {branchLabel(text(row.branchId), branches)}</p></div><StatusBadge status={text(row.status)}/></div><div className="mt-4 space-y-2">{lines.map((line, index) => { const quote = isRow(line.quote) ? line.quote : {}; return <div key={`${text(line.id)}-${index}`} className="flex justify-between rounded-xl bg-secondary/45 p-3 text-xs"><span>{text(quote.targetName, "وجبة")}</span><strong>الكمية: {minor(quote.quantity, 1)}</strong></div> })}{!lines.length && <p className="text-xs text-muted-foreground">تفاصيل الوجبات غير متاحة.</p>}</div><p className="mt-4 border-t pt-3 text-left font-black">{text(row.sourceType) === "MEAL_PLAN" ? "ضمن الخطة الغذائية" : money(minor(row.grossMinor))}</p></article> })}</div> : <Empty text="لا توجد طلبات مطبخ لهذا العضو."/>}</SectionShell> }
 
 function FilesSection({ rows: items, urls, error }: { rows: Row[]; urls: Record<string, string>; error?: string }) { return <SectionShell title="الصور والمستندات" count={items.length} error={error}>{items.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{items.map(file => <DocumentPreview key={text(file.id)} file={file} url={urls[text(file.id)]}/>)}</div> : <Empty text="لا توجد صور أو مستندات مرفوعة لهذا العضو."/>}</SectionShell> }
+
+function PurchasedServicesSection({ rows: orders, branches, canViewInvoice, error }: ListProps & { canViewInvoice: boolean }) {
+  const purchases = orders.flatMap(order => {
+    const lines = Array.isArray(order.lineItems) ? order.lineItems.filter(isRow) : []
+    return lines.flatMap((line, index) => text(line.lineType) === "SERVICE" || text(line.lineType) === "BOOKING" ? [{ order, line, index }] : [])
+  })
+
+  return <SectionShell title="سجل الخدمات المشتراة" count={purchases.length} error={error}>
+    <p className="mb-4 text-xs leading-6 text-muted-foreground">الخدمات المباعة مباشرة وحجوزات الخدمات، مع قيمتها وقت الشراء وحالة طلب البيع.</p>
+    {purchases.length ? <div className="overflow-x-auto rounded-2xl border bg-card">
+      <table className="w-full min-w-[1000px] text-right text-xs">
+        <thead className="bg-secondary/50 text-muted-foreground"><tr>{["الخدمة", "نوع الشراء", "تاريخ الشراء", "الفرع", "رقم الطلب", "الكمية", "إجمالي الخدمة", "حالة الطلب", "الفاتورة"].map(label => <th key={label} className="p-4">{label}</th>)}</tr></thead>
+        <tbody className="divide-y">{purchases.map(({ order, line, index }) => <tr key={`${text(order.id)}-${index}`}>
+          <td className="p-4"><p className="font-black">{text(line.name, "خدمة")}</p>{Boolean(line.code) && <p className="mt-1 text-muted-foreground" dir="ltr">{text(line.code)}</p>}</td>
+          <td className="whitespace-nowrap p-4">{text(line.lineType) === "BOOKING" ? "حجز خدمة" : "شراء مباشر"}</td>
+          <td className="whitespace-nowrap p-4">{dateTime(order.createdAt)}</td>
+          <td className="p-4">{branchLabel(text(order.sellingBranchId), branches)}</td>
+          <td className="p-4 font-bold" dir="ltr">{text(order.orderNumber)}</td>
+          <td className="p-4">{minor(line.quantity, 1)}</td>
+          <td className="whitespace-nowrap p-4 font-black">{money(minor(line.grossMinor))}</td>
+          <td className="p-4"><StatusBadge status={text(order.status)}/></td>
+          <td className="whitespace-nowrap p-4">{canViewInvoice && order.invoiceId ? <Link href={`/finance/invoices/${encodeURIComponent(text(order.invoiceId))}`} className="font-bold text-primary underline-offset-4 hover:underline">عرض الفاتورة</Link> : "—"}</td>
+        </tr>)}</tbody>
+      </table>
+    </div> : <Empty text="لا توجد خدمات مشتراة مسجلة لهذا العضو في الفرع الحالي."/>}
+  </SectionShell>
+}
 
 type ListProps = { rows: Row[]; branches: Branch[]; error?: string }
 function SectionShell({ title, count, error, children }: { title: string; count: number; error?: string; children: React.ReactNode }) { return <section><div className="mb-4 flex items-center gap-3"><h2 className="text-xl font-black">{title}</h2><Badge variant="secondary">{count}</Badge></div>{error && <p role="alert" className="mb-4 rounded-xl bg-red-500/10 p-4 text-xs text-red-600">{error}</p>}{children}</section> }
