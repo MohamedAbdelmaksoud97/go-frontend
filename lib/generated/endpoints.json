@@ -224,6 +224,14 @@
     "description": "Immutable block and lift history for the authorized member profile."
   },
   {
+    "path": "/api/v1/organizations/{organizationId}/members/{memberId}/legacy-subscriptions",
+    "method": "get",
+    "operationId": "listMemberLegacySubscriptionHistory",
+    "secured": true,
+    "idempotent": false,
+    "description": "Latest legacy subscription snapshot for this member, for historical reference only. Requires members.read and subscriptions.read in the member registration branch. Records never grant access or create financial obligations."
+  },
+  {
     "path": "/api/v1/organizations/{organizationId}/members/{memberId}/block-lifts",
     "method": "post",
     "operationId": "liftMemberBlock",

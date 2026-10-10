@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { StatusBadge } from "@/components/status-badge"
+import { MemberLegacySubscriptionHistory } from "@/components/member-legacy-subscription-history"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,10 +26,11 @@ import { accessDeviceReason, accessReader, accessSeverity, accessSystemReason, g
 
 type Row = Record<string, unknown>
 type Branch = { id: string; nameAr?: string; name?: string }
-type SectionKey = "profile" | "access" | "subscriptions" | "freezes" | "renewals" | "cancellations" | "blocks" | "bookings" | "finance" | "purchases" | "restaurant" | "files"
+type SectionKey = "profile" | "access" | "subscriptions" | "legacySubscriptions" | "freezes" | "renewals" | "cancellations" | "blocks" | "bookings" | "finance" | "purchases" | "restaurant" | "files"
 type ProfileData = {
   member?: Row
   subscriptions: Row[]
+  legacySubscriptions: Row[]
   bookings: Row[]
   invoices: Row[]
   payments: Row[]
@@ -43,7 +45,7 @@ type ProfileData = {
   errors: Partial<Record<SectionKey, string>>
 }
 
-const emptyData: ProfileData = { subscriptions: [], bookings: [], invoices: [], payments: [], orders: [], restaurantOrders: [], activities: [], services: [], files: [], blockHistory: [], accessEvents: [], fileUrls: {}, errors: {} }
+const emptyData: ProfileData = { subscriptions: [], legacySubscriptions: [], bookings: [], invoices: [], payments: [], orders: [], restaurantOrders: [], activities: [], services: [], files: [], blockHistory: [], accessEvents: [], fileUrls: {}, errors: {} }
 
 export function MemberProfilePage({ memberId }: { memberId: string }) {
   const context = useAppContext()
@@ -117,6 +119,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
         const memberResponse = await apiRequest<Row>(`/organizations/${organizationId}/members/${memberId}`)
         const jobs: Promise<{ key: SectionKey; rows: Row[]; error?: string }>[] = []
         if (permissions.subscriptions) jobs.push(optional("subscriptions", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/subscriptions?branchId=${branchId}&memberId=${memberId}&limit=100`)).data)))
+        if (permissions.subscriptions) jobs.push(optional("legacySubscriptions", async () => rows((await apiRequest<Row[]>(`/organizations/${organizationId}/members/${memberId}/legacy-subscriptions`)).data)))
         if (permissions.blocks) jobs.push(optional("blocks", async () => rows((await apiRequest<Row[]>(`/organizations/${organizationId}/members/${memberId}/block-history`)).data)))
         if (permissions.access) jobs.push(optional("access", async () => rows((await apiRequest<Row[]>(`/organizations/${organizationId}/access-device-events?memberId=${memberId}&limit=500`)).data)))
         if (permissions.bookings) jobs.push(optional("bookings", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/reservations?branchId=${branchId}&memberId=${memberId}&limit=100`)).data)))
@@ -138,6 +141,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
         for (const item of result) {
           if (item.error) next.errors[item.key] = item.error
           if (item.key === "subscriptions") next.subscriptions = newest(item.rows, "termStart")
+          if (item.key === "legacySubscriptions") next.legacySubscriptions = item.rows
           if (item.key === "blocks") next.blockHistory = newest(item.rows, "occurredAt")
           if (item.key === "access") next.accessEvents = newest(item.rows, "deviceOccurredAt")
           if (item.key === "bookings") next.bookings = newest(item.rows, "startsAt")
@@ -229,7 +233,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
 
     {active === "profile" && <ProfileSection member={member} contacts={contacts} branchName={branchName} identity={identity} identityUrl={identity ? data.fileUrls[text(identity.id)] : ""} showSensitiveNotes={context.canAccess(["members.sensitive.read"])} />} 
     {active === "access" && <MemberAccessSection rows={data.accessEvents} error={data.errors.access}/>}
-    {active === "subscriptions" && <SubscriptionSection rows={data.subscriptions} branches={context.branches} activities={data.activities} services={data.services} member={data.member} employeeName={context.account?.displayName ?? undefined} asOf={loadedAt} error={data.errors.subscriptions}/>}
+    {active === "subscriptions" && <div className="space-y-6"><SubscriptionSection rows={data.subscriptions} branches={context.branches} activities={data.activities} services={data.services} member={data.member} employeeName={context.account?.displayName ?? undefined} asOf={loadedAt} error={data.errors.subscriptions}/><MemberLegacySubscriptionHistory records={data.legacySubscriptions} error={data.errors.legacySubscriptions}/></div>}
     {active === "freezes" && <FreezeHistorySection subscriptions={data.subscriptions} branches={context.branches} asOf={loadedAt} error={data.errors.subscriptions}/>}
     {active === "renewals" && <RenewalHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
     {active === "cancellations" && <CancellationHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
@@ -377,7 +381,7 @@ function SubscriptionSection({ rows: items, branches, activities, services, memb
       {freezes.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 flex items-center gap-2 text-xs font-black"><Snowflake className="size-4 text-sky-500"/>سجل التجميدات</p><div className="space-y-2">{freezes.map((freeze, index) => <div key={text(freeze.id, String(index))} className="rounded-xl bg-sky-500/8 p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{date(freeze.startedAt)} — {date(freeze.plannedEndAt)}</strong><StatusBadge status={freeze.resumedAt ? "COMPLETED" : "FROZEN"}/></div>{Boolean(freeze.reason) && <p className="mt-1 text-muted-foreground">{text(freeze.reason)}</p>}<FreezeUsageMetrics period={freeze} asOf={asOf}/></div>)}</div></div>}
       {contracts.length > 0 && <div className="mt-5 border-t pt-4"><p className="mb-2 text-xs font-black">العقود المرتبطة بالاشتراك</p><div className="space-y-2">{contracts.map(contract => <div key={text(contract.id)} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/55 p-3"><div><p className="text-xs font-bold">{text(contract.contractTitle, `عقد ${text(contract.name)}`)}</p><p className="mt-1 text-[10px] text-muted-foreground">{text(contract.name)}</p></div><Button type="button" size="sm" variant="outline" onClick={() => printSubscriptionContract(contract, row, branchLabel(text(row.sellingBranchId), branches))}><Printer/>طباعة العقد</Button></div>)}</div></div>}
     </article>
-  })}</div> : <Empty text="لا توجد اشتراكات مسجلة لهذا العضو."/>}{printable && <ContractPrintSheets context={printable.context} contracts={[printable.contract]}/>}</SectionShell>
+  })}</div> : <Empty text="لا توجد اشتراكات تشغيلية في النظام الحالي لهذا العضو."/>}{printable && <ContractPrintSheets context={printable.context} contracts={[printable.contract]}/>}</SectionShell>
 }
 
 function FreezeHistorySection({ subscriptions, branches, asOf, error }: { subscriptions: Row[]; branches: Branch[]; asOf: number; error?: string }) {
