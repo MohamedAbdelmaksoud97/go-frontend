@@ -98,6 +98,9 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
   const attendanceSubscriptions = attendanceSubscriptionsState.key === selectedMemberId ? attendanceSubscriptionsState.items : []
   const attendanceSubscriptionsError = attendanceSubscriptionsState.key === selectedMemberId ? attendanceSubscriptionsState.error ?? "" : ""
   const attendanceSubscriptionsLoading = Boolean(selectedMemberId && (attendanceSubscriptionsState.key !== selectedMemberId || attendanceSubscriptionsState.loading))
+  const selectedAttendanceSubscriptionId = String(values.subscriptionId ?? "")
+  const attendanceSelectionMissing = attendanceSubscriptions.length > 0 && !attendanceSubscriptions.some(item => String(item.id) === selectedAttendanceSubscriptionId)
+  const attendanceSubmitBlocked = isManualAttendance && (!selectedMemberId || attendanceSubscriptionsLoading || Boolean(attendanceSubscriptionsError) || attendanceSelectionMissing)
   const selectedPackageId = String(values.packageId ?? "")
   const selectedResourceId = String(values.resourceId ?? "")
   const selectedResourceType = String(values.resourceType ?? "")
@@ -237,6 +240,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
     if (!operation && !isSubscriptionSale && !isPaidBooking) { setError("تعذر تجهيز العملية المطلوبة. حدّث الصفحة ثم حاول مجددًا."); return }
     const validationError = await validateValues(operationId, values)
     if (validationError) { setError(validationError); return }
+    if (attendanceSubmitBlocked) { setError(attendanceSubscriptionsError || (attendanceSubscriptionsLoading ? "انتظر حتى يتم تحميل اشتراكات العضو." : "اختر العضو والاشتراك الذي تريد تسجيل الدخول عليه.")); return }
     if (isManualReservationWithoutCourtAvailability(values, courtAvailability)) { setError("لا يمكن تأكيد الحجز قبل إضافة ساعات إتاحة لهذا المورد."); return }
     if (isSubscriptionSale && !subscriptionQuote) { setError(quoteError || "انتظر حتى يتم التحقق من سعر الباقة في الفرع الحالي."); return }
     if (isPaidBooking && !canCreatePaidBooking) { setError("لا تملك صلاحية إنشاء طلب بيع وفاتورة. اختر حجزًا تشغيليًا أو اطلب صلاحية المبيعات."); return }
@@ -350,7 +354,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
           <p className="mx-auto mt-4 max-w-md rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 text-xs leading-6 text-blue-700 dark:text-blue-300">في نقطة البيع يمكنك تحصيل المبلغ كاملًا بطريقة واحدة أو تقسيمه على وسيلتين، مثل جزء نقدي وجزء بالبطاقة.</p>
           <div className="mt-6 flex flex-col-reverse justify-center gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={onClose}>العودة إلى الحجوزات</Button><Button type="button" onClick={() => { onClose(); router.push(`/cashier?invoiceId=${encodeURIComponent(createdBookingInvoice.invoiceId)}`) }}><CreditCard/>الذهاب إلى التحصيل</Button></div>
         </div>
-      </section> : attendanceResult ? <AttendanceDecisionResult result={attendanceResult} member={selectedMember} subscriptions={attendanceSubscriptions} branchName={effectiveBranchName} onClose={onClose} onAgain={() => {
+      </section> : attendanceResult ? <AttendanceDecisionResult result={attendanceResult} member={selectedMember} subscriptions={attendanceSubscriptions} selectedSubscriptionId={selectedAttendanceSubscriptionId} branchName={effectiveBranchName} onClose={onClose} onAgain={() => {
         setAttendanceResult(undefined)
         setValues(workflow.initial(context))
         setAttendanceSubscriptionsState({ key: "", loading: false, items: [] })
@@ -363,7 +367,7 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
             const memberId = String(value ?? "")
             setAttendanceResult(undefined)
             setAttendanceSubscriptionsState({ key: memberId, loading: Boolean(memberId), items: [] })
-            setValues(current => ({ ...current, memberId: value }))
+            setValues(current => ({ ...current, memberId: value, subscriptionId: "" }))
             return
           }
           if (isManualReservation && field.name === "customerType") {
@@ -406,15 +410,15 @@ export function ActionDialog({ operationId, organizationId, branchId, onClose, o
           }}
         />}
         {isSubscriptionSale && selectedPackageId && <SubscriptionPricePreview quote={subscriptionQuote} loading={quoteLoading} error={normalizedPromoCode ? "" : quoteError} />}
-        {isManualAttendance && selectedMemberId && <AttendanceMemberPreview member={selectedMember} lockedMemberLabel={lockedReferenceLabels?.memberId} subscriptions={attendanceSubscriptions} loading={attendanceSubscriptionsLoading} error={attendanceSubscriptionsError} branchId={effectiveBranchId} branches={appContext.branches} />}
+        {isManualAttendance && selectedMemberId && <AttendanceMemberPreview member={selectedMember} lockedMemberLabel={lockedReferenceLabels?.memberId} subscriptions={attendanceSubscriptions} loading={attendanceSubscriptionsLoading} error={attendanceSubscriptionsError} branchId={effectiveBranchId} branches={appContext.branches} selectedSubscriptionId={selectedAttendanceSubscriptionId} disabled={saving} onSelect={subscriptionId => { setError(""); setValues(current => ({ ...current, subscriptionId })) }} />}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-500/10 p-3 text-xs font-semibold text-red-600">{error}</p>}
-        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving}>{saving && <Loader2 className="animate-spin" />}{isPaidBooking ? "إنشاء الحجز والفاتورة" : isManualReservation ? "تأكيد الحجز بلا مقابل" : workflow.submitLabel}</Button></footer>
+        <footer className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row"><Button type="button" variant="outline" size="lg" onClick={onClose}>إلغاء</Button><Button type="submit" size="lg" className="sm:mr-auto sm:min-w-40" disabled={saving || attendanceSubmitBlocked}>{saving && <Loader2 className="animate-spin" />}{isPaidBooking ? "إنشاء الحجز والفاتورة" : isManualReservation ? "تأكيد الحجز بلا مقابل" : workflow.submitLabel}</Button></footer>
       </form>}
     </section>
   </div>
 }
 
-function AttendanceMemberPreview({ member, lockedMemberLabel, subscriptions, loading, error, branchId, branches }: {
+function AttendanceMemberPreview({ member, lockedMemberLabel, subscriptions, loading, error, branchId, branches, selectedSubscriptionId, disabled, onSelect }: {
   member?: DataRow
   lockedMemberLabel?: string
   subscriptions: DataRow[]
@@ -422,6 +426,9 @@ function AttendanceMemberPreview({ member, lockedMemberLabel, subscriptions, loa
   error: string
   branchId: string
   branches: Array<{ id: string; nameAr?: string; name?: string }>
+  selectedSubscriptionId: string
+  disabled: boolean
+  onSelect: (subscriptionId: string) => void
 }) {
   const memberName = String(member?.name ?? member?.fullNameAr ?? member?.memberName ?? lockedMemberLabel ?? "العضو المحدد")
   const memberNumber = String(member?.memberNumber ?? member?.legacyMemberNumber ?? subscriptions[0]?.memberNumber ?? "")
@@ -437,35 +444,39 @@ function AttendanceMemberPreview({ member, lockedMemberLabel, subscriptions, loa
       {blocked && <p className="w-full rounded-xl border border-red-500/20 bg-red-500/8 p-3 text-xs font-semibold leading-6 text-red-600">هذا العضو محظور ولن يُسمح له بالدخول.{blockedReason ? ` السبب: ${blockedReason}` : ""}</p>}
     </div>
     <div className="p-4">
-      <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-black">اشتراكات العضو</h3><p className="mt-1 text-[11px] text-muted-foreground">تُعرض جميع الاشتراكات المتاحة لصلاحياتك، والقرار النهائي يصدر عند التحقق.</p></div>{!loading && !error && <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold">{subscriptions.length}</span>}</div>
+      <div className="mb-3 flex items-center justify-between gap-3"><div><h3 className="text-sm font-black">اختر اشتراك الدخول</h3><p className="mt-1 text-[11px] text-muted-foreground">تُحسب الزيارة على الاشتراك المختار فقط وفق شروطه وحدوده. يُرفض الدخول إذا لم يكن صالحًا.</p></div>{!loading && !error && <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold">{subscriptions.length}</span>}</div>
       {loading ? <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed p-6 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin"/>جارٍ تحميل تفاصيل الاشتراكات...</div>
         : error ? <p role="alert" className="rounded-xl border border-red-500/20 bg-red-500/8 p-3 text-xs font-semibold leading-6 text-red-600">{error}</p>
           : subscriptions.length === 0 ? <p className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-4 text-xs font-semibold leading-6 text-amber-700 dark:text-amber-300">لا توجد اشتراكات مسجلة لهذا العضو ضمن نطاق صلاحياتك؛ من المتوقع رفض الدخول.</p>
-            : <div className="max-h-[42vh] space-y-3 overflow-y-auto pl-1">{subscriptions.map(subscription => <AttendanceSubscriptionCard key={String(subscription.id)} subscription={subscription} branchId={branchId} branches={branches}/>)}</div>}
+            : <div role="radiogroup" aria-label="اشتراك الدخول" className="max-h-[42vh] space-y-3 overflow-y-auto pl-1">{subscriptions.map(subscription => <AttendanceSubscriptionCard key={String(subscription.id)} subscription={subscription} branchId={branchId} branches={branches} selected={String(subscription.id) === selectedSubscriptionId} disabled={disabled} onSelect={onSelect}/>)}</div>}
     </div>
   </section>
 }
 
-function AttendanceSubscriptionCard({ subscription, branchId, branches }: { subscription: DataRow; branchId: string; branches: Array<{ id: string; nameAr?: string; name?: string }> }) {
+function AttendanceSubscriptionCard({ subscription, branchId, branches, selected, disabled, onSelect }: { subscription: DataRow; branchId: string; branches: Array<{ id: string; nameAr?: string; name?: string }>; selected: boolean; disabled: boolean; onSelect: (subscriptionId: string) => void }) {
   const snapshot = isDataRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
   const entitlements = Array.isArray(subscription.entitlements) ? subscription.entitlements.filter(isDataRow) : []
   const packageName = String(snapshot.packageName ?? subscription.packageName ?? "باقة العضو")
   const allowance = finiteNumber(subscription.visitAllowance)
   const used = finiteNumber(subscription.visitsUsed) ?? 0
   const remaining = allowance === undefined ? undefined : Math.max(0, allowance - used)
+  const periodAllowance = finiteNumber(subscription.visitsPerPeriod)
+  const periodLabel = subscription.visitLimitPeriod === "WEEK" ? "أسبوعيًا" : subscription.visitLimitPeriod === "MONTH" ? "شهريًا" : ""
+  const visitsLabel = allowance === undefined ? `غير محدودة · إجمالي المسجل ${used}` : `${remaining} متبقية من ${allowance} · المستخدم ${used}`
   const eligibility = attendanceSubscriptionEligibility(subscription, branchId)
   const accessLabel = subscription.branchAccessPolicy === "ALL_ORGANIZATION_BRANCHES"
     ? "جميع فروع المؤسسة"
     : (Array.isArray(subscription.allowedBranchIds) ? subscription.allowedBranchIds : []).map(id => attendanceBranchName(String(id), branches)).join("، ") || attendanceBranchName(String(subscription.sellingBranchId ?? ""), branches)
 
-  return <article className={`rounded-2xl border p-4 ${eligibility.eligible ? "border-emerald-500/30 bg-emerald-500/[.04]" : "bg-card"}`}>
+  return <article className={`rounded-2xl border p-4 ${selected ? "border-primary ring-2 ring-primary/20 bg-primary/[.04]" : eligibility.eligible ? "border-emerald-500/30 bg-emerald-500/[.04]" : "bg-card"}`}>
+    <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-xl bg-background/70 p-3 text-xs font-bold"><input type="radio" name="attendanceSubscriptionId" value={String(subscription.id)} checked={selected} disabled={disabled} onChange={() => onSelect(String(subscription.id))} aria-label={`اختيار ${packageName} · ${String(subscription.subscriptionNumber ?? "")}`} className="size-4 accent-primary"/>{selected ? "تم اختيار هذا الاشتراك للدخول" : "تسجيل الدخول على هذا الاشتراك"}</label>
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><p className="font-black">{packageName}</p><p className="mt-1 text-[11px] text-muted-foreground">اشتراك <span dir="ltr">{String(subscription.subscriptionNumber ?? "—")}</span></p></div>
       <div className="flex flex-wrap items-center gap-2"><StatusBadge status={String(subscription.status ?? "غير محدد")}/><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${eligibility.eligible ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" : "bg-red-500/10 text-red-600"}`}>{eligibility.label}</span></div>
     </div>
     <dl className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
       <AttendanceDetail icon={CalendarDays} label="مدة الاشتراك" value={`${attendanceDate(subscription.termStart)} — ${attendanceDate(subscription.termEnd)}`}/>
-      <AttendanceDetail icon={CreditCard} label="الزيارات" value={allowance === undefined ? "غير محدودة" : `${remaining} متبقية من ${allowance} · المستخدم ${used}`}/>
+      <AttendanceDetail icon={CreditCard} label="الزيارات" value={periodAllowance !== undefined && periodLabel ? `${periodAllowance} زيارات ${periodLabel} · إجمالي المسجل ${used}${allowance === undefined ? "" : ` · ${visitsLabel}`}` : visitsLabel}/>
       <AttendanceDetail icon={MapPin} label="صلاحية الفروع" value={accessLabel}/>
       <AttendanceDetail icon={CheckCircle2} label="الاستخدام في الفرع الحالي" value={eligibility.eligible ? "متاح مبدئيًا" : eligibility.label}/>
     </dl>
@@ -482,13 +493,13 @@ function AttendanceDetail({ icon: Icon, label, value }: { icon: typeof CalendarD
   return <div className="rounded-xl bg-background/70 p-3"><dt className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground"><Icon className="size-3.5"/>{label}</dt><dd className="mt-1.5 font-bold leading-5">{value}</dd></div>
 }
 
-function AttendanceDecisionResult({ result, member, subscriptions, branchName, onAgain, onClose }: { result: DataRow; member?: DataRow; subscriptions: DataRow[]; branchName: string; onAgain: () => void; onClose: () => void }) {
+function AttendanceDecisionResult({ result, member, subscriptions, selectedSubscriptionId, branchName, onAgain, onClose }: { result: DataRow; member?: DataRow; subscriptions: DataRow[]; selectedSubscriptionId: string; branchName: string; onAgain: () => void; onClose: () => void }) {
   const accepted = result.decision === "ACCEPTED"
-  const subscription = subscriptions.find(item => String(item.id) === String(result.subscriptionId ?? ""))
+  const subscription = subscriptions.find(item => String(item.id) === String(result.subscriptionId ?? selectedSubscriptionId))
   const snapshot = subscription && isDataRow(subscription.commercialSnapshot) ? subscription.commercialSnapshot : {}
   const memberName = String(member?.name ?? member?.fullNameAr ?? member?.memberName ?? subscription?.memberName ?? "العضو المحدد")
   const memberNumber = String(member?.memberNumber ?? member?.legacyMemberNumber ?? subscription?.memberNumber ?? "")
-  const rejection = attendanceRejectionLabel(String(result.rejectionReason ?? ""))
+  const rejection = result.rejectionReason === "NOT_ACTIVE" && subscription ? "الاشتراك المختار غير نشط ولا يسمح بالدخول." : attendanceRejectionLabel(String(result.rejectionReason ?? ""))
 
   return <section className="p-5 sm:p-6" aria-live="assertive">
     <div className={`rounded-3xl border p-6 text-center ${accepted ? "border-emerald-500/35 bg-emerald-500/[.07]" : "border-red-500/35 bg-red-500/[.07]"}`}>
@@ -497,7 +508,7 @@ function AttendanceDecisionResult({ result, member, subscriptions, branchName, o
       <h3 className="mt-1 text-2xl font-black">{accepted ? "تم السماح بالدخول" : "تم رفض الدخول"}</h3>
       <p className="mt-2 text-sm text-muted-foreground">{memberName}{memberNumber ? ` · رقم العضوية ${memberNumber}` : ""}</p>
       {!accepted && <p className="mx-auto mt-5 max-w-md rounded-2xl border border-red-500/20 bg-background/70 p-4 text-sm font-bold leading-7 text-red-700 dark:text-red-300">{rejection}</p>}
-      {accepted && subscription && <p className="mx-auto mt-5 max-w-md rounded-2xl border border-emerald-500/20 bg-background/70 p-4 text-sm font-bold leading-7">تم الاعتماد على {String(snapshot.packageName ?? "اشتراك العضو")} · <span dir="ltr">{String(subscription.subscriptionNumber ?? "")}</span></p>}
+      {subscription && <p className="mx-auto mt-5 max-w-md rounded-2xl border bg-background/70 p-4 text-sm font-bold leading-7">{accepted ? "تم الاعتماد على" : "الاشتراك المختار:"} {String(snapshot.packageName ?? "اشتراك العضو")} · <span dir="ltr">{String(subscription.subscriptionNumber ?? "")}</span></p>}
       <dl className="mx-auto mt-5 grid max-w-md gap-2 text-xs sm:grid-cols-2">
         <AttendanceDetail icon={MapPin} label="الفرع" value={branchName}/>
         <AttendanceDetail icon={CalendarDays} label="وقت المحاولة" value={attendanceDateTime(result.attemptedAt)}/>
@@ -529,6 +540,7 @@ function attendanceRejectionLabel(reason: string) {
     MEMBER_BLOCKED: "العضو محظور من الدخول.",
     BRANCH_INACTIVE: "الفرع غير نشط حاليًا.",
     NOT_ACTIVE: "لا يوجد اشتراك نشط صالح للدخول.",
+    SUBSCRIPTION_FROZEN: "الاشتراك المختار مجمّد ولا يسمح بالدخول.",
     OUTSIDE_ACCESS_PERIOD: "الاشتراك خارج فترة السماح بالدخول.",
     BRANCH_NOT_ALLOWED: "اشتراك العضو غير صالح في هذا الفرع.",
     VISITS_EXHAUSTED: "استهلك العضو جميع الزيارات المتاحة.",
@@ -578,7 +590,7 @@ async function loadAllAttendanceSubscriptions(organizationId: string, memberId: 
     if (cursor) query.set("cursor", cursor)
     const response = await apiRequest<unknown>(`/organizations/${organizationId}/subscriptions?${query}`)
     items.push(...dataRows(response.data))
-    const nextCursor = isDataRow(response.data) ? String(response.data.nextCursor ?? "") : ""
+    const nextCursor = String(response.meta?.nextCursor ?? (isDataRow(response.data) ? response.data.nextCursor ?? "" : ""))
     if (!nextCursor || seenCursors.has(nextCursor)) break
     seenCursors.add(nextCursor)
     cursor = nextCursor

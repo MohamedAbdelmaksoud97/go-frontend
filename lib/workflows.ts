@@ -101,9 +101,9 @@ export const workflows: Record<string, Workflow> = {
     body: (v, c) => ({ memberId: v.memberId, packageId: v.packageId, sellingBranchId: c.branchId, startAt: new Date(String(v.startAt)).toISOString() }),
   },
   recordManualAttendance: {
-    title: "تسجيل دخول", description: "امسح بطاقة العضو أو اكتب الرقم الموجود عليها. ستظهر نتيجة السماح بالدخول فورًا.", submitLabel: "التحقق وتسجيل الدخول", successMessage: "تم تسجيل محاولة الدخول.",
+    title: "تسجيل دخول", description: "اختر العضو ثم الاشتراك الذي ستُسجّل عليه الزيارة. ستظهر نتيجة السماح بالدخول فورًا.", submitLabel: "التحقق وتسجيل الدخول", successMessage: "تم تسجيل محاولة الدخول.",
     fields: [{ name: "memberId", label: "العضو", type: "reference", source: members, required: true, placeholder: "اختر العضو بالاسم أو رقم العضوية" }],
-    initial: () => ({ memberId: "" }), body: (v, c) => ({ branchId: c.branchId, memberId: v.memberId }),
+    initial: () => ({ memberId: "", subscriptionId: "" }), body: (v, c) => ({ branchId: c.branchId, memberId: v.memberId, ...(v.subscriptionId ? { subscriptionId: v.subscriptionId } : {}) }),
   },
   createManualReservation: {
     title: "حجز جديد", description: "اختر العميل والمورد وطريقة التأكيد؛ يمكن إصدار فاتورة للحجز ثم تحصيلها من نقطة البيع، أو تسجيل حجز تشغيلي بلا مقابل.", submitLabel: "متابعة إنشاء الحجز", successMessage: "تم إنشاء الحجز بنجاح.",
