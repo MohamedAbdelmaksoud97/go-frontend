@@ -3,7 +3,7 @@ import { physicalGateDirection } from "@/lib/gate-direction"
 export type GateAccessEvent={
  id:string;deviceId:string;deviceName?:string;branchId?:string;deviceOccurredAt:string;doorNumber:number;direction:"IN"|"OUT"|"UNKNOWN";eventType:number;credentialPin?:string;
  deviceDecision:"ALLOWED"|"DENIED"|"UNKNOWN";processingStatus:"ATTENDANCE_RECORDED"|"DEVICE_DENIED"|"UNMAPPED_CREDENTIAL"|"IGNORED"|"FAILED";processingCode?:string;
- memberId?:string;memberName?:string;memberNumber?:string;employeeId?:string;employeeName?:string;employeeNumber?:string
+ attendanceAttemptId?:string;accessMethod?:string;memberId?:string;memberName?:string;memberNumber?:string;employeeId?:string;employeeName?:string;employeeNumber?:string
 }
 
 const reasons:Record<string,string>={
@@ -14,6 +14,7 @@ const reasons:Record<string,string>={
 }
 
 export function accessSubject(event:GateAccessEvent){return event.memberName??event.employeeName??(event.credentialPin?`PIN ${event.credentialPin}`:"غير معروف")}
+export function attendanceRejectionReason(reason:string){return reasons[reason]??"لم تتحقق شروط السماح بالدخول"}
 export function accessSubjectNumber(event:GateAccessEvent){return event.memberNumber??event.employeeNumber}
 export function accessReader(event:GateAccessEvent){const direction=physicalGateDirection(event.doorNumber,event.direction);return direction==="IN"?"قارئ الدخول":direction==="OUT"?"قارئ الخروج":"قارئ غير محدد"}
 export function accessDeviceReason(event:GateAccessEvent){return event.eventType===29?"صلاحية اللوحة منتهية":event.eventType===34?"بصمة غير مسجلة":`رفض اللوحة (${event.eventType})`}

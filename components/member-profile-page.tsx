@@ -22,7 +22,9 @@ import { ownerFileValidationError, uploadOwnerFile, type OwnerFileKind } from "@
 import { useToast } from "@/components/toast-provider"
 import { ContractPrintSheets, printContractDocument, printableContract, type ContractPrintContext, type ContractSnapshot, type MembershipPrintDetails } from "@/components/invoice-details-page"
 import { remainingSubscriptionDaysLabel } from "@/lib/subscription-term"
-import { accessDeviceReason, accessReader, accessSeverity, accessSystemReason, gateOpenedButSystemRejected, type GateAccessEvent } from "@/lib/access-event"
+import type { GateAccessEvent } from "@/lib/access-event"
+import { mergeMemberAccessHistory, type MemberAttendanceAttempt } from "@/lib/member-access-history"
+import { MemberAccessHistory } from "@/components/member-access-history"
 
 type Row = Record<string, unknown>
 type Branch = { id: string; nameAr?: string; name?: string }
@@ -68,7 +70,9 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     files: context.canAccess(["files.read"]),
     catalog: context.canAccess(["catalog.read"]),
     blocks: context.canAccess(["members.read"]),
-    access: context.canAccess(["attendance.devices.read"]),
+    attendance: context.canAccess(["attendance.read"]),
+    devices: context.canAccess(["attendance.devices.read"]),
+    access: context.canAccess(["attendance.read"]) || context.canAccess(["attendance.devices.read"]),
   }), [context])
   const canUploadFiles = context.canAccess(["files.manage"]) && context.canAccess(["members.manage"])
   const canEditMember = context.canAccess(["members.manage"])
@@ -121,7 +125,17 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
         if (permissions.subscriptions) jobs.push(optional("subscriptions", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/subscriptions?branchId=${branchId}&memberId=${memberId}&limit=100`)).data)))
         if (permissions.subscriptions) jobs.push(optional("legacySubscriptions", async () => rows((await apiRequest<Row[]>(`/organizations/${organizationId}/members/${memberId}/legacy-subscriptions`)).data)))
         if (permissions.blocks) jobs.push(optional("blocks", async () => rows((await apiRequest<Row[]>(`/organizations/${organizationId}/members/${memberId}/block-history`)).data)))
-        if (permissions.access) jobs.push(optional("access", async () => rows((await apiRequest<Row[]>(`/organizations/${organizationId}/access-device-events?memberId=${memberId}&limit=500`)).data)))
+        if (permissions.devices) jobs.push(optional("access", async () => rows((await apiRequest<Row[]>(`/organizations/${organizationId}/access-device-events?memberId=${memberId}&limit=500`)).data).map(row => ({ ...row, profileAccessSource: "DEVICE" }))))
+        if (permissions.attendance) jobs.push(optional("access", async () => {
+          const attempts: Row[] = []
+          let cursor: string | undefined
+          do {
+            const response = await apiRequest<Row[]>(`/organizations/${organizationId}/attendance-attempts?memberId=${memberId}&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`)
+            attempts.push(...rows(response.data).map(row => ({ ...row, profileAccessSource: "ATTENDANCE" })))
+            cursor = response.meta?.nextCursor
+          } while (cursor)
+          return attempts
+        }))
         if (permissions.bookings) jobs.push(optional("bookings", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/reservations?branchId=${branchId}&memberId=${memberId}&limit=100`)).data)))
         if (permissions.finance) jobs.push(optional("finance", async () => {
           const [invoices, payments] = await Promise.all([
@@ -139,11 +153,11 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
         const result = await Promise.all(jobs)
         const next: ProfileData = { ...emptyData, member: memberResponse.data, errors: {} }
         for (const item of result) {
-          if (item.error) next.errors[item.key] = item.error
+          if (item.error) next.errors[item.key] = [next.errors[item.key], item.error].filter(Boolean).join(" ")
           if (item.key === "subscriptions") next.subscriptions = newest(item.rows, "termStart")
           if (item.key === "legacySubscriptions") next.legacySubscriptions = item.rows
           if (item.key === "blocks") next.blockHistory = newest(item.rows, "occurredAt")
-          if (item.key === "access") next.accessEvents = newest(item.rows, "deviceOccurredAt")
+          if (item.key === "access") next.accessEvents = [...next.accessEvents, ...item.rows]
           if (item.key === "bookings") next.bookings = newest(item.rows, "startsAt")
           if (item.key === "finance") {
             next.invoices = newest(item.rows.filter(row => text(row.profileRecordType) === "INVOICE"), "issuedAt")
@@ -181,7 +195,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     }
     void load()
     return () => { cancelled = true }
-  }, [activeBranchId, activeOrganizationId, contextLoading, memberId, permissions.access, permissions.blocks, permissions.bookings, permissions.catalog, permissions.files, permissions.finance, permissions.purchases, permissions.restaurant, permissions.subscriptions, reloadKey])
+  }, [activeBranchId, activeOrganizationId, contextLoading, memberId, permissions.attendance, permissions.devices, permissions.blocks, permissions.bookings, permissions.catalog, permissions.files, permissions.finance, permissions.purchases, permissions.restaurant, permissions.subscriptions, reloadKey])
 
   if (context.loading || loading) return <div className="grid min-h-[55vh] place-items-center"><div className="text-center"><Loader2 className="mx-auto size-9 animate-spin text-primary"/><p className="mt-3 text-sm text-muted-foreground">جارٍ تجهيز ملف العضو…</p></div></div>
   if (!context.canAccess(["members.read"])) return <Message title="لا تملك صلاحية عرض ملفات الأعضاء" detail="اطلب من مدير النظام منحك صلاحية عرض الأعضاء في هذا الفرع." />
@@ -233,7 +247,7 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     <nav className="flex gap-2 overflow-x-auto rounded-2xl border bg-card p-2" aria-label="أقسام ملف العضو">{tabs.map(tab => { const Icon = tab.icon; return <button key={tab.key} type="button" onClick={() => setActive(tab.key)} className={cn("inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-xs font-bold transition", active === tab.key ? "bg-primary text-primary-foreground" : "hover:bg-secondary")}><Icon className="size-4"/>{tab.label}</button> })}</nav>
 
     {active === "profile" && <ProfileSection member={member} contacts={contacts} branchName={branchName} identity={identity} identityUrl={identity ? data.fileUrls[text(identity.id)] : ""} showSensitiveNotes={context.canAccess(["members.sensitive.read"])} />} 
-    {active === "access" && <MemberAccessSection rows={data.accessEvents} error={data.errors.access}/>}
+    {active === "access" && <MemberAccessSection rows={data.accessEvents} branches={context.branches} subscriptions={data.subscriptions} error={data.errors.access}/>}
     {active === "subscriptions" && <div className="space-y-6"><SubscriptionSection rows={data.subscriptions} branches={context.branches} activities={data.activities} services={data.services} member={data.member} employeeName={context.account?.displayName ?? undefined} asOf={loadedAt} error={data.errors.subscriptions}/><MemberLegacySubscriptionHistory records={data.legacySubscriptions} error={data.errors.legacySubscriptions}/></div>}
     {active === "freezes" && <FreezeHistorySection subscriptions={data.subscriptions} branches={context.branches} asOf={loadedAt} error={data.errors.subscriptions}/>}
     {active === "renewals" && <RenewalHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
@@ -474,7 +488,16 @@ function BlockHistorySection({ rows: items, error }: { rows: Row[]; error?: stri
   })}</div> : <Empty text="لا توجد عمليات حظر أو رفع حظر مسجلة لهذا العضو."/>}</SectionShell>
 }
 
-function MemberAccessSection({rows,error}:{rows:Row[];error?:string}){return <SectionShell title="سجل الدخول والبصمة" count={rows.length} error={error}>{rows.length?<div className="overflow-x-auto rounded-2xl border bg-card"><table className="w-full min-w-[850px] text-sm"><thead className="bg-secondary/50 text-xs text-muted-foreground"><tr><th className="p-3 text-right">الوقت</th><th className="p-3 text-right">PIN</th><th className="p-3 text-right">القارئ</th><th className="p-3 text-right">قرار اللوحة</th><th className="p-3 text-right">قرار GO</th></tr></thead><tbody>{rows.map(row=>{const event=row as GateAccessEvent;return <tr key={text(row.id)} className={`border-t ${gateOpenedButSystemRejected(event)?"bg-red-500/10":""}`}><td className="p-3 whitespace-nowrap">{dateTime(row.deviceOccurredAt)}</td><td className="p-3 font-mono" dir="ltr">{text(row.credentialPin,"—")}</td><td className="p-3">{accessReader(event)}</td><td className="p-3"><Badge variant={event.deviceDecision==="ALLOWED"?"success":"danger"}>{event.deviceDecision==="ALLOWED"?"فتح":accessDeviceReason(event)}</Badge></td><td className="p-3"><Badge variant={accessSeverity(event)}>{accessSystemReason(event)}</Badge></td></tr>})}</tbody></table></div>:<Empty text="لا توجد محاولات دخول مرتبطة بهذا العضو."/>}</SectionShell>}
+function MemberAccessSection({ rows, branches, subscriptions, error }: { rows: Row[]; branches: Branch[]; subscriptions: Row[]; error?: string }) {
+  const entries = mergeMemberAccessHistory(
+    rows.filter(row => row.profileAccessSource === "ATTENDANCE") as MemberAttendanceAttempt[],
+    rows.filter(row => row.profileAccessSource === "DEVICE") as GateAccessEvent[],
+  )
+  const namedSubscriptions = subscriptions.map(row => ({ id: text(row.id), subscriptionNumber: text(row.subscriptionNumber) }))
+  return <SectionShell title="سجل الدخول والبصمة" count={entries.length} error={error}>
+    {entries.length ? <MemberAccessHistory entries={entries} branches={branches} subscriptions={namedSubscriptions}/> : <Empty text="لا توجد محاولات دخول مرتبطة بهذا العضو."/>}
+  </SectionShell>
+}
 
 function BookingSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="الحجوزات" count={items.length} error={error}>{items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-3 p-5 sm:grid-cols-[1fr_auto] sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(row.resourceName, "حجز خدمة أو مرفق")}</p><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.startsAt)} حتى {dateTime(row.endsAt)} · {branchLabel(text(row.branchId), branches)} · {minor(row.seats, 1)} مقعد</p></div><strong>{money(minor(row.grossMinor))}</strong></article>)}</div> : <Empty text="لا توجد حجوزات مسجلة لهذا العضو."/>}</SectionShell> }
 

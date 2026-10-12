@@ -15,7 +15,8 @@
     "test:corrections": "node --test scripts/test-administrative-corrections.mjs",
     "test:counter": "node --test scripts/test-counter-discount.mjs",
     "test:audit": "node --test scripts/test-audit-display.mjs",
-    "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run test:permissions && npm run test:audit && npm run test:counter && npm run test:corrections && npm run lint"
+    "test:member-access": "node --test scripts/test-member-access-history.mjs",
+    "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run test:permissions && npm run test:audit && npm run test:counter && npm run test:corrections && npm run test:member-access && npm run lint"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
