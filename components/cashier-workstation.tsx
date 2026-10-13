@@ -445,8 +445,8 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       setError("اختر الصنف الذي تريد إضافته إلى الفاتورة.");
       return;
     }
-    if (!Number.isInteger(count) || count < 1 || count > 100) {
-      setError("أدخل كمية صحيحة بين 1 و100.");
+    if (!Number.isSafeInteger(count) || count < 1 || (saleKind !== "RETAIL" && count > 100)) {
+      setError(saleKind === "RETAIL" ? "أدخل كمية صحيحة لا تقل عن 1." : "أدخل كمية صحيحة بين 1 و100.");
       return;
     }
     if (saleKind === "SERVICE" && !serviceQuote) {
@@ -470,7 +470,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
     const key = `${type}:${targetId}`;
     const currentQuantity = cart.find((line) => line.key === key)?.quantity ?? 0;
     const nextQuantity = currentQuantity + count;
-    if (nextQuantity > 100) {
+    if (type !== "RETAIL" && nextQuantity > 100) {
       setError("إجمالي كمية الصنف داخل الفاتورة يجب ألا يتجاوز 100.");
       return;
     }
@@ -498,7 +498,7 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
       else setCart((current) => current.filter((item) => item.key !== key));
       return;
     }
-    if (nextQuantity > 100) return;
+    if (line.type !== "RETAIL" && nextQuantity > 100) return;
     if (line.type === "RETAIL") {
       const available = retailProducts.find((product) => product.id === line.targetId)?.quantityAvailable ?? 0;
       if (nextQuantity > available) {
@@ -1020,11 +1020,12 @@ export function CashierWorkstation({ initialInvoiceId = "", initialOrderId = "" 
                 <Input
                   type="number"
                   min="1"
+                  max={saleKind === "RETAIL" ? retailProducts.find((product) => product.id === productId)?.quantityAvailable : 100}
                   value={quantity}
                   onChange={(event) => setQuantity(event.target.value)}
                   placeholder="الكمية"
                 />
-                <Button type="button" variant="outline" onClick={addCartLine} disabled={!(saleKind === "MEAL" ? mealId : saleKind === "RETAIL" ? productId : serviceId) || !Number.isInteger(Number(quantity)) || Number(quantity) < 1 || Number(quantity) > 100 || (saleKind === "SERVICE" && (!serviceQuote || loadingServiceQuote))}><Plus/>إضافة للفاتورة</Button>
+                <Button type="button" variant="outline" onClick={addCartLine} disabled={!(saleKind === "MEAL" ? mealId : saleKind === "RETAIL" ? productId : serviceId) || !Number.isSafeInteger(Number(quantity)) || Number(quantity) < 1 || (saleKind !== "RETAIL" && Number(quantity) > 100) || (saleKind === "SERVICE" && (!serviceQuote || loadingServiceQuote))}><Plus/>إضافة للفاتورة</Button>
               </div>
               {saleKind === "SERVICE" && serviceId && (
                 <div className="mt-3 rounded-xl border bg-secondary/40 p-3 text-xs" role="status">

@@ -22,7 +22,7 @@ class ApiError extends Error {
   constructor(code) { super(code); this.problem = { code, status: 409 }; this.status = 409 }
 }
 
-async function mount({ initialInvoices = [] } = {}) {
+async function mount({ initialInvoices = [], retailStock = 100 } = {}) {
   const calls = []
   const notices = []
   const invoices = initialInvoices
@@ -60,7 +60,7 @@ async function mount({ initialInvoices = [] } = {}) {
     else if (path.includes("/invoices?")) data = invoices
     else if (path.includes("/restaurant/meals")) data = [{ id: "meal-1", name: "وجبة اختبار", remainingQuantity: 100 }]
     else if (path.includes("/daily-menus/")) data = { status: "PUBLISHED", items: [{ mealId: "meal-1", enabled: true, remainingQuantity: 100 }] }
-    else if (path.includes("/sellable-products")) data = [{ id: "product-1", name: "منتج اختبار", quantityAvailable: 100, grossMinor: "11500" }]
+    else if (path.includes("/sellable-products")) data = [{ id: "product-1", name: "منتج اختبار", quantityAvailable: retailStock, grossMinor: "11500" }]
     else if (path.includes("/services?")) data = [{ id: "service-1", name: "خدمة اختبار" }]
     return { data }
   }
@@ -110,21 +110,75 @@ async function mount({ initialInvoices = [] } = {}) {
       await pause()
     })
   }
-  async function add(kind = "MEAL") {
+  async function enterQuantity(value) {
+    const input = container.querySelector('input[placeholder="الكمية"]')
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(browser.HTMLInputElement.prototype, "value").set.call(input, String(value))
+      input.dispatchEvent(new browser.Event("input", { bubbles: true }))
+      await pause()
+    })
+  }
+  async function add(kind = "MEAL", quantity = 1) {
     if (kind !== "MEAL") await click(kind === "SERVICE" ? "خدمة" : "منتج من المتجر")
     const option = [...container.querySelectorAll("option")].find(item => item.value === (kind === "MEAL" ? "meal-1" : kind === "SERVICE" ? "service-1" : "product-1"))
     assert.ok(option)
     await React.act(async () => { option.parentElement.value = option.value; option.parentElement.dispatchEvent(new browser.Event("change", { bubbles: true })); await pause() })
+    await enterQuantity(quantity)
     await click("إضافة للفاتورة")
   }
   async function chooseSaleMethod(value) {
     const select = [...container.querySelectorAll("select")].findLast(item => [...item.options].some(option => option.value === "CARD"))
     await React.act(async () => { select.value = value; select.dispatchEvent(new browser.Event("change", { bubbles: true })); await pause() })
   }
-  return { container, calls, notices, context, button, click, enterCode, add, chooseSaleMethod, setFailPayment: () => { failPayment = true },
+  return { container, calls, notices, context, button, click, enterCode, enterQuantity, add, chooseSaleMethod, setFailPayment: () => { failPayment = true },
     releaseSlow: () => slowReply?.(), rerender: async () => { await React.act(async () => { render(); await pause() }) },
     close: async () => { await React.act(async () => root.unmount()); container.remove() } }
 }
+
+test("retail quantities exceed 100 through entry, increment, repeated addition and checkout", async () => {
+  const view = await mount({ retailStock: 1000 })
+  try {
+    await view.add("RETAIL", 150)
+    await React.act(async () => { view.container.querySelector('button[aria-label^="زيادة كمية"]').click(); await pause() })
+    await view.add("RETAIL", 150)
+    const quote = view.calls.filter(call => call.path.endsWith("/order-quotes")).at(-1)
+    assert.equal(quote.body.lines.length, 1)
+    assert.equal(quote.body.lines[0].quantity, 301)
+    await view.enterCode("COUNTER10")
+    await view.click("تطبيق الكود")
+    await view.chooseSaleMethod("CARD")
+    await view.click("إصدار فاتورة واحدة وتحصيلها")
+    assert.equal(view.calls.find(call => call.path.endsWith("/orders")).body.lines[0].quantity, 301)
+    assert.equal(view.calls.find(call => call.path.endsWith("/payments")).body.amountMinor, String(301 * 11500 - 1000))
+  } finally { await view.close() }
+})
+
+test("retail stock still limits incrementing and repeated additions above 100", async () => {
+  const view = await mount({ retailStock: 150 })
+  try {
+    await view.add("RETAIL", 150)
+    await React.act(async () => { view.container.querySelector('button[aria-label^="زيادة كمية"]').click(); await pause() })
+    assert.match(view.container.textContent, /الكمية المتاحة من منتج اختبار هي 150 فقط/)
+    await view.add("RETAIL", 1)
+    assert.match(view.container.textContent, /الكمية المتاحة من منتج اختبار هي 150 فقط/)
+    assert.equal(view.calls.filter(call => call.path.endsWith("/order-quotes")).at(-1).body.lines[0].quantity, 150)
+  } finally { await view.close() }
+})
+
+test("non-retail quantities retain their limit and retail quantities must be positive integers", async () => {
+  for (const kind of ["MEAL", "SERVICE", "RETAIL"]) {
+    const view = await mount({ retailStock: 1000 })
+    try {
+      await view.add(kind)
+      await view.enterQuantity(101)
+      assert.equal(view.button("إضافة للفاتورة").disabled, kind !== "RETAIL")
+      for (const invalid of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+        await view.enterQuantity(invalid)
+        assert.equal(view.button("إضافة للفاتورة").disabled, true)
+      }
+    } finally { await view.close() }
+  }
+})
 
 test("cashier applies and removes a code for meals, services, and retail; edits block checkout", async () => {
   for (const kind of ["MEAL", "SERVICE", "RETAIL"]) {
