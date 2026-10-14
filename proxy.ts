@@ -1,6 +1,6 @@
 import { NextResponse,type NextRequest } from "next/server"
 
-const publicPaths=["/login","/join","/forbidden"]
+const publicPaths=["/login","/join","/forbidden","/privacy","/support"]
 export function proxy(request:NextRequest){
  if(!process.env.API_BASE_URL&&!process.env.NEXT_PUBLIC_API_BASE_URL)return NextResponse.next()
  const pathname=request.nextUrl.pathname

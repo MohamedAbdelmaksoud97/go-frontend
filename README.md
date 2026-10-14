@@ -32,3 +32,12 @@ npm run build
 ```
 
 يتحقق `npm test` من تغطية جميع عمليات OpenAPI المسجلة، ويشغل ESLint.
+
+## الخصوصية والدعم
+
+- `/privacy`: سياسة خصوصية GO Fitness، متاحة بدون تسجيل دخول.
+- `/support`: معلومات الدعم والبريد `Go.fitness.zulfi@gmail.com`، متاحة بدون تسجيل دخول.
+- نص الخصوصية في `content/go-fitness-legal.ar.json` مطابق للنسخة المضمّنة في
+  `gomobileapp/assets/go-fitness-legal.ar.json`. حدّث النسختين معًا عند تغيير السياسة.
+- بعد `npm run build`، يشغّل `node scripts/test-public-legal-http.mjs` اختبار HTTP
+  لظهور الصفحتين بدون جلسة، واستمرار حماية صفحة الحساب.

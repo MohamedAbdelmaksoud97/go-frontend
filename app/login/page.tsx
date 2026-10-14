@@ -147,6 +147,10 @@ export default function LoginPage() {
             </form>
 
             {!staff && <Link href="/join" className="mt-4 block text-center text-xs font-bold text-amber-600 transition hover:text-primary">عضو مسجل لأول مرة؟ فعّل حساب الدخول</Link>}
+            <nav aria-label="الخصوصية والدعم" className="mt-5 flex flex-wrap justify-center gap-5 text-xs font-semibold text-muted-foreground">
+              <Link href="/privacy" className="underline underline-offset-4">سياسة الخصوصية</Link>
+              <Link href="/support" className="underline underline-offset-4">الدعم والمساعدة</Link>
+            </nav>
             {!hasRuntimeApi() && <button onClick={() => router.push("/")} className="mt-5 w-full text-center text-[11px] font-bold text-muted-foreground transition hover:text-foreground">الدخول إلى النسخة الاستعراضية</button>}
             <div className="mt-8 flex items-center justify-center gap-2 text-[10px] text-muted-foreground"><ShieldCheck className="size-3.5 text-emerald-500" />اتصال آمن وجلسة عمل ممتدة لمدة أسبوع.</div>
           </div>
