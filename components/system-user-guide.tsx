@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { guideGroups, type GuidePage, type GuideSection } from "@/lib/system-guide-content"
+import { useAppContext } from "@/components/app-context"
+import { permissionsForRoute, systemSettingsRoutePermissions } from "@/lib/permissions"
 
 const toneClasses = {
   info: "border-blue-500/25 bg-blue-500/8 text-blue-700 dark:text-blue-300",
@@ -99,13 +101,16 @@ function GuideGallery({ images, onZoom }: { images: NonNullable<GuideSection["im
 }
 
 function ActionLinks({ links, compact = false }: { links: NonNullable<GuideSection["links"]>; compact?: boolean }) {
+  const context = useAppContext()
+  const visibleLinks = links.filter(link => !permissionsForRoute(link.href)?.includes("ui.system-settings.show") || context.canAccess(systemSettingsRoutePermissions))
+  if (!visibleLinks.length) return null
   return <div className={cn("rounded-2xl border border-primary/25 bg-primary/[.045] p-4", !compact && "mt-5")}>
     {!compact && <div className="mb-3 flex items-start gap-3">
       <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-black"><MousePointerClick className="size-4" /></span>
       <div><p className="text-sm font-black">نفّذ الإجراء داخل النظام</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">استخدم الرابط المناسب للانتقال مباشرة إلى شاشة التنفيذ الفعلية.</p></div>
     </div>}
     <div className={cn("grid gap-2", compact ? "sm:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2")}>
-      {links.map(link => <Link key={`${link.href}-${link.label}`} href={link.href} className="group flex min-h-20 items-start justify-between gap-3 rounded-xl border bg-background p-3 transition hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25">
+      {visibleLinks.map(link => <Link key={`${link.href}-${link.label}`} href={link.href} className="group flex min-h-20 items-start justify-between gap-3 rounded-xl border bg-background p-3 transition hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25">
         <span><span className="block text-sm font-black group-hover:text-amber-700 dark:group-hover:text-amber-300">{link.label}</span><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">{link.description}</span></span>
         <ArrowUpLeft className="mt-0.5 size-4 shrink-0 text-amber-700 transition group-hover:-translate-x-0.5 group-hover:-translate-y-0.5 dark:text-amber-300" aria-hidden="true" />
       </Link>)}

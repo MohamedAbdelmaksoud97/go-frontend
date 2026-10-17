@@ -10,7 +10,7 @@
     "check:coverage": "node scripts/check-endpoint-coverage.mjs",
     "check:errors": "node scripts/check-error-safety.mjs",
     "test:security": "node --test scripts/test-request-security.mjs",
-    "test:permissions": "node --test scripts/test-organization-page-permissions.mjs",
+    "test:permissions": "node --test scripts/test-organization-page-permissions.mjs scripts/test-system-settings-visibility.mjs",
     "test:security:http": "node scripts/test-request-security-http.mjs",
     "test:corrections": "node --test scripts/test-administrative-corrections.mjs",
     "test:counter": "node --test scripts/test-counter-discount.mjs",

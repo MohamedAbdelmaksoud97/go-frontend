@@ -14,7 +14,7 @@ test("branch grants do not open organization master data or select it as a landi
 })
 
 test("organization grants retain access to organization master data",()=>{
- const scoped=grants("ORGANIZATION",["branch.manage"])
+ const scoped=grants("ORGANIZATION",["branch.manage","ui.system-settings.show"])
  const allowed=permissions=>canAccessPermissions(scoped,permissions,org,branch)
  assert.equal(allowed(["organization.read"]),true)
  assert.equal(allowed(["branch.read"]),true)

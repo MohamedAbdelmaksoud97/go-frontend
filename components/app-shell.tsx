@@ -13,7 +13,7 @@ import { useAppContext } from "@/components/app-context"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { apiRequest, clearSession } from "@/lib/api-client"
-import { firstAllowedDestination, permissionsForRoute, systemSettingsPermissions } from "@/lib/permissions"
+import { firstAllowedDestination, permissionsForRoute, systemSettingsRoutePermissions } from "@/lib/permissions"
 import { accessDeviceReason, accessReader, accessSeverity, accessSubject, accessSystemReason, type GateAccessEvent } from "@/lib/access-event"
 import type { AccountNotification } from "@/components/account-notification-inbox"
 import { GlobalSearch } from "@/components/global-search"
@@ -47,7 +47,7 @@ const navGroups = [
   { label: "الإدارة", items: [
     { href: "/reports", label: "التقارير", icon: ClipboardList, permissions:["reporting.read"] },
     { href: "/audit", label: "سجل نشاط النظام", icon: History, permissions:["iam.audit.read"] },
-    { href: "/system-settings/branches", label: "إعداد النظام", icon: Settings, permissions:[...systemSettingsPermissions] },
+    { href: "/system-settings/branches", label: "إعداد النظام", icon: Settings, permissions:[...systemSettingsRoutePermissions] },
   ]},
   { label: "المساعدة", items: [
     { href: "/guide", label: "دليل الاستخدام", icon: BookOpenText, permissions:[], staffOnly:true },

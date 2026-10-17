@@ -61,4 +61,4 @@ if(duplicates.length||uncovered.length||missingIdempotency.length||missingRequir
  console.error({duplicates,uncovered,missingIdempotency,missingRequiredOperations,missingSettingsRoutePermissions,permissionDrivenSections,branchReadMismatch,missingFrontendPermissions,implicationMismatch})
  process.exit(1)
 }
-console.log(`Endpoint and permission coverage OK: ${operations.length}/${operations.length} operations mapped; ${canonicalPermissions.length}/${canonicalPermissions.length} permissions represented in the UI; ${new Set(masterDataPermissions).size} settings permissions route-accessible; authorization implications synchronized.`)
+console.log(`Endpoint and permission coverage OK: ${operations.length}/${operations.length} operations mapped; ${canonicalPermissions.length}/${canonicalPermissions.length} permissions represented in the UI; ${new Set(masterDataPermissions).size} settings data permissions mapped; authorization implications synchronized.`)

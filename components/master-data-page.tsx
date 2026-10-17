@@ -796,6 +796,13 @@ const permissionSpecificNotes: Partial<Record<string, string[]>> = {
 }
 
 function buildPermissionGuidance(code: string, subjectKey: string, subject: string, action: string): PermissionGuidance {
+  if (code === "ui.system-settings.show") return {
+    summary: "تُظهر قسم «إعداد النظام» وتسمح بفتح صفحاته في واجهة الموظف ضمن الفروع المسموح بها.",
+    allows: ["ظهور رابط إعداد النظام في القائمة الجانبية وروابطه في الواجهة."],
+    limits: ["صلاحية للواجهة فقط؛ لا تمنح قراءة البيانات أو إضافتها أو تعديلها أو حذفها. كل عملية تظل خاضعة لصلاحيتها الأصلية.", "إلغاؤها يخفي القسم ويمنع فتح صفحاته من الواجهة، مع استمرار صلاحيات التشغيل الحالية.", "الصلاحيات تجمع من المسمى الوظيفي ومجموعات الصلاحيات الإضافية؛ لإخفاء القسم يجب ألا تكون ممنوحة من أي مصدر."],
+    recommendation: "فعّلها لمن يحتاج صفحات إعداد النظام، وألغها لمن يعمل من شاشات التشغيل فقط.",
+    sensitivity: "عادية",
+  }
   const guide = actionGuidance[action] ?? {
     capability: `تنفيذ الإجراء المسمى «${permissionActions[action] ?? action}» على ${subject}`,
     limits: "لا تمنح أي صلاحيات أخرى خارج هذا الإجراء ونطاق الفروع المحدد للموظف.",

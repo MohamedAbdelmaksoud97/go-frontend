@@ -7,11 +7,14 @@ import { databaseBackupAccess, downloadDatabaseBackup } from "@/lib/database-bac
 import { humanError } from "@/lib/human-errors"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { useAppContext } from "@/components/app-context"
+import { systemSettingsRoutePermissions } from "@/lib/permissions"
 
 export function DatabaseBackupLink() {
+  const context = useAppContext()
   const [allowed, setAllowed] = useState(false)
   useEffect(() => { let active = true; void databaseBackupAccess().then(value => { if (active) setAllowed(value) }).catch(() => undefined); return () => { active = false } }, [])
-  return allowed ? <Link href="/system-settings/backups" className="flex items-center gap-2 rounded-xl border p-3 text-sm font-bold hover:bg-secondary"><Database className="size-4" />نسخة قاعدة البيانات</Link> : null
+  return allowed && context.canAccess(systemSettingsRoutePermissions) ? <Link href="/system-settings/backups" className="flex items-center gap-2 rounded-xl border p-3 text-sm font-bold hover:bg-secondary"><Database className="size-4" />نسخة قاعدة البيانات</Link> : null
 }
 
 export function DatabaseBackupPage() {

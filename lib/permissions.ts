@@ -36,6 +36,11 @@ export const operationPermissions:Record<string,string>={
  recordOtherIncome:"finance.other-income.manage",
 }
 
+// Controls frontend navigation only; it grants no access to settings data or operations.
+export const systemSettingsRoutePermissions=["ui.system-settings.show"]
+
+// Data permissions represented by settings sections, checked by coverage tooling.
+// These do not grant entry to the settings interface.
 export const systemSettingsPermissions=[
  "organization.read","branch.read","catalog.read","commercial.read","iam.roles.read",
  "finance.cash-points.read","lockers.read","measurements.read","workforce.read","bookings.read",
@@ -68,9 +73,9 @@ export const routePermissions:Record<string,string[]>={
  "/trainer":["coaching.read","coaching.training-plans.read","measurements.read","coaching.assignments.manage"],
  "/reports":["reporting.read"],
  "/audit":["iam.audit.read"],
- "/master-data":[...systemSettingsPermissions],
- "/system-settings":[...systemSettingsPermissions],
- "/settings":["organization.read","iam.roles.read"],
+ "/master-data":[...systemSettingsRoutePermissions],
+ "/system-settings":[...systemSettingsRoutePermissions],
+ "/settings":[...systemSettingsRoutePermissions],
  "/self-service":[],
  "/account":[],
  "/notifications":[],
