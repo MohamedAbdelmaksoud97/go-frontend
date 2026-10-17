@@ -99,13 +99,26 @@ test("backend GET continues to work without CSRF headers", async () => {
   assert.equal(response.status, 200)
 })
 
+test("database archive proxy preserves binary streaming and private download headers", async () => {
+  const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff, 0x00])
+  const fixture = loadRoute("app/api/backend/[...path]/route.ts", () => new Response(bytes, { headers: {
+    "Content-Type": "application/zip", "Content-Disposition": 'attachment; filename="database.zip"',
+    "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+  } }))
+  const response = await fixture.route.POST(request("POST", { origin, "content-type": "application/json" }, "{}"), { params: Promise.resolve({ path: ["api", "v1", "system", "database-backup"] }) })
+  assert.equal(response.headers.get("content-disposition"), 'attachment; filename="database.zip"')
+  assert.equal(response.headers.get("cache-control"), "private, no-store")
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff")
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes)
+})
+
 function routeParams() {
   return { params: Promise.resolve({ audience: "staff", path: ["api", "v1", "me"] }) }
 }
 
 // Execute the actual route handlers with only Next's request-bound cookie store
 // and external providers replaced. A missing guard exposes side effects here.
-function loadRoute(path) {
+function loadRoute(path, upstreamResponse) {
   const effects = []
   const testModule = { exports: {} }
   const code = ts.transpileModule(readFileSync(new URL(`../${path}`, import.meta.url), "utf8"), {
@@ -121,6 +134,7 @@ function loadRoute(path) {
     process: { env: { API_BASE_URL: "http://backend.example" } },
     fetch: async () => {
       effects.push("fetch")
+      if (upstreamResponse) return upstreamResponse()
       return Response.json({ data: { accessToken: "access", refreshToken: "refresh", expiresIn: 3600 } })
     },
     require: name => {

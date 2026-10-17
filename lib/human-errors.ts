@@ -8,6 +8,9 @@ export class UserInputError extends Error {
 }
 
 const messages: Record<string, string> = {
+  database_backup_admin_required: "تنزيل قاعدة البيانات متاح لمدير النظام ذي الصلاحية الكاملة على جميع المؤسسات فقط.",
+  database_backup_busy: "يتم تجهيز نسخة أخرى من قاعدة البيانات الآن. انتظر اكتمالها ثم حاول مجددًا.",
+  database_backup_failed: "تعذر تجهيز نسخة كاملة من قاعدة البيانات؛ لم يتم تسليم نسخة ناقصة. راجع صلاحيات اتصال قاعدة البيانات والمساحة المتاحة وسجل الخادم برقم التتبع.",
   self_trainer_not_found:
     "حساب الموظف غير مرتبط بملف مدرب نشط. أنشئ ملف المدرب واربطه بالموظف ثم عيّنه إلى الفرع.",
   trainer_not_found:
@@ -506,7 +509,7 @@ export function humanError(
     if (error.problem.code === "request_validation_failed")
       return requestValidationMessage(error.problem);
     if (!isGenericServerError && messages[error.problem.code])
-      return messages[error.problem.code];
+      return messages[error.problem.code] + (error.problem.code === "database_backup_failed" && error.problem.correlationId ? ` رقم التتبع: ${error.problem.correlationId}.` : "");
     if (error.problem.status === 401)
       return "انتهت جلستك. سجّل الدخول مرة أخرى.";
     if (error.problem.status === 403)

@@ -1,5 +1,21 @@
 [
   {
+    "path": "/api/v1/system/database-backup/access",
+    "method": "get",
+    "operationId": "readDatabaseBackupAccess",
+    "secured": true,
+    "idempotent": false,
+    "description": "Own live session and built-in SYSTEM_ADMIN eligibility for every organization. Does not return the database inventory."
+  },
+  {
+    "path": "/api/v1/system/database-backup",
+    "method": "post",
+    "operationId": "downloadCompleteDatabaseCsvArchive",
+    "secured": true,
+    "idempotent": false,
+    "description": "Private ZIP with PostgreSQL-native UTF-8 CSV per table, empty tables, sequences, large objects, schema reference metadata and checksummed manifest. All non-system schemas, no pagination; one repeatable-read snapshot. Requires active organization-wide SYSTEM_ADMIN role in every organization and a live Supabase session. Temporary files are removed after transfer. Storage binary files are outside the database and are not included."
+  },
+  {
     "path": "/health/live",
     "method": "get",
     "operationId": "getLiveness",

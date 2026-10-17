@@ -23,6 +23,15 @@ function refreshBrowserSession(){
 }
 
 export class ApiError extends Error { constructor(public problem:ApiProblem){super(problem.detail||problem.title);this.name="ApiError"} }
+export async function apiFileResponse(path:string,init:RequestInit={}):Promise<Response>{
+ const correlationId=crypto.randomUUID()
+ const headers=new Headers(init.headers);headers.set("Accept","application/zip");headers.set("X-Correlation-Id",correlationId)
+ const send=()=>fetch(`/api/backend/api/v1${path}`,{...init,headers,cache:"no-store",credentials:"same-origin"})
+ let response=await send()
+ if(response.status===401){const refresh=await refreshBrowserSession();if(refresh.ok)response=await send();else if(!refresh.invalid)throw new ApiError({type:"about:blank",title:"تعذر تجديد الجلسة مؤقتًا",status:refresh.status,detail:"حاول مجددًا بعد قليل.",code:"session_refresh_temporarily_unavailable"})}
+ if(!response.ok)throw new ApiError(toPublicApiProblem(await response.json().catch(()=>null),response.status,response.headers.get("x-correlation-id")??correlationId))
+ return response
+}
 export async function setSession(tokens:{accessToken:string;refreshToken?:string;expiresIn?:number}){const response=await fetch("/api/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(tokens),credentials:"same-origin",cache:"no-store"});if(!response.ok)throw new ApiError({type:"about:blank",title:"تعذر حفظ الجلسة",status:response.status,detail:"تم التحقق من بيانات الدخول لكن تعذر حفظ الجلسة الآمنة.",code:"session_persistence_failed"})}
 export async function clearSession(){await fetch("/api/session",{method:"DELETE",credentials:"same-origin",cache:"no-store"})}
 export function hasRuntimeApi(){return Boolean(process.env.NEXT_PUBLIC_API_BASE_URL)}
