@@ -249,6 +249,10 @@ const messages: Record<string, string> = {
   sale_already_corrected: "سبق تصحيح هذا البند أو إلغاؤه. حدّث التفاصيل لمراجعة السجل.",
   booking_correction_not_allowed: "حالة الحجز الحالية لا تسمح بالتصحيح الإداري.",
   correction_service_unavailable: "خدمة التصحيح الإداري غير متاحة حاليًا. حاول لاحقًا.",
+  restaurant_cancellation_invoice_missing: "تعذر العثور على فاتورة طلب المطعم. راجع الإدارة المالية قبل الإلغاء.",
+  restaurant_cancellation_mixed_invoice: "الفاتورة تحتوي بنودًا أخرى. يلزم تسويتها ماليًا قبل إلغاء طلب المطعم.",
+  restaurant_cancellation_invoice_paid: "الفاتورة مسددة جزئيًا أو كليًا. حدّث الطلب وراجع التحصيل قبل الإلغاء.",
+  restaurant_cancellation_invoice_voided: "فاتورة طلب المطعم ملغاة بالفعل. حدّث البيانات قبل المحاولة مجددًا.",
   subscription_correction_source_not_found:
     "تعذر العثور على الفاتورة الأصلية المرتبطة بهذا الاشتراك. راجع سجل الفاتورة قبل التصحيح.",
   subscription_correction_mixed_invoice:

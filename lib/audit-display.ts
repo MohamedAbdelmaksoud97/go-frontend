@@ -72,7 +72,7 @@ const exactActionLabels: Record<string, string> = {
   "workforce.employee-created": "إضافة موظف جديد", "workforce.employee-updated": "تعديل بيانات موظف",
   "workforce.employee-assigned": "تعيين موظف في فرع", "workforce.employee-password-reset": "إعادة تعيين كلمة مرور موظف",
   "employee-login.provisioned": "تجهيز حساب دخول موظف", "user-account.password-changed": "تغيير كلمة مرور حساب",
-  "invoice.issued": "إصدار فاتورة", "invoice.paid": "سداد فاتورة", "payment.recorded": "تسجيل دفعة مالية",
+  "invoice.issued": "إصدار فاتورة", "invoice.paid": "سداد فاتورة", "invoice.voided": "إلغاء فاتورة", "payment.recorded": "تسجيل دفعة مالية",
   "payment.method-corrected": "تصحيح طريقة سداد دفعة", "sales-order.created": "إنشاء طلب بيع",
   "cash-shift.opened": "فتح وردية صندوق", "cash-shift.closed": "إغلاق وردية صندوق",
   "booking.availability-created": "إضافة فترة إتاحة للحجز", "booking.session-slot-created": "إضافة موعد جلسة",
