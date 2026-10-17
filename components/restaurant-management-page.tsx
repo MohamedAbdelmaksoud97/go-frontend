@@ -19,7 +19,8 @@ type MealKind = "MEAL" | "PRODUCT" | "DRINK"
 type Meal = Row & { id: string; name: string; code: string; categoryId: string; description?: string; kind?: MealKind; status?: string; portionClass?: MealPortionClass; nutrition?: Nutrition; allergens?: string[] }
 type Nutrition = { caloriesKcal: number; proteinGrams: number; carbohydratesGrams: number; fatGrams: number; fiberGrams: number; sugarGrams: number; sodiumMilligrams: number }
 type MealMutationPayload = { branchId: string; categoryId: string; code: string; name: string; description: string | null; kind: MealKind; portionClass: MealPortionClass; nutrition: Nutrition; allergens: string[] }
-type MenuItem = { mealId: string; enabled: boolean; availableQuantity?: number; preparedQuantity?: number; reservedQuantity?: number; soldQuantity?: number; remainingQuantity?: number; specialPriceMinor?: string }
+type MenuItem = { mealId: string; enabled: boolean; availableQuantity?: number; preparedQuantity?: number; carriedOverQuantity?: number; reservedQuantity?: number; soldQuantity?: number; remainingQuantity?: number; specialPriceMinor?: string }
+type Carryover = { mealId: string; carriedOverQuantity: number }
 type Menu = { businessDate: string; status: "DRAFT" | "PUBLISHED" | "CLOSED"; version: number; items: MenuItem[] }
 type OrderLine = { id?: string; quote?: { targetName?: string; targetCode?: string; quantity?: number | string } }
 type RestaurantOrder = Row & { id: string; branchId: string; status: string; sourceType?: string; salesOrderId?: string; subscriptionId?: string; memberName?: string; memberNumber?: string; createdAt?: string; grossMinor?: string; currency?: string; version: number; lines?: OrderLine[] }
@@ -36,6 +37,7 @@ export function RestaurantManagementPage() {
   const [categories, setCategories] = useState<Row[]>([])
   const [meals, setMeals] = useState<Meal[]>([])
   const [menu, setMenu] = useState<Menu | undefined>()
+  const [carryover, setCarryover] = useState<Carryover[]>([])
   const [redemptionMenu, setRedemptionMenu] = useState<Menu | undefined>()
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [orders, setOrders] = useState<RestaurantOrder[]>([])
@@ -53,6 +55,7 @@ export function RestaurantManagementPage() {
 
   const canReadMenu = context.canAccess(["restaurant.menu.read"])
   const canManageMenu = context.canAccess(["restaurant.menu.manage"])
+  const canCorrectMenu = context.canAccess(["restaurant.menu.correct"])
   const canReadCatalog = context.canAccess(["restaurant.catalog.read"])
   const canManageCatalog = context.canAccess(["restaurant.catalog.manage"])
   const canManagePricing = context.canAccess(["restaurant.pricing.manage"])
@@ -85,20 +88,27 @@ export function RestaurantManagementPage() {
       ]) : [{ data: [] as Row[] }, { data: [] as Meal[] }]
       const orderBranch = effectiveKitchenScope === "ALL" ? "" : `&branchId=${encodeURIComponent(context.branchId)}`
       const redemptionDate = todayRiyadh()
-      const [orderResult, menuResult, redemptionMenuResult] = await Promise.allSettled([
+      const [orderResult, menuResult, redemptionMenuResult, carryoverResult] = await Promise.allSettled([
         canReadOrders ? apiRequest<RestaurantOrder[] | { items: RestaurantOrder[] }>(`${base}/restaurant-orders?limit=100${orderBranch}`) : Promise.resolve({ data: [] as RestaurantOrder[] }),
         canReadMenu ? apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${date}`).catch(reason => isNotFound(reason) ? undefined : Promise.reject(reason)) : Promise.resolve(undefined),
         canRedeemMealPlans && date !== redemptionDate ? apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${redemptionDate}`).catch(reason => isNotFound(reason) ? undefined : Promise.reject(reason)) : Promise.resolve(undefined),
+        canReadMenu ? apiRequest<Carryover[]>(`${base}/branches/${context.branchId}/daily-menus/${date}/carryover`) : Promise.resolve({ data: [] as Carryover[] }),
       ])
       const nextCategories = list(categoryResponse.data)
       const nextMeals = (list(mealResponse.data) as Meal[]).filter(meal => meal.status !== "INACTIVE")
       const activeMealIds = new Set(nextMeals.map(meal => meal.id))
       const currentMenu = menuResult.status === "fulfilled" ? menuResult.value?.data : undefined
       const currentRedemptionMenu = date === redemptionDate ? currentMenu : redemptionMenuResult.status === "fulfilled" ? redemptionMenuResult.value?.data : undefined
+      if (menuResult.status === "rejected") throw menuResult.reason
+      if (carryoverResult.status === "rejected") throw carryoverResult.reason
       if (orderResult.status === "rejected") throw orderResult.reason
       if (redemptionMenuResult.status === "rejected") throw redemptionMenuResult.reason
       setCategories(nextCategories); setMeals(nextMeals); setOrders(orderList(orderResult.value.data)); setMenu(currentMenu); setRedemptionMenu(currentRedemptionMenu)
-      setMenuItems(currentMenu?.items.filter(item => activeMealIds.has(item.mealId)) ?? [])
+      const carried = carryoverResult.value.data
+      setCarryover(carried)
+      const carriedItems = carried.filter(item => !currentMenu && activeMealIds.has(item.mealId))
+        .map(item => ({ mealId: item.mealId, enabled: true, availableQuantity: 0, carriedOverQuantity: item.carriedOverQuantity }))
+      setMenuItems([...(currentMenu?.items ?? []), ...carriedItems])
       setMealForm(current => current.categoryId || !nextCategories[0]?.id ? current : { ...current, categoryId: String(nextCategories[0].id) })
     } catch (reason) { setError(humanError(reason, "تعذر تحميل بيانات المطعم.")) }
     finally { setLoading(false) }
@@ -143,7 +153,7 @@ export function RestaurantManagementPage() {
   }, [canRedeemMealPlans, context.branchId, context.organizationId, redemptionMember?.id])
 
   function setMealField(key: string, value: string | boolean) { setMealForm(current => ({ ...current, [key]: value } as typeof current)) }
-  function addMenuMeal(mealId: string) { setMenuItems(current => current.some(item => item.mealId === mealId) ? current : [...current, { mealId, enabled: true }]) }
+  function addMenuMeal(mealId: string) { setMenuItems(current => current.some(item => item.mealId === mealId) ? current : [...current, { mealId, enabled: true, availableQuantity: carryover.some(item => item.mealId === mealId) ? 0 : 1, carriedOverQuantity: carryover.find(item => item.mealId === mealId)?.carriedOverQuantity ?? 0 }]) }
   function removeMenuMeal(mealId: string) { setMenuItems(current => current.filter(item => item.mealId !== mealId)) }
   function updateMenuMeal(mealId: string, change: Partial<MenuItem>) { setMenuItems(current => current.map(item => item.mealId === mealId ? { ...item, ...change } : item)) }
 
@@ -200,7 +210,7 @@ export function RestaurantManagementPage() {
   }
 
   async function publishMenu() {
-    if (!context.organizationId || !context.branchId || menuItems.length === 0) { setError("اختر وجبة واحدة على الأقل لقائمة اليوم."); return }
+    if (!context.organizationId || !context.branchId || (!menu && menuItems.length === 0)) { setError("اختر وجبة واحدة على الأقل لقائمة اليوم."); return }
     setSaving(true); setError("")
     try {
       const path = `/organizations/${context.organizationId}/branches/${context.branchId}/daily-menus/${date}`
@@ -215,6 +225,21 @@ export function RestaurantManagementPage() {
       }
       setMenu(active); if (date === todayRiyadh()) setRedemptionMenu(active); setMenuItems(active.items); toast.success("تم نشر قائمة اليوم وتحديث ما يظهر للمشتركين.")
     } catch (reason) { setError(humanError(reason, "تعذر حفظ قائمة اليوم.")) } finally { setSaving(false) }
+  }
+
+  async function addProduction(mealId: string, quantity: number) {
+    if (!menu || saving || !Number.isInteger(quantity) || quantity <= 0) return false
+    setSaving(true); setError("")
+    try {
+      const response = await apiRequest<Menu>(`/organizations/${context.organizationId}/branches/${context.branchId}/daily-menus/${date}/production-batches`, {
+        method: "POST", body: JSON.stringify({ mealId, quantity, expectedVersion: menu.version }),
+      })
+      setMenu(response.data); setMenuItems(response.data.items)
+      if (date === todayRiyadh()) setRedemptionMenu(response.data)
+      toast.success(`تم تسجيل إضافة ${quantity} وجبة مطبوخة وحفظها في سجل المراجعة.`)
+      return true
+    } catch (reason) { setError(humanError(reason, "تعذر تسجيل الكمية المطبوخة الجديدة.")); return false }
+    finally { setSaving(false) }
   }
 
   async function hideMenu() {
@@ -255,8 +280,8 @@ export function RestaurantManagementPage() {
   return <div className="fade-up space-y-5">
     <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><nav aria-label="أقسام تشغيل المطعم" className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:flex-wrap">{availableTabs.map(item => <Button key={item.key} className="w-full justify-center lg:w-auto" variant={activeTab === item.key ? "default" : "outline"} onClick={() => setTab(item.key)}><item.icon />{item.label}</Button>)}</nav></header>
     {error && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-    {!loading && (activeTab === "menu" || activeTab === "kitchen") && menu ? <DailyMealAvailability menu={menu} meals={meals} /> : null}
-    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} onEdit={setEditingMeal} onDelete={setDeletingMeal} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel member={redemptionMember} setMember={member => setRedemptionMemberSelection({ organizationId: context.organizationId, branchId: context.branchId, ...(member ? { member } : {}) })} subscriptions={subscriptions} meals={meals} menu={redemptionMenu} form={scopedRedemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
+    {!loading && (activeTab === "menu" || activeTab === "kitchen") && (menu || carryover.length > 0) ? <DailyMealAvailability menu={menuWithCarryover(menu, carryover, date)} meals={meals} /> : null}
+    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} canCorrect={canCorrectMenu} addProduction={addProduction} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} onEdit={setEditingMeal} onDelete={setDeletingMeal} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel member={redemptionMember} setMember={member => setRedemptionMemberSelection({ organizationId: context.organizationId, branchId: context.branchId, ...(member ? { member } : {}) })} subscriptions={subscriptions} meals={meals} menu={redemptionMenu} form={scopedRedemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
     {editingMeal && <MealEditDialog key={editingMeal.id} meal={editingMeal} categories={categories} branchId={context.branchId} saving={saving} onClose={() => setEditingMeal(undefined)} onSave={payload => updateCatalogMeal(editingMeal, payload)} />}
     {deletingMeal && <MealDeleteDialog meal={deletingMeal} saving={saving} onClose={() => setDeletingMeal(undefined)} onConfirm={() => archiveCatalogMeal(deletingMeal)} />}
   </div>
@@ -264,26 +289,94 @@ export function RestaurantManagementPage() {
 
 function DailyMealAvailability({ menu, meals }: { menu: Menu; meals: Meal[] }) {
   const names = new Map(meals.map(meal => [meal.id, meal.name]))
-  const tracked = menu.items.filter(item => item.enabled && item.preparedQuantity !== undefined)
-  if (!tracked.length) return <Card><CardContent className="p-4 text-sm text-muted-foreground">لم تُحدد كميات تجهيز يومية لهذه القائمة. أدخل «الكمية المتاحة» لكل وجبة لتفعيل متابعة المحجوز والمباع والمتبقي.</CardContent></Card>
+  const tracked = menu.items.filter(item => item.preparedQuantity !== undefined)
+  if (!tracked.length) return <Card><CardContent className="p-4 text-sm text-muted-foreground">لم تُحدد كميات لهذه القائمة. حدّد المطبوخ اليوم لتفعيل متابعة المحجوز والمباع والمتبقي.</CardContent></Card>
   const totals = tracked.reduce((sum, item) => ({
     prepared: sum.prepared + (item.preparedQuantity ?? 0),
     reserved: sum.reserved + (item.reservedQuantity ?? 0),
     sold: sum.sold + (item.soldQuantity ?? 0),
     remaining: sum.remaining + (item.remainingQuantity ?? 0),
-  }), { prepared: 0, reserved: 0, sold: 0, remaining: 0 })
-  return <Card><CardContent className="p-4"><div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center"><div><p className="font-black">رصيد وجبات اليوم</p><p className="mt-1 text-xs text-muted-foreground">يتحدث الرصيد مع الطلبات؛ طلبات انتظار السداد تُحسب محجوزة، والطلبات المؤكدة وما بعدها تُحسب مباعة.</p></div><div role="group" aria-label="إجماليات رصيد وجبات اليوم" aria-live="polite" className="grid shrink-0 grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4"><AvailabilityValue label="إجمالي المجهز" value={totals.prepared} /><AvailabilityValue label="إجمالي المحجوز" value={totals.reserved} /><AvailabilityValue label="إجمالي المباع" value={totals.sold} /><AvailabilityValue label="إجمالي المتبقي" value={totals.remaining} emphasis /></div></div><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tracked.map(item => <div key={item.mealId} className="rounded-xl border bg-secondary/25 p-3"><p className="font-bold">{names.get(item.mealId) ?? "وجبة"}</p><div className="mt-3 grid grid-cols-4 gap-2 text-center text-[10px]"><AvailabilityValue label="مجهز" value={item.preparedQuantity ?? 0} /><AvailabilityValue label="محجوز" value={item.reservedQuantity ?? 0} /><AvailabilityValue label="مباع" value={item.soldQuantity ?? 0} /><AvailabilityValue label="متبقي" value={item.remainingQuantity ?? 0} emphasis /></div></div>)}</div></CardContent></Card>
+    carried: sum.carried + (item.carriedOverQuantity ?? 0),
+  }), { prepared: 0, reserved: 0, sold: 0, remaining: 0, carried: 0 })
+  return <Card><CardContent className="p-4">
+    <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+      <div><p className="font-black">رصيد وجبات اليوم</p><p className="mt-1 text-xs text-muted-foreground">المتبقي = المطبوخ اليوم + المرحّل من الأيام السابقة − المحجوز − المباع. يُرحّل الرصيد تلقائيًا دون تكرار.</p></div>
+      <div role="group" aria-label="إجماليات رصيد وجبات اليوم" aria-live="polite" className="grid shrink-0 grid-cols-2 gap-2 text-center text-xs sm:grid-cols-5">
+        <AvailabilityValue label="المطبوخ اليوم" value={totals.prepared} />
+        <AvailabilityValue label="إجمالي المحجوز" value={totals.reserved} />
+        <AvailabilityValue label="إجمالي المباع" value={totals.sold} />
+        <AvailabilityValue label="إجمالي المتبقي" value={totals.remaining} emphasis />
+        <AvailabilityValue label="المرحّل من الأيام السابقة" value={totals.carried} />
+      </div>
+    </div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tracked.map(item => <div key={item.mealId} className="rounded-xl border bg-secondary/25 p-3">
+      <p className="font-bold">{names.get(item.mealId) ?? "وجبة"}</p><div className="mt-3 grid grid-cols-5 gap-2 text-center text-[10px]">
+        <AvailabilityValue label="مطبوخ اليوم" value={item.preparedQuantity ?? 0} />
+        <AvailabilityValue label="مرحّل" value={item.carriedOverQuantity ?? 0} />
+        <AvailabilityValue label="محجوز" value={item.reservedQuantity ?? 0} />
+        <AvailabilityValue label="مباع" value={item.soldQuantity ?? 0} />
+        <AvailabilityValue label="متبقي" value={item.remainingQuantity ?? 0} emphasis />
+      </div>
+    </div>)}</div>
+  </CardContent></Card>
 }
 
 function AvailabilityValue({ label, value, emphasis = false }: { label: string; value: number; emphasis?: boolean }) {
   return <div className={`rounded-lg px-2 py-2 ${emphasis ? "bg-primary/12 text-primary" : "bg-background"}`}><span className="block text-muted-foreground">{label}</span><strong className="mt-1 block text-sm">{value}</strong></div>
 }
 
-function MenuPanel({ date, setDate, meals, menu, menuItems, add, remove, update, publish, hide, saving, canManage }: { date: string; setDate: (value: string) => void; meals: Meal[]; menu?: Menu; menuItems: MenuItem[]; add: (id: string) => void; remove: (id: string) => void; update: (id: string, value: Partial<MenuItem>) => void; publish: () => void; hide: () => void; saving: boolean; canManage: boolean }) {
+function menuWithCarryover(menu: Menu | undefined, carryover: Carryover[], date: string): Menu {
+  const items = [...(menu?.items ?? [])]
+  for (const carried of carryover) {
+    if (!items.some(item => item.mealId === carried.mealId)) items.push({ mealId: carried.mealId, enabled: true,
+      availableQuantity: 0, preparedQuantity: 0, carriedOverQuantity: carried.carriedOverQuantity,
+      reservedQuantity: 0, soldQuantity: 0, remainingQuantity: carried.carriedOverQuantity })
+  }
+  return { businessDate: date, status: "DRAFT", version: 0, ...menu, items }
+}
+
+function MenuPanel({ date, setDate, meals, menu, menuItems, add, remove, update, publish, hide, saving, canManage, canCorrect, addProduction }: {
+  date: string; setDate: (value: string) => void; meals: Meal[]; menu?: Menu; menuItems: MenuItem[];
+  add: (id: string) => void; remove: (id: string) => void; update: (id: string, value: Partial<MenuItem>) => void;
+  publish: () => void; hide: () => void; saving: boolean; canManage: boolean; canCorrect: boolean;
+  addProduction: (mealId: string, quantity: number) => Promise<boolean>;
+}) {
+  const [production, setProduction] = useState<Record<string, string>>({})
   const selected = new Map(menuItems.map(item => [item.mealId, item]))
+  const saved = new Map(menu?.items.map(item => [item.mealId, item]) ?? [])
   const closed = menu?.status === "CLOSED"
   const hasVisibleItems = menuItems.some(item => item.enabled)
-  return <Card><CardContent className="p-5"><div className="flex flex-col justify-between gap-3 border-b pb-4 sm:flex-row sm:items-end"><div><h2 className="font-black">قائمة الفرع اليومية</h2><p className="mt-1 text-xs text-muted-foreground">{menu?.status === "PUBLISHED" ? (hasVisibleItems ? "منشورة للمشتركين. يمكنك تعديل الوجبات أو إخفاء أي وجبة ثم حفظ التحديث." : "القائمة محفوظة لكن لا توجد وجبة معروضة للمشتركين حاليًا.") : closed ? "تم إيقاف عرض هذه القائمة للمشتركين." : "أضف الوجبات ثم انشرها مباشرة للمشتركين."}</p></div><DateTimeInput type="date" value={date} onChange={event => setDate(event.target.value)} className="w-full sm:w-48" /></div>{!canManage ? <p className="mt-4 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">عرض القائمة فقط — تعديل قائمة اليوم يحتاج صلاحية إدارة قائمة المطعم.</p> : null}<div className="mt-4 divide-y">{meals.map(meal => { const item = selected.get(meal.id); return <div key={meal.id} className="grid gap-3 py-4 md:grid-cols-[auto_1fr_130px_150px_auto]"><div className="self-center">{item ? <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={item.enabled} disabled={!canManage || closed} onChange={event => update(meal.id, { enabled: event.target.checked })} className="size-4 accent-primary" />ظاهر للمشتركين</label> : canManage ? <Button variant="outline" size="sm" disabled={closed} onClick={() => add(meal.id)}><Plus />إضافة</Button> : <span className="text-xs text-muted-foreground">غير مضافة</span>}</div><div><p className="font-bold">{meal.name}</p><p className="mt-1 text-xs text-muted-foreground">{meal.nutrition?.caloriesKcal ?? 0} سعرة · بروتين {meal.nutrition?.proteinGrams ?? 0}غ · كربوهيدرات {meal.nutrition?.carbohydratesGrams ?? 0}غ</p></div><Input type="number" min="1" disabled={!canManage || !item || closed} value={item?.availableQuantity ?? ""} onChange={event => update(meal.id, { availableQuantity: event.target.value ? number(event.target.value) : undefined })} placeholder="الكمية المتاحة" /><Input type="number" min="0" step="0.01" disabled={!canManage || !item || closed} value={item?.specialPriceMinor === undefined ? "" : String(Number(item.specialPriceMinor) / 100)} onChange={event => update(meal.id, { specialPriceMinor: event.target.value ? String(Math.round(number(event.target.value) * 100)) : undefined })} placeholder="سعر خاص (ر.س)" />{item && canManage ? <Button variant="ghost" size="icon" disabled={closed} onClick={() => remove(meal.id)} aria-label={`حذف ${meal.name} من قائمة اليوم`}><Trash2 className="size-4 text-destructive" /></Button> : <span />}</div> })}</div>{canManage ? <div className="mt-5 flex flex-wrap gap-2"><Button onClick={publish} disabled={saving || closed || menuItems.length === 0}><Send />{menu ? "حفظ التحديثات" : "نشر قائمة اليوم"}</Button><Button variant="outline" onClick={hide} disabled={saving || menu?.status !== "PUBLISHED" || !hasVisibleItems}><Save />إيقاف العرض للمشتركين</Button></div> : null}</CardContent></Card>
+  const dirty = menuItems.length !== saved.size || menuItems.some(item => {
+    const previous = saved.get(item.mealId)
+    return !previous || previous.enabled !== item.enabled || previous.availableQuantity !== item.availableQuantity || previous.specialPriceMinor !== item.specialPriceMinor
+  })
+  return <Card><CardContent className="p-5">
+    <div className="flex flex-col justify-between gap-3 border-b pb-4 sm:flex-row sm:items-end">
+      <div><h2 className="font-black">قائمة الفرع اليومية</h2><p className="mt-1 text-xs text-muted-foreground">{closed ? "تم إيقاف عرض هذه القائمة للمشتركين." : "سجّل المطبوخ اليوم فقط؛ يضاف رصيد الأيام السابقة تلقائيًا. يمكنك إضافة كميات مطبوخة جديدة خلال اليوم."}</p></div>
+      <DateTimeInput type="date" value={date} onChange={event => setDate(event.target.value)} className="w-full sm:w-48" />
+    </div>
+    {!canManage ? <p className="mt-4 rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">عرض القائمة فقط.</p> : !canCorrect ? <p className="mt-4 rounded-xl bg-muted px-4 py-3 text-xs leading-6 text-muted-foreground">بعد الحفظ، تعديل الوجبة أو حذفها يحتاج صلاحية «تعديل وحذف وجبات القائمة اليومية والكميات المسجلة». لإضافة طبخ جديد استخدم «إضافة كمية مطبوخة».</p> : null}
+    <div className="mt-4 divide-y">{meals.map(meal => {
+      const item = selected.get(meal.id)
+      const recorded = saved.get(meal.id)
+      const editable = canManage && !closed && (!recorded || canCorrect)
+      return <div key={meal.id} className="space-y-3 py-4">
+        <div className="grid gap-3 md:grid-cols-[auto_1fr_140px_150px_auto]">
+          <div className="self-center">{item ? <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={item.enabled} disabled={!editable || saving} onChange={event => update(meal.id, { enabled: event.target.checked })} className="size-4 accent-primary" />ظاهر للمشتركين</label> : canManage ? <Button variant="outline" size="sm" disabled={closed || saving} onClick={() => add(meal.id)}><Plus />إضافة</Button> : <span className="text-xs text-muted-foreground">غير مضافة</span>}</div>
+          <div><p className="font-bold">{meal.name}</p><p className="mt-1 text-xs text-muted-foreground">{meal.nutrition?.caloriesKcal ?? 0} سعرة · بروتين {meal.nutrition?.proteinGrams ?? 0}غ · كربوهيدرات {meal.nutrition?.carbohydratesGrams ?? 0}غ</p>{(item?.carriedOverQuantity ?? 0) > 0 ? <p className="mt-1 text-xs font-bold text-primary">مرحّل من الأيام السابقة: {item?.carriedOverQuantity}</p> : null}</div>
+          <label className="text-xs text-muted-foreground">المطبوخ اليوم<Input aria-label={`المطبوخ اليوم من ${meal.name}`} type="number" min="0" max="1000000" disabled={!item || !editable || saving} value={item?.availableQuantity ?? ""} onChange={event => update(meal.id, { availableQuantity: event.target.value === "" ? undefined : number(event.target.value) })} placeholder="عدد الحصص" /></label>
+          <label className="text-xs text-muted-foreground">سعر خاص (ر.س)<Input aria-label={`السعر الخاص لـ ${meal.name}`} type="number" min="0" step="0.01" disabled={!item || !editable || saving} value={item?.specialPriceMinor === undefined ? "" : String(Number(item.specialPriceMinor) / 100)} onChange={event => update(meal.id, { specialPriceMinor: event.target.value ? String(Math.round(number(event.target.value) * 100)) : undefined })} placeholder="اختياري" /></label>
+          {item && editable ? <Button variant="ghost" size="icon" disabled={saving} onClick={() => remove(meal.id)} aria-label={`حذف ${meal.name} من قائمة اليوم`}><Trash2 className="size-4 text-destructive" /></Button> : <span />}
+        </div>
+        {recorded && canManage && !closed && recorded.availableQuantity !== undefined ? <div className="flex flex-wrap items-end gap-2 rounded-xl bg-secondary/25 p-3">
+          <label className="text-xs text-muted-foreground">كمية مطبوخة جديدة<Input aria-label={`الكمية المطبوخة الجديدة من ${meal.name}`} type="number" min="1" max="1000000" value={production[meal.id] ?? ""} onChange={event => setProduction(current => ({ ...current, [meal.id]: event.target.value }))} placeholder="عدد الحصص الإضافية" className="mt-1 w-44" disabled={saving || dirty} /></label>
+          <Button variant="outline" disabled={saving || dirty || !Number.isInteger(Number(production[meal.id])) || Number(production[meal.id]) <= 0} onClick={async () => { if (await addProduction(meal.id, Number(production[meal.id]))) setProduction(current => ({ ...current, [meal.id]: "" })) }}><Plus />إضافة كمية مطبوخة</Button>
+          {dirty ? <span className="text-xs text-muted-foreground">احفظ تغييرات القائمة أولًا.</span> : null}
+        </div> : null}
+      </div>
+    })}</div>
+    {canManage ? <div className="mt-5 flex flex-wrap gap-2"><Button onClick={publish} disabled={saving || closed || (!menu && menuItems.length === 0) || menuItems.some(item => !saved.has(item.mealId) && item.availableQuantity === undefined)}><Send />{menu ? "حفظ التحديثات" : "نشر قائمة اليوم"}</Button>{canCorrect ? <Button variant="outline" onClick={hide} disabled={saving || menu?.status !== "PUBLISHED" || !hasVisibleItems}><Save />إيقاف العرض للمشتركين</Button> : null}</div> : null}
+  </CardContent></Card>
 }
 
 function CatalogPanel({ categories, categoryName, meals, mealForm, setMealField, priceForm, setPriceForm, createMeal, createPrice, saving, canManageCatalog, canManagePricing, onEdit, onDelete }: { categories: Row[]; categoryName: Map<string, string>; meals: Meal[]; mealForm: Record<string, string | boolean | number>; setMealField: (key: keyof typeof mealForm, value: string | boolean) => void; priceForm: { mealId: string; amount: string; taxRatePercent: string; taxInclusive: boolean }; setPriceForm: React.Dispatch<React.SetStateAction<{ mealId: string; amount: string; taxRatePercent: string; taxInclusive: boolean }>>; createMeal: () => void; createPrice: () => void; saving: boolean; canManageCatalog: boolean; canManagePricing: boolean; onEdit: (meal: Meal) => void; onDelete: (meal: Meal) => void }) {

@@ -55,6 +55,7 @@ export const aggregateTypes = [
 ] as const
 
 const exactActionLabels: Record<string, string> = {
+  "restaurant.daily-menu-production-added": "إضافة كمية مطبوخة إلى قائمة اليوم",
   "sales.service-administratively-corrected": "تصحيح خدمة مسجلة بالخطأ",
   "booking.reservation-administratively-corrected": "تصحيح حجز مسجل بالخطأ",
   "subscription.expired": "انتهاء مدة اشتراك", "subscription.activated": "تفعيل اشتراك",
@@ -101,6 +102,7 @@ const verbs: Record<string, string> = {
 }
 
 const fieldLabels: Record<string, string> = {
+  changes: "تفاصيل تعديل وجبات اليوم", mealName: "الوجبة", addedQuantity: "الكمية المطبوخة المضافة", beforeQuantity: "المطبوخ قبل التعديل", afterQuantity: "المطبوخ بعد التعديل",
   name: "الاسم", code: "الرمز", status: "الحالة", beforeStatus: "الحالة السابقة", afterStatus: "الحالة الجديدة",
   reason: "السبب", before: "قبل التعديل", after: "بعد التعديل", changedFields: "البيانات المعدّلة",
   permissions: "الصلاحيات", memberNumber: "رقم العضوية", employeeNumber: "الرقم الوظيفي",
@@ -199,6 +201,13 @@ export function readableDetails(summary?: Record<string, unknown>): Array<{ key:
 }
 
 function displayValue(key: string, value: unknown, summary: Record<string, unknown>): string {
+  if (key === "changes" && Array.isArray(value)) return value.filter(item => item && typeof item === "object").map(item => {
+    const change = item as Record<string, unknown>
+    const quantity = `المطبوخ من ${change.beforeQuantity ?? "غير مسجل"} إلى ${change.afterQuantity ?? "محذوف / غير محدد"}`
+    const visibility = change.beforeEnabled !== change.afterEnabled ? `، الظهور من ${change.beforeEnabled == null ? "غير مضاف" : change.beforeEnabled ? "ظاهر" : "مخفي"} إلى ${change.afterEnabled == null ? "محذوف" : change.afterEnabled ? "ظاهر" : "مخفي"}` : ""
+    const price = change.beforeSpecialPriceMinor !== change.afterSpecialPriceMinor ? `، السعر الخاص من ${change.beforeSpecialPriceMinor == null ? "غير محدد" : money(change.beforeSpecialPriceMinor)} إلى ${change.afterSpecialPriceMinor == null ? "غير محدد" : money(change.afterSpecialPriceMinor)}` : ""
+    return `${change.mealName ?? "وجبة"}: ${quantity}${visibility}${price}`
+  }).join("؛ ")
   if (Array.isArray(value)) return value.filter(isDisplayable).map(item => key === "changedFields" ? fieldLabels[String(item)] ?? "بيانات أخرى" : displayValue(key, item, summary)).filter(Boolean).join("، ") || "لا يوجد"
   if (value && typeof value === "object") {
     if (key === "amount" && "minorUnits" in value && isDisplayable(value.minorUnits)) return money(value.minorUnits)

@@ -41,6 +41,8 @@ const permissionLabelOverrides: Record<string, string> = {
   "finance.refunds.issue": "تنفيذ الاسترجاعات المالية",
   "finance.refunds.approve": "اعتماد ورفض طلبات الاسترداد",
   "restaurant.meal-plans.redeem": "استخدام استحقاقات خطط الوجبات",
+  "restaurant.menu.manage": "إضافة وجبات وكميات مطبوخة إلى القائمة اليومية",
+  "restaurant.menu.correct": "تعديل وحذف وجبات القائمة اليومية والكميات المسجلة",
   "workforce.attendance.record": "تسجيل حضور الموظفين",
 };
 

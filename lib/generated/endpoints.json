@@ -973,7 +973,23 @@
     "operationId": "reviseDailyMenu",
     "secured": true,
     "idempotent": false,
-    "description": "Open daily menu revised with optimistic concurrency."
+    "description": "New meals can be appended with restaurant.menu.manage. Editing, hiding or removing saved entries additionally requires restaurant.menu.correct. Quantities represent new production on this date, excluding carryover."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus/{businessDate}/carryover",
+    "method": "get",
+    "operationId": "getDailyMenuCarryover",
+    "secured": true,
+    "idempotent": false,
+    "description": "Unsold tracked portions carried from earlier published/closed menus in this branch; no stock is copied or created."
+  },
+  {
+    "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus/{businessDate}/production-batches",
+    "method": "post",
+    "operationId": "addDailyMenuProduction",
+    "secured": true,
+    "idempotent": false,
+    "description": "Positive new production added once using optimistic concurrency, with actor and before/after quantities in immutable audit records."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/branches/{branchId}/daily-menus/{businessDate}/publications",
