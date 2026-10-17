@@ -13,7 +13,7 @@ import { useAppContext } from "@/components/app-context"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { apiRequest, clearSession } from "@/lib/api-client"
-import { firstAllowedDestination, permissionsForRoute, systemSettingsRoutePermissions } from "@/lib/permissions"
+import { financeRoutePermissions, firstAllowedDestination, permissionsForRoute, systemSettingsRoutePermissions } from "@/lib/permissions"
 import { accessDeviceReason, accessReader, accessSeverity, accessSubject, accessSystemReason, type GateAccessEvent } from "@/lib/access-event"
 import type { AccountNotification } from "@/components/account-notification-inbox"
 import { GlobalSearch } from "@/components/global-search"
@@ -34,7 +34,7 @@ const navGroups = [
   ]},
   { label: "الأعمال", items: [
     { href: "/cashier", label: "نقطة البيع", icon: CircleDollarSign, permissions:["sales.checkout","finance.payments.record","finance.cash-shifts.manage"] },
-    { href: "/finance", label: "المالية والعمولات", icon: WalletCards, permissions:["finance.invoices.read","sales.read","finance.other-income.read","coaching.commissions.read"] },
+    { href: "/finance", label: "المالية والعمولات", icon: WalletCards, permissions:[...financeRoutePermissions] },
     { href: "/finance/shifts", label: "سجل ورديات الصندوق", icon: History, permissions:["finance.cash-shifts.audit.read"] },
     { href: "/crm", label: "العملاء والمتابعات", icon: Zap, permissions:["crm.leads.read","crm.follow-ups.read","online-requests.read"] },
     { href: "/communications", label: "الرسائل والتواصل", icon: MessageSquareText, permissions:["notifications.read","notifications.send","notifications.whatsapp.read","notifications.whatsapp.manage"] },

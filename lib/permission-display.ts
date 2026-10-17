@@ -14,6 +14,7 @@ export const permissionGroups = [
 
 export const permissionSubjects: Record<string, string> = {
   "ui.system-settings": "إعداد النظام",
+  "ui.finance": "السجلات المالية والعمولات",
   organization: "النادي", branch: "الفروع", "iam.accounts": "حسابات الموظفين", "iam.roles": "الأدوار", "iam.assignments": "تعيين الأدوار", "iam.audit": "سجل المراجعة",
   members: "الأعضاء", "members.sensitive": "بيانات الأعضاء الحساسة", "members.accounts": "حسابات الأعضاء", workforce: "الموظفين", "workforce.assignments": "تعيينات الموظفين", "workforce.accounts": "حسابات الموظفين", "workforce.shifts": "المناوبات", "workforce.attendance": "حضور الموظفين", files: "الملفات",
   catalog: "الخدمات والأنشطة", "catalog.availability": "توفر الخدمات", commercial: "الباقات التجارية", pricing: "الأسعار", promotions: "العروض", policies: "السياسات", subscriptions: "الاشتراكات", "subscriptions.adjustments": "تعديلات الاشتراكات", sales: "المبيعات",
@@ -31,6 +32,7 @@ export const permissionActions: Record<string, string> = {
 
 const permissionLabelOverrides: Record<string, string> = {
   "ui.system-settings.show": "إظهار إعداد النظام",
+  "ui.finance.show": "إظهار السجلات المالية والعمولات",
   "members.block": "حظر الأعضاء ورفع الحظر",
   "members.contacts.read": "عرض أرقام هواتف الأعضاء وبريدهم كاملًا",
   "sales.checkout": "إتمام عمليات البيع",

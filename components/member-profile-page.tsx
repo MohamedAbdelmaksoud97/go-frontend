@@ -18,6 +18,7 @@ import { DateTimeInput } from "@/components/date-time-input"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 import { cn } from "@/lib/utils"
+import { financeRoutePermissions } from "@/lib/permissions"
 import { ownerFileValidationError, uploadOwnerFile, type OwnerFileKind } from "@/lib/owner-file-upload"
 import { useToast } from "@/components/toast-provider"
 import { ContractPrintSheets, printContractDocument, printableContract, type ContractPrintContext, type ContractSnapshot, type MembershipPrintDetails } from "@/components/invoice-details-page"
@@ -254,9 +255,9 @@ export function MemberProfilePage({ memberId }: { memberId: string }) {
     {active === "cancellations" && <CancellationHistorySection subscriptions={data.subscriptions} branches={context.branches} error={data.errors.subscriptions}/>}
     {active === "blocks" && <BlockHistorySection rows={data.blockHistory} error={data.errors.blocks}/>}
     {active === "bookings" && <BookingSection rows={data.bookings} branches={context.branches} error={data.errors.bookings}/>} 
-    {active === "finance" && <InvoiceSection rows={data.invoices} payments={data.payments} branches={context.branches} error={data.errors.finance}/>} 
+    {active === "finance" && <InvoiceSection rows={data.invoices} payments={data.payments} branches={context.branches} canOpenInvoice={context.canAccess(financeRoutePermissions)} error={data.errors.finance}/>}
     {active === "purchases" && <PurchaseSection rows={data.orders} branches={context.branches} error={data.errors.purchases}/>} 
-    {active === "purchasedServices" && <PurchasedServicesSection rows={data.orders} branches={context.branches} canViewInvoice={permissions.finance} error={data.errors.purchases}/>}
+    {active === "purchasedServices" && <PurchasedServicesSection rows={data.orders} branches={context.branches} canViewInvoice={permissions.finance && context.canAccess(financeRoutePermissions)} error={data.errors.purchases}/>}
     {active === "restaurant" && <RestaurantSection rows={data.restaurantOrders} branches={context.branches} error={data.errors.restaurant}/>} 
     {active === "files" && <div className="space-y-5">
       {canUploadFiles && <Card><CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center"><div><p className="text-sm font-black">إضافة ملفات إلى ملف العضو</p><p className="mt-1 text-xs leading-6 text-muted-foreground">تُربط الملفات بهذا العضو مباشرة، وتظهر هنا بعد الرفع والفحص الأمني.</p></div><div className="flex flex-wrap gap-2 sm:mr-auto">
@@ -501,12 +502,12 @@ function MemberAccessSection({ rows, branches, subscriptions, error }: { rows: R
 
 function BookingSection({ rows: items, branches, error }: ListProps) { return <SectionShell title="الحجوزات" count={items.length} error={error}>{items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-3 p-5 sm:grid-cols-[1fr_auto] sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-black">{text(row.resourceName, "حجز خدمة أو مرفق")}</p><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.startsAt)} حتى {dateTime(row.endsAt)} · {branchLabel(text(row.branchId), branches)} · {minor(row.seats, 1)} مقعد</p></div><strong>{money(minor(row.grossMinor))}</strong></article>)}</div> : <Empty text="لا توجد حجوزات مسجلة لهذا العضو."/>}</SectionShell> }
 
-function InvoiceSection({ rows: items, payments, branches, error }: ListProps & { payments: Row[] }) {
+function InvoiceSection({ rows: items, payments, branches, canOpenInvoice, error }: ListProps & { payments: Row[]; canOpenInvoice: boolean }) {
   return <SectionShell title="الفواتير والتفاصيل المالية" count={items.length + payments.length} error={error}>
     <div className="space-y-5">
       <div>
         <h3 className="mb-3 text-sm font-black">الفواتير</h3>
-        {items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-4 p-5 md:grid-cols-[1fr_repeat(3,auto)] md:items-center"><div><div className="flex flex-wrap items-center gap-2"><Link href={`/finance/invoices/${text(row.id)}`} className="font-black text-primary hover:underline">فاتورة <span dir="ltr">{text(row.invoiceNumber)}</span></Link><StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.issuedAt)} · {branchLabel(text(row.sellingBranchId), branches)}</p></div><Small label="الإجمالي" value={money(minor(row.grossMinor))}/><Small label="المدفوع" value={money(minor(row.paidMinor))}/><Small label="المتبقي" value={money(minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.receivableReductionMinor) - minor(row.paidMinor))))}/></article>)}</div> : <Empty compact text="لا توجد فواتير أو ذمم مالية لهذا العضو."/>}
+        {items.length ? <div className="divide-y rounded-2xl border bg-card">{items.map(row => <article key={text(row.id)} className="grid gap-4 p-5 md:grid-cols-[1fr_repeat(3,auto)] md:items-center"><div><div className="flex flex-wrap items-center gap-2">{canOpenInvoice ? <Link href={`/finance/invoices/${text(row.id)}`} className="font-black text-primary hover:underline">فاتورة <span dir="ltr">{text(row.invoiceNumber)}</span></Link> : <span className="font-black">فاتورة <span dir="ltr">{text(row.invoiceNumber)}</span></span>}<StatusBadge status={text(row.status)}/></div><p className="mt-2 text-xs text-muted-foreground">{dateTime(row.issuedAt)} · {branchLabel(text(row.sellingBranchId), branches)}</p></div><Small label="الإجمالي" value={money(minor(row.grossMinor))}/><Small label="المدفوع" value={money(minor(row.paidMinor))}/><Small label="المتبقي" value={money(minor(row.outstandingMinor, Math.max(0, minor(row.grossMinor) - minor(row.receivableReductionMinor) - minor(row.paidMinor))))}/></article>)}</div> : <Empty compact text="لا توجد فواتير أو ذمم مالية لهذا العضو."/>}
       </div>
       <div>
         <h3 className="mb-3 text-sm font-black">سجل المدفوعات</h3>

@@ -97,3 +97,71 @@ test("permission picker presents the requested Arabic label",()=>{
  assert.equal(presentation.label,"إظهار إعداد النظام")
  assert.equal(presentation.group,"واجهة النظام")
 })
+
+test("financial operations do not expose finance navigation and cashier remains available",()=>{
+ current=context(["restaurant.menu.manage","sales.checkout","finance.payments.record","finance.other-income.manage","ui.system-settings.show"])
+ path="/restaurant"
+ const body=render(AppShell,{children:React.createElement("p",null,"kitchen")})
+ assert.equal(body.querySelector('a[href="/finance"]'),null)
+ assert.ok(body.querySelector('a[href="/cashier"]'))
+ assert.ok(body.querySelector('a[href="/system-settings/branches"]'))
+ assert.equal(current.canAccess(["finance.invoices.read"]),true)
+ assert.equal(current.canAccess(["finance.payments.record"]),true)
+})
+
+test("the finance visibility switch toggles the sidebar independently of settings",()=>{
+ path="/restaurant"
+ current=context(["restaurant.menu.manage","finance.invoices.read","ui.finance.show"])
+ assert.ok(render(AppShell,{}).querySelector('a[href="/finance"]'))
+ assert.equal(render(AppShell,{}).querySelector('a[href="/system-settings/branches"]'),null)
+ current=context(["restaurant.menu.manage","finance.invoices.read"])
+ assert.equal(render(AppShell,{}).querySelector('a[href="/finance"]'),null)
+})
+
+test("finance records and invoice details cannot render without the flag and never become a denied landing page",()=>{
+ current=context(["finance.invoices.read","finance.payments.record","finance.other-income.read"])
+ for(path of ["/finance","/finance?search=INV-1","/finance/invoices/invoice-id"]){
+  assert.equal(current.canAccess(permissions.permissionsForRoute(path)),false,path)
+  assert.ok(!render(AppShell,{children:React.createElement("p",null,"financial-records")}).textContent.includes("financial-records"),path)
+ }
+ assert.equal(permissions.firstAllowedDestination(current.canAccess),"/self-service")
+ current=context(["ui.finance.show"])
+ assert.equal(permissions.firstAllowedDestination(current.canAccess),"/finance")
+})
+
+test("finance visibility is branch scoped and grants no financial read or mutation",()=>{
+ current=context(["ui.finance.show"])
+ assert.equal(current.canAccess(permissions.permissionsForRoute("/finance/invoices/invoice-id")),true)
+ for(const permission of ["finance.invoices.read","finance.payments.record","finance.refunds.issue","coaching.commissions.manage","ui.system-settings.show"])assert.equal(current.canAccess([permission]),false,permission)
+ current=context(["ui.finance.show"],"SELECTED_BRANCHES","branch-b")
+ assert.equal(current.canAccess(permissions.permissionsForRoute("/finance")),false)
+ current=context(["ui.finance.show"],"ORGANIZATION","branch-b")
+ assert.equal(current.canAccess(permissions.permissionsForRoute("/finance")),true)
+})
+
+test("cash shift audit remains controlled by its own permission",()=>{
+ current=context(["finance.cash-shifts.audit.read"]);path="/finance/shifts"
+ assert.equal(current.canAccess(permissions.permissionsForRoute(path)),true)
+ const body=render(AppShell,{children:React.createElement("p",null,"shift-audit")})
+ assert.ok(body.textContent.includes("shift-audit"))
+ assert.ok(body.querySelector('a[href="/finance/shifts"]'))
+ assert.equal(body.querySelector('a[href="/finance"]'),null)
+ current=context(["ui.finance.show"])
+ assert.equal(current.canAccess(permissions.permissionsForRoute(path)),false)
+})
+
+test("finance guide links including search URLs follow their visibility flag",()=>{
+ const links=[{href:"/finance?search=INV-1",label:"finance",description:"records"},{href:"/system-settings/prices",label:"settings",description:"prices"},{href:"/cashier",label:"cashier",description:"work"}]
+ current=context(["finance.invoices.read","ui.system-settings.show"])
+ assert.equal(render(ActionLinks,{links}).querySelector('a[href="/finance?search=INV-1"]'),null)
+ assert.ok(render(ActionLinks,{links}).querySelector('a[href="/system-settings/prices"]'))
+ current=context(["ui.finance.show"])
+ assert.ok(render(ActionLinks,{links}).querySelector('a[href="/finance?search=INV-1"]'))
+ assert.equal(render(ActionLinks,{links}).querySelector('a[href="/system-settings/prices"]'),null)
+})
+
+test("finance visibility is listed under the UI group with its requested Arabic label",()=>{
+ const presentation=permissionPresentation("ui.finance.show")
+ assert.equal(presentation.label,"إظهار السجلات المالية والعمولات")
+ assert.equal(presentation.group,"واجهة النظام")
+})

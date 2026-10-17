@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { guideGroups, type GuidePage, type GuideSection } from "@/lib/system-guide-content"
 import { useAppContext } from "@/components/app-context"
-import { permissionsForRoute, systemSettingsRoutePermissions } from "@/lib/permissions"
+import { permissionsForRoute } from "@/lib/permissions"
 
 const toneClasses = {
   info: "border-blue-500/25 bg-blue-500/8 text-blue-700 dark:text-blue-300",
@@ -102,7 +102,7 @@ function GuideGallery({ images, onZoom }: { images: NonNullable<GuideSection["im
 
 function ActionLinks({ links, compact = false }: { links: NonNullable<GuideSection["links"]>; compact?: boolean }) {
   const context = useAppContext()
-  const visibleLinks = links.filter(link => !permissionsForRoute(link.href)?.includes("ui.system-settings.show") || context.canAccess(systemSettingsRoutePermissions))
+  const visibleLinks = links.filter(link => context.canAccess((permissionsForRoute(link.href) ?? []).filter(permission => permission.startsWith("ui."))))
   if (!visibleLinks.length) return null
   return <div className={cn("rounded-2xl border border-primary/25 bg-primary/[.045] p-4", !compact && "mt-5")}>
     {!compact && <div className="mb-3 flex items-start gap-3">

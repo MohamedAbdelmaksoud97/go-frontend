@@ -7,6 +7,7 @@ import { useAppContext } from "@/components/app-context"
 import { Input } from "@/components/ui/input"
 import { apiRequest } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
+import { financeRoutePermissions } from "@/lib/permissions"
 
 type Row = Record<string, unknown>
 type SearchResult = {
@@ -48,7 +49,7 @@ export function GlobalSearch({ memberOnlyAccount }: { memberOnlyAccount: boolean
         path: (value: string) => `/organizations/${organizationId}/subscriptions?search=${encodeURIComponent(value)}${branch}&limit=6`,
         map: (row: Row): SearchResult => ({ key: `subscription:${row.id}`, kind: "subscription", title: text(row.memberName ?? row.subscriptionNumber, "اشتراك"), subtitle: join([row.subscriptionNumber, row.packageName, row.status]), href: `/subscriptions?search=${encodeURIComponent(text(row.subscriptionNumber ?? row.memberName, normalized))}` }),
       },
-      context.canAccess(["finance.invoices.read"]) && context.branchId && {
+      context.canAccess(["finance.invoices.read"]) && context.canAccess(financeRoutePermissions) && context.branchId && {
         path: (value: string) => `/organizations/${organizationId}/invoices?branchId=${encodeURIComponent(context.branchId)}&q=${encodeURIComponent(value)}&limit=6`,
         map: (row: Row): SearchResult => ({ key: `invoice:${row.id}`, kind: "invoice", title: text(row.invoiceNumber, "فاتورة"), subtitle: join([row.memberName ?? row.buyerName, money(row.grossMinor), row.status]), href: row.id ? `/finance/invoices/${String(row.id)}` : `/finance?search=${encodeURIComponent(text(row.invoiceNumber, normalized))}` }),
       },

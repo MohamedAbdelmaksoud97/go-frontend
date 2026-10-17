@@ -36,8 +36,9 @@ export const operationPermissions:Record<string,string>={
  recordOtherIncome:"finance.other-income.manage",
 }
 
-// Controls frontend navigation only; it grants no access to settings data or operations.
+// Frontend navigation flags grant no access to underlying data or operations.
 export const systemSettingsRoutePermissions=["ui.system-settings.show"]
+export const financeRoutePermissions=["ui.finance.show"]
 
 // Data permissions represented by settings sections, checked by coverage tooling.
 // These do not grant entry to the settings interface.
@@ -61,7 +62,7 @@ export const routePermissions:Record<string,string[]>={
  "/barcodes":["access-credentials.read","access-credentials.manage"],
  "/files":["files.read","files.manage"],
  "/cashier":["sales.checkout","finance.payments.record","finance.cash-shifts.manage"],
- "/finance":["finance.invoices.read","finance.payments.read","finance.other-income.read","coaching.commissions.read","finance.cash-shifts.audit.read"],
+ "/finance":[...financeRoutePermissions],
  "/finance/shifts":["finance.cash-shifts.audit.read"],
  "/crm":["crm.leads.read","crm.follow-ups.read","online-requests.read"],
  "/communications":["notifications.read","notifications.send","notifications.whatsapp.read","notifications.whatsapp.manage"],
@@ -84,6 +85,7 @@ export const routePermissions:Record<string,string[]>={
 }
 
 export function permissionsForRoute(pathname:string){
+ pathname=pathname.split(/[?#]/,1)[0]??""
  const exact=routePermissions[pathname]
  if(exact!==undefined)return exact
  const root=`/${pathname.split("/").filter(Boolean)[0]??""}`
@@ -100,7 +102,7 @@ export function firstAllowedDestination(canAccess:(permissions:string[])=>boolea
  if(canAccess(["crm.leads.read","crm.follow-ups.read"]))return "/crm"
  if(canAccess(["notifications.read","notifications.send"]))return "/communications"
  if(canAccess(["finance.cash-shifts.audit.read"]))return "/finance/shifts"
- if(canAccess(["finance.other-income.read","coaching.commissions.read"]))return "/finance"
+ if(canAccess(financeRoutePermissions))return "/finance"
  if(canAccess(["coaching.read","measurements.read","coaching.assignments.manage"]))return "/trainer"
  if(canAccess(["workforce.read"]))return "/staff"
  if(canAccess(["iam.audit.read"]))return "/audit"

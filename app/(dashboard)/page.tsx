@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
+import { permissionsForRoute } from "@/lib/permissions"
 import {
   DashboardAnalytics,
   type DailyMetric,
@@ -150,9 +151,8 @@ export default function DashboardPage() {
       ) : (
         <>
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="مؤشرات اليوم">
-            {cards.filter((card) => context.canAccess(card.permissions)).map((card) => (
-              <Link href={card.href} key={card.label} className="group">
-                <Card className="h-full transition duration-200 group-hover:-translate-y-0.5 group-hover:border-primary/60 group-hover:shadow-md">
+            {cards.filter((card) => context.canAccess(card.permissions)).map((card) => {
+              const content = <Card className="h-full transition duration-200 group-hover:-translate-y-0.5 group-hover:border-primary/60 group-hover:shadow-md">
                   <CardContent className="p-5">
                     <div className="flex items-start justify-between gap-3">
                       <span className="grid size-11 place-items-center rounded-xl bg-primary/15 text-amber-600"><card.icon /></span>
@@ -163,8 +163,10 @@ export default function DashboardPage() {
                     <p className="mt-2 text-[9px] text-muted-foreground">{card.note}</p>
                   </CardContent>
                 </Card>
-              </Link>
-            ))}
+              return context.canAccess((permissionsForRoute(card.href) ?? []).filter(permission => permission.startsWith("ui.")))
+                ? <Link href={card.href} key={card.label} className="group">{content}</Link>
+                : <div key={card.label} className="group">{content}</div>
+            })}
           </section>
 
           {context.canAccess(["online-requests.read", "feedback.read", "feedback.reply"]) && (

@@ -149,6 +149,20 @@ test("treasury attributes correction refunds to the correct source and payment m
   assert.equal(card.find(item => item.source === "BOOKING").refunded, 0)
 })
 
+test("member invoice history keeps authorized amounts while finance links follow visibility", () => {
+  const exports = loadModule("components/member-profile-page.tsx", { "@/lib/utils": { cn: (...values) => values.filter(Boolean).join(" ") } }, "\nexports.testInvoiceSection=InvoiceSection")
+  for (const canOpenInvoice of [false, true]) {
+    const html = renderToStaticMarkup(React.createElement(exports.testInvoiceSection, {
+      branches: [], payments: [], canOpenInvoice,
+      rows: [{ id: "invoice-1", invoiceNumber: "INV-TEST-1", status: "PAID", grossMinor: "10000", paidMinor: "10000", issuedAt: result.correctedAt }],
+    }))
+    const document = new Window().document
+    document.body.innerHTML = html
+    assert.ok(document.body.textContent.includes("INV-TEST-1"))
+    assert.equal(document.querySelectorAll('a[href="/finance/invoices/invoice-1"]').length, canOpenInvoice ? 1 : 0)
+  }
+})
+
 test("member service history distinguishes a cancelled line within a fulfilled paid order", () => {
   const exports = loadModule("components/member-profile-page.tsx", {}, "\nexports.testPurchasedServices=PurchasedServicesSection")
   const html = renderToStaticMarkup(React.createElement(exports.testPurchasedServices, {
