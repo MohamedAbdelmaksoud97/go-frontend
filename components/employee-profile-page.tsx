@@ -29,6 +29,8 @@ type ProfileData = {
 }
 
 const emptyData: ProfileData = { accounts: [], files: [], shifts: [], attendance: [], fileUrls: {}, sectionErrors: {} }
+const FILE_REFRESH_INTERVAL_MS = 3_000
+const MAX_FILE_REFRESH_ATTEMPTS = 60
 
 export function EmployeeProfilePage({ employeeId }: { employeeId: string }) {
   const context = useAppContext()
@@ -38,6 +40,7 @@ export function EmployeeProfilePage({ employeeId }: { employeeId: string }) {
   const [fatalError, setFatalError] = useState("")
   const [reloadKey, setReloadKey] = useState(0)
   const [uploading, setUploading] = useState<OwnerFileKind>()
+  const [fileRefreshTimedOut, setFileRefreshTimedOut] = useState(false)
   const organizationId = context.organizationId
   const branchIds = useMemo(() => [...new Set(context.branches.map(branch => branch.id).filter(Boolean))], [context.branches])
   const canReadFiles = context.canAccess(["files.read"])
@@ -48,6 +51,8 @@ export function EmployeeProfilePage({ employeeId }: { employeeId: string }) {
   useEffect(() => {
     if (context.loading || !organizationId || !employeeId || !hasRuntimeApi()) return
     let cancelled = false
+    let fileRefreshTimer: ReturnType<typeof setTimeout> | undefined
+    let fileRefreshAttempts = 0
 
     async function optional(key: string, operation: () => Promise<Row[]>) {
       try { return { key, rows: await operation() } }
@@ -62,15 +67,47 @@ export function EmployeeProfilePage({ employeeId }: { employeeId: string }) {
       return unique(success.flatMap(item => rows(item.value.data)))
     }
 
+    const listFiles = () => acrossBranches(branchId => `/organizations/${organizationId}/files?branchId=${branchId}&ownerType=EMPLOYEE&ownerId=${employeeId}&limit=100`)
+
+    async function loadFileUrls(files: Row[]) {
+      const visibleFiles = files.filter(file => text(file.uploadStatus) === "UPLOADED" && text(file.scanStatus) === "CLEAN")
+      const urls = await Promise.allSettled(visibleFiles.slice(0, 20).map(async file => {
+        const result = await apiRequest<{ downloadUrl?: string }>(`/organizations/${organizationId}/files/${text(file.id)}/download-url`)
+        return [text(file.id), result.data.downloadUrl ?? ""] as const
+      }))
+      return Object.fromEntries(urls.filter((item): item is PromiseFulfilledResult<readonly [string, string]> => item.status === "fulfilled").map(item => item.value).filter(([, url]) => url))
+    }
+
+    function scheduleFileRefresh(files: Row[]) {
+      if (cancelled || !files.some(isPendingScan)) return
+      if (fileRefreshAttempts >= MAX_FILE_REFRESH_ATTEMPTS) { setFileRefreshTimedOut(true); return }
+      fileRefreshTimer = setTimeout(() => void refreshFiles(), FILE_REFRESH_INTERVAL_MS)
+    }
+
+    async function refreshFiles() {
+      if (cancelled) return
+      fileRefreshAttempts += 1
+      try {
+        const files = newest(await listFiles(), "createdAt")
+        if (cancelled) return
+        const fileUrls = await loadFileUrls(files)
+        if (cancelled) return
+        setData(current => ({ ...current, files, fileUrls }))
+        scheduleFileRefresh(files)
+      } catch (reason) {
+        if (!cancelled) setData(current => ({ ...current, sectionErrors: { ...current.sectionErrors, files: humanError(reason, "تعذر تحديث حالة الملفات. اضغط تحديث الملف للمحاولة مجددًا.") } }))
+      }
+    }
+
     async function load() {
-      setLoading(true); setFatalError("")
+      setLoading(true); setFatalError(""); setFileRefreshTimedOut(false)
       try {
         const employee = await apiRequest<Row>(`/organizations/${organizationId}/employees/${employeeId}`)
         const end = new Date()
         const start = new Date(end); start.setFullYear(start.getFullYear() - 1)
         const jobs: Promise<{ key: string; rows: Row[]; error?: string }>[] = []
         if (canReadAccounts) jobs.push(optional("accounts", async () => rows((await apiRequest<Row[] | { items: Row[] }>(`/organizations/${organizationId}/user-accounts?ownerType=EMPLOYEE&ownerId=${employeeId}&limit=100`)).data)))
-        if (canReadFiles) jobs.push(optional("files", () => acrossBranches(branchId => `/organizations/${organizationId}/files?branchId=${branchId}&ownerType=EMPLOYEE&ownerId=${employeeId}&limit=100`)))
+        if (canReadFiles) jobs.push(optional("files", listFiles))
         if (canReadOperations) {
           const range = `from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}&employeeId=${employeeId}`
           jobs.push(optional("shifts", () => acrossBranches(branchId => `/organizations/${organizationId}/employee-shifts?branchId=${branchId}&${range}`)))
@@ -85,19 +122,15 @@ export function EmployeeProfilePage({ employeeId }: { employeeId: string }) {
           if (result.key === "shifts") next.shifts = newest(result.rows, "startsAt")
           if (result.key === "attendance") next.attendance = newest(result.rows, "occurredAt")
         }
-        const visibleFiles = next.files.filter(file => text(file.uploadStatus) === "UPLOADED" && text(file.scanStatus) === "CLEAN")
-        const urls = await Promise.allSettled(visibleFiles.slice(0, 20).map(async file => {
-          const result = await apiRequest<{ downloadUrl?: string }>(`/organizations/${organizationId}/files/${text(file.id)}/download-url`)
-          return [text(file.id), result.data.downloadUrl ?? ""] as const
-        }))
-        next.fileUrls = Object.fromEntries(urls.filter((item): item is PromiseFulfilledResult<readonly [string, string]> => item.status === "fulfilled").map(item => item.value).filter(([, url]) => url))
-        if (!cancelled) setData(next)
+        if (cancelled) return
+        next.fileUrls = await loadFileUrls(next.files)
+        if (!cancelled) { setData(next); scheduleFileRefresh(next.files) }
       } catch (reason) {
         if (!cancelled) setFatalError(humanError(reason, "تعذر فتح ملف الموظف. تأكد أن الموظف تابع لسياق العمل المسموح لك."))
       } finally { if (!cancelled) setLoading(false) }
     }
     void load()
-    return () => { cancelled = true }
+    return () => { cancelled = true; clearTimeout(fileRefreshTimer) }
   }, [branchIds, canReadAccounts, canReadFiles, canReadOperations, context.branchId, context.loading, employeeId, organizationId, reloadKey])
 
   async function upload(kind: OwnerFileKind, file?: File) {
@@ -107,8 +140,9 @@ export function EmployeeProfilePage({ employeeId }: { employeeId: string }) {
     if (validation) { toast.error(validation); return }
     setUploading(kind)
     try {
-      await uploadOwnerFile(organizationId, employeeId, { module: "workforce", type: "EMPLOYEE" }, kind, file)
-      toast.success(`تم رفع ${label} وربطه بملف الموظف بنجاح.`)
+      const result = await uploadOwnerFile(organizationId, employeeId, { module: "workforce", type: "EMPLOYEE" }, kind, file)
+      if (result.scanStatus === "CLEAN") toast.success(`تم رفع ${label} وربطه بملف الموظف بنجاح.`)
+      else toast.info(`تم رفع ${label} وهو قيد الفحص. ستُحدّث حالته تلقائيًا بعد اكتمال الفحص.`)
       setReloadKey(value => value + 1)
     } catch (reason) { toast.error(humanError(reason, `تعذر رفع ${label} وربطه بملف الموظف.`)) }
     finally { setUploading(undefined) }
@@ -156,6 +190,7 @@ export function EmployeeProfilePage({ employeeId }: { employeeId: string }) {
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><BriefcaseBusiness className="size-5 text-primary"/>سجل التعيينات والفروع</CardTitle></CardHeader><CardContent>{assignments.length ? <div className="grid gap-3 md:grid-cols-2">{assignments.map((assignment, index) => <div key={text(assignment.id, String(index))} className="rounded-2xl border p-4"><div className="flex items-center justify-between gap-3"><strong>{text(assignment.positionName, "مسمى وظيفي")}</strong><StatusBadge status={text(assignment.status)}/></div><p className="mt-2 text-sm text-muted-foreground">{branchName(text(assignment.branchId), context.branches)}</p><p className="mt-2 text-xs text-muted-foreground">من {dateTime(text(assignment.validFrom))}{assignment.validUntil ? ` إلى ${dateTime(text(assignment.validUntil))}` : " حتى الآن"}</p></div>)}</div> : <Empty text="لا توجد تعيينات وظيفية ظاهرة في نطاق صلاحيتك."/>}</CardContent></Card>
 
     <Card><CardHeader><div className="flex flex-wrap items-center gap-3"><CardTitle className="flex items-center gap-2"><FileBadge className="size-5 text-primary"/>ملفات الموظف</CardTitle>{canUploadFiles && <div className="mr-auto flex flex-wrap gap-2"><UploadButton label="رفع مستند هوية" kind="IDENTITY" accept="image/jpeg,image/png,application/pdf" busy={uploading === "IDENTITY"} onFile={file => void upload("IDENTITY", file)}/><UploadButton label="رفع صورة الموظف" kind="PROFILE" accept="image/jpeg,image/png" busy={uploading === "PROFILE"} onFile={file => void upload("PROFILE", file)}/></div>}</div></CardHeader><CardContent>
+      {data.files.some(isPendingScan) && <p role="status" className="mb-4 rounded-xl bg-primary/5 p-3 text-sm text-muted-foreground">{fileRefreshTimedOut ? "الفحص يستغرق وقتًا أطول من المعتاد. اضغط تحديث الملف للتحقق مجددًا." : "جارٍ فحص الملفات المرفوعة. ستظهر الصورة تلقائيًا بعد اكتمال الفحص."}</p>}
       {data.sectionErrors.files ? <ErrorLine value={data.sectionErrors.files}/> : data.files.length ? <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{data.files.map(file => { const url = data.fileUrls[text(file.id)]; return <div key={text(file.id)} className="rounded-2xl border p-4"><div className="flex items-start gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">{text(file.purpose) === "PROFILE_PHOTO" ? <Camera className="size-5"/> : <FileText className="size-5"/>}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{text(file.originalFilename, fileLabel(text(file.purpose)))}</p><p className="mt-1 text-xs text-muted-foreground">{fileLabel(text(file.purpose))} · {fileState(file)}</p></div></div>{url && <a href={url} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-3 w-full")}>فتح الملف</a>}</div> })}</div> : <Empty text="لا توجد ملفات مرتبطة بملف الموظف بعد."/>}
       {identity && <p className="mt-4 text-xs text-muted-foreground">مستند الهوية الحالي: {text(identity.originalFilename, "مستند هوية")}</p>}
     </CardContent></Card>
@@ -181,5 +216,6 @@ function date(value: string) { if (!value) return "غير مسجل"; const parse
 function dateTime(value: string) { if (!value) return "غير مسجل"; const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(parsed) }
 function statusLabel(value: string) { return ({ ACTIVE: "نشط", INACTIVE: "غير نشط", ENDED: "منتهي", LINKED: "مرتبط", CLOCK_IN: "تسجيل حضور", CLOCK_OUT: "تسجيل انصراف", SCHEDULED: "مجدولة", IN_PROGRESS: "جارية", COMPLETED: "مكتملة", CANCELLED: "ملغاة" } as Record<string, string>)[value] ?? value }
 function fileLabel(value: string) { return value === "PROFILE_PHOTO" ? "صورة الموظف" : value === "IDENTITY_DOCUMENT" ? "مستند الهوية" : "مستند وظيفي" }
-function fileState(file: Row) { if (text(file.uploadStatus) !== "UPLOADED") return "بانتظار اكتمال الرفع"; if (text(file.scanStatus) === "CLEAN") return "جاهز"; if (text(file.scanStatus) === "REJECTED") return "مرفوض"; return "قيد الفحص" }
+function isPendingScan(file: Row) { return text(file.uploadStatus) === "UPLOADED" && ["PENDING", "SCANNING"].includes(text(file.scanStatus)) }
+function fileState(file: Row) { if (text(file.uploadStatus) === "REJECTED") return "مرفوض"; if (text(file.uploadStatus) !== "UPLOADED") return "بانتظار اكتمال الرفع"; if (text(file.scanStatus) === "CLEAN") return "جاهز"; if (["REJECTED", "INFECTED"].includes(text(file.scanStatus))) return "مرفوض"; if (text(file.scanStatus) === "FAILED") return "تعذر فحص الملف؛ أعد رفعه"; return "قيد الفحص" }
 function Message({ title, detail, retry }: { title: string; detail: string; retry?: () => void }) { return <div className="grid min-h-[55vh] place-items-center text-center" dir="rtl"><div><UserRound className="mx-auto size-12 text-muted-foreground"/><h1 className="mt-4 text-xl font-black">{title}</h1><p className="mt-2 max-w-xl text-sm text-muted-foreground">{detail}</p>{retry && <Button className="mt-5" onClick={retry}><RefreshCw/>إعادة المحاولة</Button>}</div></div> }
