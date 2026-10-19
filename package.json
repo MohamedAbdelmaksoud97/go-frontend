@@ -19,7 +19,8 @@
     "test:employee-photo": "node --test scripts/test-employee-photo.mjs",
     "test:attendance": "node --test scripts/test-attendance-selection.mjs",
     "test:restaurant": "node --test scripts/test-restaurant-menu.mjs",
-    "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run test:permissions && npm run test:audit && npm run test:counter && npm run test:corrections && npm run test:member-access && npm run test:employee-photo && npm run test:attendance && npm run test:restaurant && npm run lint"
+    "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run test:permissions && npm run test:report-permissions && npm run test:audit && npm run test:counter && npm run test:corrections && npm run test:member-access && npm run test:employee-photo && npm run test:attendance && npm run test:restaurant && npm run lint",
+    "test:report-permissions": "node --test scripts/test-report-permissions.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

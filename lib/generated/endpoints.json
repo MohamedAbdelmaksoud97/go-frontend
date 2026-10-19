@@ -1333,7 +1333,7 @@
     "operationId": "getBranchDailyReport",
     "secured": true,
     "idempotent": false,
-    "description": "Branch-scoped daily finance, membership, attendance, booking, restaurant, and cash projection with as-of metadata."
+    "description": "Independently authorized OVERVIEW (default), TREASURY or NET_TREASURY daily report, selected by reportType. Requires reporting.overview.read, reporting.treasury.read or reporting.net-treasury.read respectively; financial views omit unrelated metrics."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/reports/branch-snapshots",
@@ -1341,7 +1341,7 @@
     "operationId": "getBranchSnapshots",
     "secured": true,
     "idempotent": false,
-    "description": "Current active members, active subscriptions, and open cash shifts by authorized branch."
+    "description": "Requires reporting.overview.read: current active members, active subscriptions, and open cash shifts in that permission branch scope."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/reports/package-performance",
@@ -1349,7 +1349,7 @@
     "operationId": "getPackagePerformanceReport",
     "secured": true,
     "idempotent": false,
-    "description": "Top package/service and captured-promotion performance from read models."
+    "description": "Requires reporting.packages.read: top package/service and captured-promotion performance in that permission branch scope."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/reports/details",
@@ -1357,7 +1357,7 @@
     "operationId": "getDetailedOperationalReport",
     "secured": true,
     "idempotent": false,
-    "description": "Source-of-truth member/subscription, package, promotion, service, attendance, booking, debt, expense, point-of-sale, restaurant-revenue, treasury, or payment-method revenue detail for an authorized branch/date range, with optional package or promotion subscription drill-down."
+    "description": "Each reportType requires its matching reporting.<type>.read permission, independently of dashboard and operational grants. Types: MEMBERS, SUBSCRIPTIONS, SUBSCRIPTION_EXPIRY, PACKAGES, PROMOTIONS, SERVICES, ATTENDANCE, ACCESS, BOOKINGS, DEBTS, EXPENSES, POINT_OF_SALE, RESTAURANT_REVENUE, TREASURY, PAYMENT_METHOD_REVENUE. Optional member drill-down requires reporting.members.read. Scopes are resolved for the requested permission only."
   },
   {
     "path": "/api/v1/organizations/{organizationId}/reporting-rebuilds",

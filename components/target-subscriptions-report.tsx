@@ -10,6 +10,7 @@ import { DateTimeInput } from "@/components/date-time-input"
 import { Input } from "@/components/ui/input"
 import { apiRequest } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
+import { canViewReport, reportPermissions } from "@/lib/permissions"
 
 type TargetType = "package" | "promotion"
 type DetailRecord = Record<string, string | number | boolean | null>
@@ -23,15 +24,21 @@ export function TargetSubscriptionsReport({ targetType, targetId, initialFrom, i
   const [range, setRange] = useState({ from: initialFrom ?? defaultRange.from, to: initialTo ?? defaultRange.to })
   const [selectedBranchId, setSelectedBranchId] = useState<string | undefined>(initialBranchId)
   const branchId = selectedBranchId ?? context.branchId
+  const allowed = !context.loading && canViewReport(context.grants, reportPermissions.members, context.organizationId, branchId)
+  const authorizationKey = JSON.stringify(context.grants)
   const [status, setStatus] = useState<"ALL" | "VALID" | "INVALID">("ALL")
   const [search, setSearch] = useState("")
-  const [rows, setRows] = useState<DetailRecord[]>([])
-  const [loading, setLoading] = useState(true)
+  const [storedRows, setRows] = useState<DetailRecord[]>([])
+  const [loadedKey, setLoadedKey] = useState("")
+  const scopeKey = `${context.userAccountId}:${authorizationKey}:${context.organizationId}:${branchId}:${range.from}:${range.to}:${targetType}:${targetId}`
+  const rows = useMemo(() => loadedKey === scopeKey && allowed ? storedRows : [], [allowed, loadedKey, scopeKey, storedRows])
+  const [isLoading, setLoading] = useState(true)
+  const loading = isLoading || loadedKey !== scopeKey
   const [error, setError] = useState("")
   const [validationError, setValidationError] = useState("")
 
   useEffect(() => {
-    if (!context.organizationId) return
+    if (!context.organizationId || !allowed) return
     let cancelled = false
     const frame = requestAnimationFrame(() => {
       setLoading(true); setError("")
@@ -45,13 +52,13 @@ export function TargetSubscriptionsReport({ targetType, targetId, initialFrom, i
           collected.push(...page)
           if (page.length < pageSize) break
         }
-        if (!cancelled) setRows(collected)
+        if (!cancelled) { setRows(collected); setLoadedKey(scopeKey) }
       })().catch(reason => {
-        if (!cancelled) { setRows([]); setError(humanError(reason, "تعذر تحميل اشتراكات التقرير المستهدف.")) }
+        if (!cancelled) { setRows([]); setLoadedKey(scopeKey); setError(humanError(reason, "تعذر تحميل اشتراكات التقرير المستهدف.")) }
       }).finally(() => { if (!cancelled) setLoading(false) })
     })
     return () => { cancelled = true; cancelAnimationFrame(frame) }
-  }, [branchId, context.organizationId, range, targetId, targetType])
+  }, [allowed, authorizationKey, branchId, context.organizationId, range, scopeKey, targetId, targetType])
 
   const branchNames = useMemo(() => new Map(context.branches.map(branch => [branch.id, branch.nameAr ?? branch.name ?? "فرع"])), [context.branches])
   const visibleRows = useMemo(() => rows.filter(row => {
@@ -86,6 +93,7 @@ export function TargetSubscriptionsReport({ targetType, targetId, initialFrom, i
     { label: "إجمالي الخصومات", value: formatMoney(visibleRows.reduce((sum, row) => sum + Number(row.discountMinor ?? 0), 0)), icon: Gift },
   ]
 
+  if (!allowed) return <p role="alert">تحتاج صلاحية تقرير الأعضاء والاشتراكات لفتح هذه التفاصيل.</p>
   return <main className="reports-print-root space-y-5" dir="rtl">
     <header className="reports-print-hidden flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Link href="/reports" className="mb-3 inline-flex items-center gap-2 text-xs font-black text-primary hover:underline"><ArrowRight className="size-4"/>العودة إلى مركز التقارير</Link><p className="text-xs font-bold text-primary">التقرير التفصيلي</p><h1 className="mt-2 text-2xl font-black sm:text-3xl">{title}</h1><p className="mt-2 text-sm text-muted-foreground">{targetCode ? `الكود: ${targetCode} · ` : ""}يعرض أصحاب الاشتراكات المتقاطعة مع الفترة المحددة.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportCsv} disabled={loading || !visibleRows.length}><Download/>تصدير CSV</Button><Button onClick={() => window.print()} disabled={loading}><FileSpreadsheet/>طباعة التقرير</Button></div></header>
     <section className="reports-print-header hidden print:block"><div className="reports-print-heading"><h1>{title}</h1><p>{formatDate(range.from)} — {formatDate(range.to)} · {branchId ? branchNames.get(branchId) ?? "الفرع المحدد" : "كل الفروع المسموح بها"}</p></div></section>

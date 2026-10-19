@@ -22,6 +22,19 @@ export const permissionImplications:Readonly<Record<string,readonly string[]>>={
 export function permissionSatisfies(granted:string,required:string){if(granted===required)return true;const visited=new Set<string>();const pending=[...(permissionImplications[granted]??[])];while(pending.length){const candidate=pending.pop();if(!candidate||visited.has(candidate))continue;if(candidate===required)return true;visited.add(candidate);pending.push(...(permissionImplications[candidate]??[]))}return false}
 export function can(grants:Grant[],permission:string,organizationId:string,branchId?:string){return grants.some(grant=>grant.organizationId===organizationId&&permissionSatisfies(grant.permission,permission)&&(grant.scopeType==="ORGANIZATION"||Boolean(branchId&&grant.branchIds.includes(branchId))))}
 
+export const reportPermissions = {
+ overview:"reporting.overview.read", members:"reporting.members.read", subscriptions:"reporting.subscriptions.read",
+ expiry:"reporting.subscription-expiry.read", packages:"reporting.packages.read", promotions:"reporting.promotions.read",
+ services:"reporting.services.read", attendance:"reporting.attendance.read", access:"reporting.access.read",
+ bookings:"reporting.bookings.read", debts:"reporting.debts.read", expenses:"reporting.expenses.read",
+ pointOfSale:"reporting.point-of-sale.read", restaurantRevenue:"reporting.restaurant-revenue.read",
+ treasury:"reporting.treasury.read", paymentMethods:"reporting.payment-methods.read", net:"reporting.net-treasury.read",
+} as const
+export const reportsRoutePermissions = Object.values(reportPermissions)
+export function canViewReport(grants:Grant[],permission:string,organizationId:string,branchId?:string){
+ return branchId ? can(grants,permission,organizationId,branchId) : grants.some(grant=>grant.organizationId===organizationId&&permissionSatisfies(grant.permission,permission)&&(grant.scopeType==="ORGANIZATION"||grant.branchIds.length>0))
+}
+
 // These master-data endpoints authorize reads at organization scope.
 const organizationReadPermissions = new Set(["organization.read", "branch.read"])
 export function canAccessPermissions(grants:Grant[],permissions:string[],organizationId:string,branchId?:string){
@@ -31,7 +44,7 @@ export function canAccessPermissions(grants:Grant[],permissions:string[],organiz
 export const operationPermissions:Record<string,string>={
  previewServiceAdministrativeCorrection:"sales.corrections.manage",correctServiceAdministrativeError:"sales.corrections.manage",
  previewBookingAdministrativeCorrection:"bookings.corrections.manage",correctBookingAdministrativeError:"bookings.corrections.manage",
- listMembers:"members.read",registerMember:"members.manage",listSubscriptions:"subscriptions.read",createSubscription:"sales.checkout",listAttendanceAttempts:"attendance.read",recordManualAttendance:"attendance.check-in",listReservations:"bookings.read",createManualReservation:"bookings.create",listInvoices:"finance.invoices.read",recordPayment:"finance.payments.record",listCrmLeads:"crm.leads.read",createCrmLead:"crm.leads.manage",listRestaurantOrders:"restaurant.orders.read",checkoutOrder:"sales.checkout",listEmployees:"workforce.read",createEmployee:"workforce.manage",getBranchDailyReport:"reporting.read",getDetailedOperationalReport:"reporting.read",requestReportingRebuild:"reporting.rebuild",
+ listMembers:"members.read",registerMember:"members.manage",listSubscriptions:"subscriptions.read",createSubscription:"sales.checkout",listAttendanceAttempts:"attendance.read",recordManualAttendance:"attendance.check-in",listReservations:"bookings.read",createManualReservation:"bookings.create",listInvoices:"finance.invoices.read",recordPayment:"finance.payments.record",listCrmLeads:"crm.leads.read",createCrmLead:"crm.leads.manage",listRestaurantOrders:"restaurant.orders.read",checkoutOrder:"sales.checkout",listEmployees:"workforce.read",createEmployee:"workforce.manage",getBranchDailyReport:"reporting.overview.read",getDetailedOperationalReport:"reporting.overview.read",requestReportingRebuild:"reporting.rebuild",
  listEmployeeShiftRoster:"workforce.shifts.read",scheduleEmployeeShift:"workforce.shifts.manage",listEmployeeAttendance:"workforce.shifts.read",listOnlineRequests:"online-requests.read",listSelfServiceRequests:"online-requests.read",listFeedbackCases:"feedback.read",listLockers:"lockers.read",listOtherIncome:"finance.other-income.read",listTrainerCommissions:"coaching.commissions.read",
  recordOtherIncome:"finance.other-income.manage",
 }
@@ -72,7 +85,7 @@ export const routePermissions:Record<string,string[]>={
  "/staff":["workforce.read"],
  "/employees":["workforce.read"],
  "/trainer":["coaching.read","coaching.training-plans.read","measurements.read","coaching.assignments.manage"],
- "/reports":["reporting.read"],
+ "/reports":[...reportsRoutePermissions],
  "/audit":["iam.audit.read"],
  "/master-data":[...systemSettingsRoutePermissions],
  "/system-settings":[...systemSettingsRoutePermissions],
@@ -86,6 +99,7 @@ export const routePermissions:Record<string,string[]>={
 
 export function permissionsForRoute(pathname:string){
  pathname=pathname.split(/[?#]/,1)[0]??""
+ if(/^\/reports\/(package|promotion)\//.test(pathname))return [reportPermissions.members]
  const exact=routePermissions[pathname]
  if(exact!==undefined)return exact
  const root=`/${pathname.split("/").filter(Boolean)[0]??""}`
@@ -105,6 +119,7 @@ export function firstAllowedDestination(canAccess:(permissions:string[])=>boolea
  if(canAccess(financeRoutePermissions))return "/finance"
  if(canAccess(["coaching.read","measurements.read","coaching.assignments.manage"]))return "/trainer"
  if(canAccess(["workforce.read"]))return "/staff"
+ if(canAccess(reportsRoutePermissions))return "/reports"
  if(canAccess(["iam.audit.read"]))return "/audit"
  if(canAccess(routePermissions["/system-settings"]??[]))return "/system-settings/branches"
  return "/self-service"

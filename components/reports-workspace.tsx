@@ -11,6 +11,7 @@ import { DateTimeInput } from "@/components/date-time-input"
 import { Input } from "@/components/ui/input"
 import { apiRequest } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
+import { canViewReport, reportPermissions } from "@/lib/permissions"
 import { accessDeviceReason, accessReader, accessSystemReason, type GateAccessEvent } from "@/lib/access-event"
 
 type DailyReport = {
@@ -20,7 +21,7 @@ type DailyReport = {
   restaurantCompletedOrders: number; restaurantCancelledOrders: number; restaurantGrossMinor: string; cashShiftsClosed: number; cashDifferenceMinor: string; asOf: string
 }
 type DetailRecord = Record<string, string | number | boolean | null>
-type DetailType = "MEMBERS" | "SUBSCRIPTIONS" | "PACKAGES" | "PROMOTIONS" | "SERVICES" | "ATTENDANCE" | "ACCESS" | "BOOKINGS" | "DEBTS" | "EXPENSES" | "POINT_OF_SALE" | "RESTAURANT_REVENUE" | "TREASURY" | "PAYMENT_METHOD_REVENUE"
+type DetailType = "MEMBERS" | "SUBSCRIPTIONS" | "SUBSCRIPTION_EXPIRY" | "PACKAGES" | "PROMOTIONS" | "SERVICES" | "ATTENDANCE" | "ACCESS" | "BOOKINGS" | "DEBTS" | "EXPENSES" | "POINT_OF_SALE" | "RESTAURANT_REVENUE" | "TREASURY" | "PAYMENT_METHOD_REVENUE"
 type ReportSection = "overview" | "members" | "subscriptions" | "expiry" | "packages" | "promotions" | "services" | "attendance" | "access" | "bookings" | "debts" | "expenses" | "pointOfSale" | "restaurantRevenue" | "treasury" | "paymentMethods" | "net"
 type TreasuryView = "DETAIL" | "DAY" | "MONTH"
 type PaymentMethodFilter = "ALL" | "CASH" | "CARD" | "BANK_TRANSFER" | "GATEWAY" | "WALLET"
@@ -58,7 +59,7 @@ const reports: Array<{ id: ReportSection; label: string; description: string; ic
   { id: "paymentMethods", label: "الإيرادات حسب الدفع", description: "تقرير موحد يعرض المحصل والمسترد وصافي الإيراد لكل وسيلة دفع بشكل منفصل.", icon: Landmark },
   { id: "net", label: "صافي الخزنة", description: "التحصيل ناقص المستردات والمصروفات المدفوعة.", icon: CircleDollarSign },
 ]
-const detailTypes: Partial<Record<ReportSection, DetailType>> = { members: "MEMBERS", subscriptions: "SUBSCRIPTIONS", expiry: "SUBSCRIPTIONS", packages: "PACKAGES", promotions: "PROMOTIONS", services: "SERVICES", attendance: "ATTENDANCE", access:"ACCESS", bookings: "BOOKINGS", debts: "DEBTS", expenses: "EXPENSES", pointOfSale: "POINT_OF_SALE", restaurantRevenue: "RESTAURANT_REVENUE", treasury: "TREASURY", paymentMethods: "PAYMENT_METHOD_REVENUE" }
+const detailTypes: Partial<Record<ReportSection, DetailType>> = { members: "MEMBERS", subscriptions: "SUBSCRIPTIONS", expiry: "SUBSCRIPTION_EXPIRY", packages: "PACKAGES", promotions: "PROMOTIONS", services: "SERVICES", attendance: "ATTENDANCE", access:"ACCESS", bookings: "BOOKINGS", debts: "DEBTS", expenses: "EXPENSES", pointOfSale: "POINT_OF_SALE", restaurantRevenue: "RESTAURANT_REVENUE", treasury: "TREASURY", paymentMethods: "PAYMENT_METHOD_REVENUE" }
 
 export function ReportsWorkspace() {
   const context = useAppContext()
@@ -68,7 +69,10 @@ export function ReportsWorkspace() {
   const [range, setRange] = useState(initialRange)
   const [branchSelection, setBranchSelection] = useState(() => ({ contextBranchId: context.branchId, value: context.branchId }))
   const branchId = branchSelection.contextBranchId === context.branchId ? branchSelection.value : context.branchId
-  const [section, setSection] = useState<ReportSection>("overview")
+  const [selectedSection, setSection] = useState<ReportSection>("overview")
+  const availableReports = useMemo(() => context.loading ? [] : reports.filter(item => canViewReport(context.grants, reportPermissions[item.id], context.organizationId, branchId)), [branchId, context.grants, context.loading, context.organizationId])
+  const section = useMemo(() => availableReports.find(item => item.id === selectedSection)?.id ?? availableReports[0]?.id ?? "overview", [availableReports, selectedSection])
+  const canViewActiveReport = availableReports.length > 0
   const [treasuryView, setTreasuryView] = useState<TreasuryView>("DETAIL")
   const [validity, setValidity] = useState<"ALL" | "VALID" | "INVALID">("ALL")
   const [expiryHorizon, setExpiryHorizon] = useState<"1" | "3" | "7" | "14" | "30" | "ALL">("30")
@@ -83,8 +87,10 @@ export function ReportsWorkspace() {
   const [sortBy, setSortBy] = useState("NEWEST")
   const [search, setSearch] = useState("")
   const deferredSearch = useDeferredValue(search)
-  const [dailyRows, setDailyRows] = useState<DailyReport[]>([])
-  const [detailRows, setDetailRows] = useState<DetailRecord[]>([])
+  const [storedDailyRows, setDailyRows] = useState<DailyReport[]>([])
+  const [storedDetailRows, setDetailRows] = useState<DetailRecord[]>([])
+  const [loadedDailyKey, setLoadedDailyKey] = useState("")
+  const [loadedDetailKey, setLoadedDetailKey] = useState("")
   const [systemServices, setSystemServices] = useState<{ organizationId: string; loaded: boolean; items: SystemServiceOption[] }>({ organizationId: "", loaded: false, items: [] })
   const [loadedDetailType, setLoadedDetailType] = useState<DetailType>()
   const [dailyAsOf, setDailyAsOf] = useState<string | null>(null)
@@ -99,52 +105,56 @@ export function ReportsWorkspace() {
   const dailyCache = useRef(new Map<string, ReportCacheEntry<DailyReport>>())
   const detailCache = useRef(new Map<string, ReportCacheEntry<DetailRecord>>())
   const detailType = detailTypes[section]
+  const showDailyTable = section === "overview" || section === "net" || (section === "treasury" && treasuryView !== "DETAIL")
+  const dailyReportType = section === "net" ? "NET_TREASURY" : section === "treasury" ? "TREASURY" : "OVERVIEW"
+  const authorizationKey = `${context.userAccountId}:${JSON.stringify(context.grants)}`
+  const scopeKey = `${authorizationKey}:${context.organizationId}:${branchId || "ALL"}:${range.from}:${range.to}`
+  const dailyKey = `${scopeKey}:${dailyReportType}`
+  const detailKey = `${scopeKey}:${detailType}`
+  const dailyRows = useMemo(() => loadedDailyKey === dailyKey && canViewActiveReport ? storedDailyRows : [], [canViewActiveReport, dailyKey, loadedDailyKey, storedDailyRows])
+  const detailRows = useMemo(() => loadedDetailKey === detailKey && canViewActiveReport ? storedDetailRows : [], [canViewActiveReport, detailKey, loadedDetailKey, storedDetailRows])
 
   useEffect(() => {
-    if (!context.organizationId) return
+    if (!context.organizationId || !canViewActiveReport || !showDailyTable) return
     let cancelled = false
     const controller = new AbortController()
-    const cacheKey = `${context.organizationId}:${branchId || "ALL"}:${range.from}:${range.to}`
+    const cacheKey = dailyKey
     const cached = dailyCache.current.get(cacheKey)
     const frame = requestAnimationFrame(() => {
       if (cached !== undefined) {
-        setDailyRows(cached.rows); setDailyAsOf(cached.asOf); setDailyLoading(false); setDailyError("")
+        setDailyRows(cached.rows); setLoadedDailyKey(cacheKey); setDailyAsOf(cached.asOf); setDailyLoading(false); setDailyError("")
         return
       }
       setDailyLoading(true); setDailyError("")
       const params = new URLSearchParams({ from: range.from, to: range.to })
+      params.set("reportType", dailyReportType)
       if (branchId) params.set("branchId", branchId)
       void apiRequest<DailyReport[]>(`/organizations/${context.organizationId}/reports/branch-daily?${params}`, { signal: controller.signal }).then(dailyResponse => {
         if (cancelled) return
         const rows = Array.isArray(dailyResponse.data) ? dailyResponse.data : []
         const asOf = String(dailyResponse.meta?.asOf ?? "") || null
         rememberReport(dailyCache.current, cacheKey, { rows, asOf, complete: true })
-        setDailyRows(rows); setDailyAsOf(asOf)
-      }).catch(reason => { if (!cancelled) { setDailyRows([]); setDailyError(humanError(reason, "تعذر إعداد ملخص التقرير للفترة المحددة.")) } }).finally(() => { if (!cancelled) setDailyLoading(false) })
+        setDailyRows(rows); setLoadedDailyKey(cacheKey); setDailyAsOf(asOf)
+      }).catch(reason => { if (!cancelled) { setDailyRows([]); setLoadedDailyKey(cacheKey); setDailyError(humanError(reason, "تعذر إعداد ملخص التقرير للفترة المحددة.")) } }).finally(() => { if (!cancelled) setDailyLoading(false) })
     })
     return () => { cancelled = true; controller.abort(); cancelAnimationFrame(frame) }
-  }, [branchId, context.organizationId, range])
+  }, [branchId, canViewActiveReport, context.organizationId, dailyKey, dailyReportType, range, showDailyTable])
 
   useEffect(() => {
-    if (!context.organizationId || !detailType) return
+    if (!context.organizationId || !detailType || !canViewActiveReport || showDailyTable) return
     let cancelled = false
     const controller = new AbortController()
-    const cacheKey = `${context.organizationId}:${branchId || "ALL"}:${range.from}:${range.to}:${detailType}`
+    const cacheKey = detailKey
     const cached = detailCache.current.get(cacheKey)
     const frame = requestAnimationFrame(() => {
       if (cached !== undefined) {
-        setDetailRows(cached.rows); setLoadedDetailType(detailType); setDetailAsOf(cached.asOf); setDetailLoading(false); setDetailError(""); setDetailLoadingMore(!cached.complete)
+        setDetailRows(cached.rows); setLoadedDetailKey(cacheKey); setLoadedDetailType(detailType); setDetailAsOf(cached.asOf); setDetailLoading(false); setDetailError(""); setDetailLoadingMore(!cached.complete)
       } else {
         setDetailRows([]); setLoadedDetailType(undefined); setDetailAsOf(null); setDetailLoading(true); setDetailError("")
       }
     })
     if (cached?.complete) return () => { cancelled = true; controller.abort(); cancelAnimationFrame(frame) }
     const timer = window.setTimeout(() => {
-      if(detailType==="ACCESS"){
-        const accessParams=new URLSearchParams({from:new Date(`${range.from}T00:00:00`).toISOString(),to:new Date(`${addDays(range.to,1)}T00:00:00`).toISOString(),limit:"5000"});if(branchId)accessParams.set("branchId",branchId)
-        void apiRequest<DetailRecord[]>(`/organizations/${context.organizationId}/access-device-events?${accessParams}`,{signal:controller.signal}).then(response=>{if(cancelled)return;const entry={rows:response.data??[],asOf:new Date().toISOString(),complete:true};rememberReport(detailCache.current,cacheKey,entry);setDetailRows(entry.rows);setLoadedDetailType(detailType);setDetailAsOf(entry.asOf);setDetailError("")}).catch(reason=>{if(!cancelled){setDetailRows([]);setDetailError(humanError(reason,"تعذر تحميل سجل البصمة والبوابة."))}}).finally(()=>{if(!cancelled){setDetailLoading(false);setDetailLoadingMore(false)}})
-        return
-      }
       const params = new URLSearchParams({ from: range.from, to: range.to, reportType: detailType })
       if (branchId) params.set("branchId", branchId)
       let hasUsableRows = (cached?.rows.length ?? 0) > 0
@@ -153,22 +163,23 @@ export function ReportsWorkspace() {
         if (cancelled) return
         hasUsableRows = entry.rows.length > 0
         rememberReport(detailCache.current, cacheKey, entry)
-        setDetailRows(entry.rows); setLoadedDetailType(detailType); setDetailAsOf(entry.asOf); setDetailLoading(false); setDetailLoadingMore(!entry.complete)
+        setDetailRows(entry.rows); setLoadedDetailKey(cacheKey); setLoadedDetailType(detailType); setDetailAsOf(entry.asOf); setDetailLoading(false); setDetailLoadingMore(!entry.complete)
       }).then(entry => {
         if (cancelled) return
         rememberReport(detailCache.current, cacheKey, entry)
-        setDetailRows(entry.rows); setLoadedDetailType(detailType); setDetailAsOf(entry.asOf); setDetailLoading(false); setDetailLoadingMore(false)
+        setDetailRows(entry.rows); setLoadedDetailKey(cacheKey); setLoadedDetailType(detailType); setDetailAsOf(entry.asOf); setDetailLoading(false); setDetailLoadingMore(false)
       }).catch(reason => {
         if (cancelled) return
         if (!hasUsableRows) { setDetailRows([]); setDetailError(humanError(reason, "تعذر إعداد التقرير للفترة المحددة.")) }
+        setLoadedDetailKey(cacheKey); setLoadedDetailType(detailType)
         setDetailLoading(false); setDetailLoadingMore(false)
       })
     }, 120)
     return () => { cancelled = true; controller.abort(); cancelAnimationFrame(frame); window.clearTimeout(timer) }
-  }, [branchId, context.organizationId, detailType, range])
+  }, [branchId, canViewActiveReport, context.organizationId, detailKey, detailType, range, showDailyTable])
 
   useEffect(() => {
-    if (section !== "services" || !context.organizationId) return
+    if (section !== "services" || !context.organizationId || !canViewActiveReport || !context.canAccessOrganization(["catalog.read"])) return
     const organizationId = context.organizationId
     const controller = new AbortController()
     void apiRequest<SystemServiceOption[]>(`/organizations/${organizationId}/services`, { signal: controller.signal }).then(response => {
@@ -177,12 +188,12 @@ export function ReportsWorkspace() {
       if (!controller.signal.aborted) setSystemServices({ organizationId, loaded: false, items: [] })
     })
     return () => controller.abort()
-  }, [context.organizationId, section])
+  }, [authorizationKey, canViewActiveReport, context, section])
 
   const branchNames = useMemo(() => new Map(context.branches.map(branch => [branch.id, branch.nameAr ?? branch.name ?? "فرع"])), [context.branches])
   const packageOptions = useMemo(() => {
     const values = new Map<string, string>()
-    if (loadedDetailType === "SUBSCRIPTIONS") for (const row of detailRows) {
+    if (loadedDetailType === "SUBSCRIPTIONS" || loadedDetailType === "SUBSCRIPTION_EXPIRY") for (const row of detailRows) {
       const key = subscriptionPackageKey(row)
       const name = String(row.packageName ?? "").trim()
       if (key && name) values.set(key, name)
@@ -233,9 +244,9 @@ export function ReportsWorkspace() {
   const dailyMode = (section === "net" || (section === "treasury" && treasuryView !== "DETAIL")) && treasuryView === "MONTH" ? "MONTH" : "DAY"
   const dailyDisplay = useMemo(() => groupDailyRows(dailyRows, dailyMode), [dailyMode, dailyRows])
   const activeReport = reports.find(item => item.id === section) ?? reports[0]
-  const columns = detailColumns(section, branchNames, { from: range.from, to: range.to, branchId })
-  const showDailyTable = section === "overview" || section === "net" || (section === "treasury" && treasuryView !== "DETAIL")
-  const loading = showDailyTable ? dailyLoading : detailLoading || loadedDetailType !== detailType
+  const canReadMemberReport = canViewReport(context.grants, reportPermissions.members, context.organizationId, branchId)
+  const columns = detailColumns(section, branchNames, { from: range.from, to: range.to, branchId }).map(column => canReadMemberReport ? column : { ...column, href: undefined })
+  const loading = showDailyTable ? dailyLoading || loadedDailyKey !== dailyKey : detailLoading || loadedDetailType !== detailType || loadedDetailKey !== detailKey
   const error = showDailyTable ? dailyError : detailError
   const asOf = showDailyTable ? dailyAsOf : detailAsOf
   const detailPageCount = Math.max(1, Math.ceil(visibleDetails.length / VISIBLE_ROWS_PER_PAGE))
@@ -266,10 +277,13 @@ export function ReportsWorkspace() {
     const link = document.createElement("a"); link.href = url; link.download = `go-report-${section}-${range.from}-${range.to}.csv`; link.click(); URL.revokeObjectURL(url)
   }
 
+  if (context.loading) return <p role="status">جارٍ تحميل الصلاحيات...</p>
+  if (!canViewActiveReport) return <p role="alert" className="rounded-xl border p-6">لا تملك صلاحية الاطلاع على أي تقرير في الفرع المحدد.</p>
+
   return <main className="reports-print-root space-y-5" dir="rtl">
     <header className="reports-print-hidden flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><p className="text-xs font-bold text-primary">مركز التقارير</p><h1 className="mt-2 text-2xl font-black sm:text-3xl">التقارير الإدارية والمالية</h1><p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">أنشئ تقريرًا دقيقًا لأي فترة، راجع التفاصيل، ثم اطبعه أو صدّره إلى CSV.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportCsv} disabled={loading || detailLoadingMore || (!dailyRows.length && !visibleDetails.length)}><Download />تصدير CSV</Button><Button onClick={() => window.print()} disabled={loading || detailLoadingMore}><FileSpreadsheet />طباعة التقرير</Button></div></header>
     <Card className="reports-print-hidden"><CardContent className="space-y-4 p-4"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto] xl:items-end"><label className="text-xs font-bold">من تاريخ<DateTimeInput aria-label="بداية فترة التقرير" type="date" value={draftFrom} onChange={event => setDraftFrom(event.target.value)} className="mt-2 h-11" /></label><label className="text-xs font-bold">إلى تاريخ<DateTimeInput aria-label="نهاية فترة التقرير" type="date" value={draftTo} onChange={event => setDraftTo(event.target.value)} className="mt-2 h-11" /></label><label className="text-xs font-bold">الفرع<select aria-label="فرع التقرير" value={branchId} onChange={event => { setDetailPage(1); setBranchSelection({ contextBranchId: context.branchId, value: event.target.value }) }} className="mt-2 h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary">{context.branches.length > 1 && <option value="">كل الفروع المسموح بها</option>}{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.nameAr ?? branch.name ?? "فرع"}</option>)}</select></label><Button className="h-11" onClick={applyRange}><CalendarRange />تطبيق الفترة</Button></div><div className="flex flex-wrap items-center gap-2"><span className="text-[11px] font-bold text-muted-foreground">فترات سريعة:</span><Button size="sm" variant="outline" onClick={() => selectPreset("TODAY")}>اليوم</Button><Button size="sm" variant="outline" onClick={() => selectPreset("WEEK")}>آخر 7 أيام</Button><Button size="sm" variant="outline" onClick={() => selectPreset("MONTH")}>الشهر الحالي</Button><span className="mr-auto rounded-lg bg-primary/10 px-3 py-2 text-[11px] font-bold text-amber-800 dark:text-primary"><CalendarDays className="ml-1 inline size-4" />{formatRange(range.from, range.to)}</span></div>{validationError && <p role="alert" className="text-xs font-bold text-red-600">{validationError}</p>}</CardContent></Card>
-    <nav className="reports-print-hidden flex gap-2 overflow-x-auto pb-1" aria-label="أنواع التقارير" role="tablist">{reports.map(item => { const Icon = item.icon; return <button key={item.id} type="button" role="tab" aria-selected={section === item.id} onClick={() => { setSection(item.id); setDetailPage(1); setSearch(""); setSortBy(detailSortOptions(item.id)[0].value); if (item.id === "expiry") setValidity("VALID"); if (item.id === "subscriptions") setValidity("ALL") }} className={`flex shrink-0 items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition ${section === item.id ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:border-primary/50"}`}><Icon className="size-4" aria-hidden="true" />{item.label}</button> })}</nav>
+    <nav className="reports-print-hidden flex gap-2 overflow-x-auto pb-1" aria-label="أنواع التقارير" role="tablist">{availableReports.map(item => { const Icon = item.icon; return <button key={item.id} type="button" role="tab" aria-selected={section === item.id} onClick={() => { setSection(item.id); setDetailPage(1); setSearch(""); setSortBy(detailSortOptions(item.id)[0].value); if (item.id === "expiry") setValidity("VALID"); if (item.id === "subscriptions") setValidity("ALL") }} className={`flex shrink-0 items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition ${section === item.id ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:border-primary/50"}`}><Icon className="size-4" aria-hidden="true" />{item.label}</button> })}</nav>
     <section className="reports-print-header hidden print:block"><div className="reports-print-brand"><div className="print-logo-plate"><Image src="/go-fitness-logo.png" alt="شعار GO Fitness" width={104} height={58}/></div><div><strong>GO Fitness</strong><span>التقارير الإدارية والمالية</span></div></div><div className="reports-print-heading"><h1>{activeReport.label}</h1><p>{formatRange(range.from, range.to)} · {branchId ? branchNames.get(branchId) ?? "الفرع المحدد" : "كل الفروع المسموح بها"}</p>{printFilterSummary && <p>الفلاتر: {printFilterSummary}</p>}</div></section>
     <Card className="reports-print-hidden border-primary/20 bg-primary/5"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-black">{activeReport.label}</h2><p className="mt-1 text-xs leading-6 text-muted-foreground">{activeReport.description}</p>{section === "expiry" && <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black" aria-label="دليل ألوان اقتراب انتهاء الاشتراك"><span className="rounded-md bg-red-500/15 px-2 py-1 text-red-800 dark:text-red-300">يوم أو أقل</span><span className="rounded-md bg-orange-500/15 px-2 py-1 text-orange-800 dark:text-orange-300">2–3 أيام</span><span className="rounded-md bg-amber-500/15 px-2 py-1 text-amber-800 dark:text-amber-300">4–7 أيام</span><span className="rounded-md bg-blue-500/12 px-2 py-1 text-blue-800 dark:text-blue-300">8–14 يومًا</span><span className="rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-800 dark:text-emerald-300">15 يومًا فأكثر</span></div>}{(section === "packages" || section === "promotions") && <p className="mt-1 text-[10px] leading-5 text-muted-foreground">صافي العائد = إجمالي المبيعات − الاستردادات المنسوبة. لا يمثل ربحًا محاسبيًا بعد التكلفة لعدم وجود تكلفة مباشرة مسجلة لكل باقة.</p>}</div><div className="flex flex-wrap gap-2">{(section === "subscriptions" || section === "expiry") && <><select aria-label="فلترة الاشتراكات باسم الباقة" value={activePackageFilter} onChange={event => { setPackageFilter(event.target.value); setDetailPage(1) }} className="h-10 min-w-44 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل الباقات</option>{packageOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><select aria-label="حالة سريان الاشتراك" value={validity} onChange={event => { setValidity(event.target.value as typeof validity); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل الاشتراكات</option><option value="VALID">سارية فقط</option><option value="INVALID">غير سارية فقط</option></select></>}{section === "restaurantRevenue" && <label className="flex items-center gap-2 text-xs font-bold"><span>مصدر الطلب</span><select aria-label="تصفية إيرادات المطعم حسب مصدر الطلب" value={restaurantSource} onChange={event => { setRestaurantSource(event.target.value as RestaurantSourceFilter); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل مصادر الطلب</option><option value="SALES">بيع مباشر</option><option value="MEAL_PLAN">خطة وجبات</option></select></label>}{section === "services" && <><select aria-label="فلترة الخدمات حسب نوع الخدمة" value={activeServiceCategory} onChange={event => { setServiceCategory(event.target.value); setServiceFilter("ALL"); setDetailPage(1) }} className="h-10 min-w-44 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل أنواع الخدمات</option>{serviceCategories.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><select aria-label="فلترة التقرير حسب الخدمة" value={activeServiceFilter} onChange={event => { setServiceFilter(event.target.value); setDetailPage(1) }} className="h-10 min-w-52 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل الخدمات</option>{serviceOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></>}{section === "expiry" && <select aria-label="مدة اقتراب انتهاء الاشتراك" value={expiryHorizon} onChange={event => { setExpiryHorizon(event.target.value as typeof expiryHorizon); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="1">خلال يوم</option><option value="3">خلال 3 أيام</option><option value="7">خلال 7 أيام</option><option value="14">خلال 14 يومًا</option><option value="30">خلال 30 يومًا</option><option value="ALL">كل المدد</option></select>}{section === "attendance" && <select aria-label="نتيجة الحضور" value={attendanceDecision} onChange={event => setAttendanceDecision(event.target.value as typeof attendanceDecision)} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل محاولات الدخول</option><option value="ACCEPTED">المقبولة فقط</option><option value="REJECTED">المرفوضة فقط</option></select>}{section === "bookings" && <select aria-label="حالة الحجز" value={bookingStatus} onChange={event => setBookingStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل حالات الحجز</option><option value="PENDING_PAYMENT">بانتظار الدفع</option><option value="CONFIRMED">مؤكد</option><option value="COMPLETED">مكتمل</option><option value="CANCELLED">ملغى</option><option value="NO_SHOW">لم يحضر</option></select>}{(section === "treasury" || section === "net") && <div className="flex rounded-xl border bg-background p-1" aria-label="تجميع تقرير الخزنة">{(section === "treasury" ? [["DETAIL", "تفصيلي"], ["DAY", "يومي"], ["MONTH", "شهري"]] : [["DAY", "يومي"], ["MONTH", "شهري"]]).map(([value, label]) => <button key={value} type="button" onClick={() => setTreasuryView(value as TreasuryView)} className={`rounded-lg px-3 py-1.5 text-[11px] font-bold ${treasuryView === value ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>{label}</button>)}</div>}</div></CardContent></Card>
     {error ? <Card><CardContent className="p-10 text-center"><p className="font-bold text-red-600">تعذر عرض التقرير</p><p className="mt-2 text-xs text-muted-foreground">{error}</p></CardContent></Card> : loading ? <div className="grid min-h-64 place-items-center" aria-label="جارٍ إعداد التقرير"><span className="size-10 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : <><section className="reports-metrics-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((metric, index) => <Card key={metric.label} className="reports-metric-card"><CardContent className="reports-metric-content p-5"><span className={`reports-metric-icon mb-4 grid size-10 place-items-center rounded-xl ${index % 3 === 0 ? "bg-primary/12 text-amber-600" : index % 3 === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{metricIcon(section)}</span><p className="text-xs font-bold text-muted-foreground">{metric.label}</p><p className="mt-2 text-2xl font-black tabular-nums">{metric.value}</p>{metric.note && <p className="mt-1 text-[10px] text-muted-foreground">{metric.note}</p>}</CardContent></Card>)}</section>{!showDailyTable && <div className="reports-print-hidden grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1fr)_auto_auto_auto]"><div className="relative"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={event => { setSearch(event.target.value); setDetailPage(1) }} className="pr-10" placeholder="ابحث داخل نتائج التقرير..." /></div><select aria-label="ترتيب نتائج التقرير" value={activeSort.value} onChange={event => { setSortBy(event.target.value); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option disabled value="">ترتيب النتائج</option>{sortingOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{section === "treasury" && <><select aria-label="تصفية الخزنة حسب مصدر الإيراد" value={revenueSource} onChange={event => { setRevenueSource(event.target.value as RevenueSourceFilter); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل مصادر الإيراد</option><option value="MEMBERSHIP">اشتراكات</option><option value="SERVICE">خدمات</option><option value="BOOKING">حجوزات</option><option value="RESTAURANT">مطبخ</option><option value="RETAIL">منتجات</option><option value="MIXED">فواتير متعددة المصادر</option><option value="OTHER">إيرادات أخرى</option></select><select aria-label="تصفية التقرير حسب طريقة الدفع" value={paymentMethod} onChange={event => { setPaymentMethod(event.target.value as PaymentMethodFilter); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل طرق الدفع</option><option value="CASH">نقدي</option><option value="CARD">بطاقة</option><option value="BANK_TRANSFER">تحويل بنكي</option><option value="GATEWAY">بوابة دفع</option><option value="WALLET">محفظة إلكترونية</option></select></>}</div>}<Card className="reports-details-card overflow-hidden"><div className="reports-details-heading border-b px-5 py-4"><h2 className="font-black">تفاصيل {activeReport.label}</h2><p className="mt-1 text-xs text-muted-foreground">{showDailyTable ? dailyDisplay.length : visibleDetails.length} سجلًا ظاهرًا{detailLoadingMore ? " · جارٍ استكمال البيانات في الخلفية" : ""}{asOf ? ` · آخر تحديث ${formatDateTime(asOf)}` : ""}</p></div><div className="reports-table-wrap overflow-x-auto">{showDailyTable ? <DailyTable section={section} rows={dailyDisplay} branchNames={branchNames} /> : section === "treasury" ? <><div className="print:hidden"><TreasurySections rows={pagedDetails} summaryRows={visibleDetails} branches={branchNames} selectedMethod={paymentMethod} selectedSource={revenueSource} /></div><div className="hidden print:block"><TreasurySections rows={visibleDetails} summaryRows={visibleDetails} branches={branchNames} selectedMethod={paymentMethod} selectedSource={revenueSource} /></div></> : <><div className="print:hidden"><DetailsTable columns={columns} rows={pagedDetails} /></div><div className="hidden print:block"><DetailsTable columns={columns} rows={visibleDetails} /></div></>}</div>{!showDailyTable && detailPageCount > 1 && <div className="reports-print-hidden flex items-center justify-between gap-3 border-t px-4 py-3"><Button type="button" size="sm" variant="outline" disabled={activeDetailPage <= 1} onClick={() => setDetailPage(page => Math.max(1, page - 1))}>السابق</Button><span className="text-xs font-bold text-muted-foreground">الصفحة {activeDetailPage} من {detailPageCount}</span><Button type="button" size="sm" variant="outline" disabled={activeDetailPage >= detailPageCount} onClick={() => setDetailPage(page => Math.min(detailPageCount, page + 1))}>التالي</Button></div>}</Card></>}
