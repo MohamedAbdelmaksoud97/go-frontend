@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react"
 import { Dialog } from "@base-ui/react/dialog"
-import { Check, ChefHat, ClipboardList, Clock3, Flame, Loader2, MapPin, PackageOpen, Pencil, Plus, Save, Search, Send, ShoppingBag, Trash2, UserRound, X } from "lucide-react"
+import { Check, ChefHat, ClipboardList, Clock3, Flame, Loader2, MapPin, PackageOpen, Pencil, Plus, RefreshCw, Save, Search, Send, ShoppingBag, Trash2, UserRound, X } from "lucide-react"
 import { useAppContext } from "@/components/app-context"
 import { DateTimeInput } from "@/components/date-time-input"
 import { Badge } from "@/components/ui/badge"
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/toast-provider"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
+import { loadKitchenOrders, type KitchenOrder } from "@/lib/kitchen-orders"
 
 type Row = Record<string, unknown>
 type MealPortionClass = "STANDARD_150G" | "LARGE_200G" | "UNRESTRICTED"
@@ -22,8 +23,7 @@ type MealMutationPayload = { branchId: string; categoryId: string; code: string;
 type MenuItem = { mealId: string; enabled: boolean; availableQuantity?: number; preparedQuantity?: number; carriedOverQuantity?: number; reservedQuantity?: number; soldQuantity?: number; remainingQuantity?: number; specialPriceMinor?: string }
 type Carryover = { mealId: string; carriedOverQuantity: number }
 type Menu = { businessDate: string; status: "DRAFT" | "PUBLISHED" | "CLOSED"; version: number; items: MenuItem[] }
-type OrderLine = { id?: string; quote?: { targetName?: string; targetCode?: string; quantity?: number | string } }
-type RestaurantOrder = Row & { id: string; branchId: string; status: string; sourceType?: string; salesOrderId?: string; subscriptionId?: string; memberName?: string; memberNumber?: string; createdAt?: string; grossMinor?: string; currency?: string; version: number; lines?: OrderLine[] }
+type RestaurantOrder = KitchenOrder
 type MemberOption = { id: string; name: string; memberNumber: string; legacyMemberNumber?: string; phoneE164?: string; nationalId?: string; contacts?: Array<{ type?: string; value?: string; isPrimary?: boolean }>; status?: string }
 type SubscriptionOption = { id: string; memberId: string; subscriptionNumber: string; status: string; commercialSnapshot?: { packageName?: string; fulfillmentKind?: string }; entitlements?: Array<{ serviceCodeSnapshot?: string; fulfillmentKind?: string; visitAllowance?: number; visitsUsed?: number }> }
 
@@ -40,7 +40,10 @@ export function RestaurantManagementPage() {
   const [carryover, setCarryover] = useState<Carryover[]>([])
   const [redemptionMenu, setRedemptionMenu] = useState<Menu | undefined>()
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [orders, setOrders] = useState<RestaurantOrder[]>([])
+  const [orderState, setOrderState] = useState<{ scope: string; items: RestaurantOrder[] }>({ scope: "", items: [] })
+  const [kitchenLoading, setKitchenLoading] = useState(false)
+  const [kitchenError, setKitchenError] = useState("")
+  const [kitchenReload, setKitchenReload] = useState(0)
   const [redemptionMemberSelection, setRedemptionMemberSelection] = useState<{ organizationId: string; branchId: string; member?: MemberOption }>({ organizationId: "", branchId: "" })
   const [subscriptions, setSubscriptions] = useState<SubscriptionOption[]>([])
   const [kitchenScope, setKitchenScope] = useState<"CURRENT" | "ALL">("CURRENT")
@@ -73,6 +76,8 @@ export function RestaurantManagementPage() {
   const canReadAllRestaurantBranches = context.grants.some(grant => grant.organizationId === context.organizationId && ["restaurant.orders.read", "restaurant.orders.prepare", "restaurant.orders.manage"].includes(grant.permission) && grant.scopeType === "ORGANIZATION")
   const canPrepareOrders = context.canAccess(["restaurant.orders.prepare"])
   const effectiveKitchenScope = canReadAllRestaurantBranches ? kitchenScope : "CURRENT"
+  const orderScope = JSON.stringify([context.organizationId, context.userAccountId, effectiveKitchenScope === "ALL" ? "ALL" : context.branchId])
+  const orders = orderState.scope === orderScope && canReadOrders ? orderState.items : []
   const activeTab = availableTabs.some(item => item.key === tab) ? tab : availableTabs[0]?.key
   const redemptionMember = redemptionMemberSelection.organizationId === context.organizationId && redemptionMemberSelection.branchId === context.branchId ? redemptionMemberSelection.member : undefined
   const scopedRedemptionForm = redemptionMember ? redemptionForm : { ...redemptionForm, memberId: "", subscriptionId: "" }
@@ -86,10 +91,8 @@ export function RestaurantManagementPage() {
         apiRequest<Row[] | { items: Row[] }>(`${base}/restaurant/meal-categories?branchId=${encodeURIComponent(context.branchId)}&limit=100`),
         apiRequest<Meal[] | { items: Meal[] }>(`${base}/restaurant/meals?branchId=${encodeURIComponent(context.branchId)}&limit=100`),
       ]) : [{ data: [] as Row[] }, { data: [] as Meal[] }]
-      const orderBranch = effectiveKitchenScope === "ALL" ? "" : `&branchId=${encodeURIComponent(context.branchId)}`
       const redemptionDate = todayRiyadh()
-      const [orderResult, menuResult, redemptionMenuResult, carryoverResult] = await Promise.allSettled([
-        canReadOrders ? apiRequest<RestaurantOrder[] | { items: RestaurantOrder[] }>(`${base}/restaurant-orders?limit=100${orderBranch}`) : Promise.resolve({ data: [] as RestaurantOrder[] }),
+      const [menuResult, redemptionMenuResult, carryoverResult] = await Promise.allSettled([
         canReadMenu ? apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${date}`).catch(reason => isNotFound(reason) ? undefined : Promise.reject(reason)) : Promise.resolve(undefined),
         canRedeemMealPlans && date !== redemptionDate ? apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${redemptionDate}`).catch(reason => isNotFound(reason) ? undefined : Promise.reject(reason)) : Promise.resolve(undefined),
         canReadMenu ? apiRequest<Carryover[]>(`${base}/branches/${context.branchId}/daily-menus/${date}/carryover`) : Promise.resolve({ data: [] as Carryover[] }),
@@ -101,9 +104,8 @@ export function RestaurantManagementPage() {
       const currentRedemptionMenu = date === redemptionDate ? currentMenu : redemptionMenuResult.status === "fulfilled" ? redemptionMenuResult.value?.data : undefined
       if (menuResult.status === "rejected") throw menuResult.reason
       if (carryoverResult.status === "rejected") throw carryoverResult.reason
-      if (orderResult.status === "rejected") throw orderResult.reason
       if (redemptionMenuResult.status === "rejected") throw redemptionMenuResult.reason
-      setCategories(nextCategories); setMeals(nextMeals); setOrders(orderList(orderResult.value.data)); setMenu(currentMenu); setRedemptionMenu(currentRedemptionMenu)
+      setCategories(nextCategories); setMeals(nextMeals); setMenu(currentMenu); setRedemptionMenu(currentRedemptionMenu)
       const carried = carryoverResult.value.data
       setCarryover(carried)
       const carriedItems = carried.filter(item => !currentMenu && activeMealIds.has(item.mealId))
@@ -115,22 +117,44 @@ export function RestaurantManagementPage() {
   }
 
   useEffect(() => { const frame = requestAnimationFrame(() => { void load() }); return () => cancelAnimationFrame(frame) // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [context.organizationId, context.branchId, date, effectiveKitchenScope, canReadCatalog, canReadMenu, canReadOrders, canRedeemMealPlans])
+  }, [context.organizationId, context.branchId, date, canReadCatalog, canReadMenu, canRedeemMealPlans])
 
   useEffect(() => {
     if (activeTab !== "kitchen" || !hasRuntimeApi() || !context.organizationId || !context.branchId || !canReadOrders) return
+    let active = true
+    let refreshing = false
+    const controller = new AbortController()
+    const refresh = async () => {
+      if (refreshing) return
+      refreshing = true
+      setKitchenLoading(true)
+      setKitchenError("")
+      try {
+        const items = await loadKitchenOrders({ organizationId: context.organizationId, ...(effectiveKitchenScope === "ALL" ? {} : { branchId: context.branchId }), signal: controller.signal })
+        if (active) setOrderState({ scope: orderScope, items })
+      } catch (reason) {
+        if (active) setKitchenError(humanError(reason, "تعذر تحديث طلبات المطبخ. اضغط «تحديث الطلبات» للمحاولة مرة أخرى."))
+      } finally {
+        refreshing = false
+        if (active) setKitchenLoading(false)
+      }
+    }
+    void refresh()
+    const interval = window.setInterval(() => void refresh(), 15_000)
+    return () => { active = false; controller.abort(); window.clearInterval(interval) }
+  }, [activeTab, canReadOrders, context.branchId, context.organizationId, effectiveKitchenScope, orderScope, kitchenReload])
+
+  useEffect(() => {
+    if (activeTab !== "kitchen" || !hasRuntimeApi() || !context.organizationId || !context.branchId || !canReadMenu) return
+    let active = true
     const refresh = () => {
-      const base = `/organizations/${context.organizationId}`
-      const orderBranch = effectiveKitchenScope === "ALL" ? "" : `&branchId=${encodeURIComponent(context.branchId)}`
-      const requests: Promise<unknown>[] = [
-        apiRequest<RestaurantOrder[] | { items: RestaurantOrder[] }>(`${base}/restaurant-orders?limit=100${orderBranch}`).then(response => setOrders(orderList(response.data))),
-      ]
-      if (canReadMenu) requests.push(apiRequest<Menu>(`${base}/branches/${context.branchId}/daily-menus/${date}`).then(response => { setMenu(response.data); setMenuItems(response.data.items) }).catch(reason => { if (!isNotFound(reason)) throw reason }))
-      void Promise.allSettled(requests)
+      void apiRequest<Menu>(`/organizations/${context.organizationId}/branches/${context.branchId}/daily-menus/${date}`)
+        .then(response => { if (active) { setMenu(response.data); setMenuItems(response.data.items) } })
+        .catch(() => { /* Menu availability must not block the kitchen queue. */ })
     }
     const interval = window.setInterval(refresh, 15_000)
-    return () => window.clearInterval(interval)
-  }, [activeTab, canReadMenu, canReadOrders, context.branchId, context.organizationId, date, effectiveKitchenScope])
+    return () => { active = false; window.clearInterval(interval) }
+  }, [activeTab, canReadMenu, context.organizationId, context.branchId, date])
 
   useEffect(() => {
     let active = true
@@ -255,14 +279,14 @@ export function RestaurantManagementPage() {
   async function transitionOrder(order: RestaurantOrder, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") {
     if (!context.organizationId || !order.id) return
     setSaving(true); setError("")
-    try { await apiRequest(`/organizations/${context.organizationId}/restaurant-orders/${order.id}/transitions`, { method: "POST", body: JSON.stringify({ expectedVersion: order.version, action }) }); toast.success("تم تحديث حالة الطلب بنجاح."); await load() }
+    try { await apiRequest(`/organizations/${context.organizationId}/restaurant-orders/${order.id}/transitions`, { method: "POST", body: JSON.stringify({ expectedVersion: order.version, action }) }); toast.success("تم تحديث حالة الطلب بنجاح."); setKitchenReload(value => value + 1); await load() }
     catch (reason) { setError(humanError(reason, "تعذر تحديث حالة الطلب.")) } finally { setSaving(false) }
   }
 
   async function cancelOrder(order: RestaurantOrder, reason: string) {
     if (!context.organizationId || !order.id) return
     setSaving(true); setError("")
-    try { await apiRequest(`/organizations/${context.organizationId}/restaurant-orders/${order.id}/cancellations`, { method: "POST", body: JSON.stringify({ expectedVersion: order.version, reason }) }); toast.success("تم إلغاء طلب المطعم وتسجيل السبب."); await load() }
+    try { await apiRequest(`/organizations/${context.organizationId}/restaurant-orders/${order.id}/cancellations`, { method: "POST", body: JSON.stringify({ expectedVersion: order.version, reason }) }); toast.success("تم إلغاء طلب المطعم وتسجيل السبب."); setKitchenReload(value => value + 1); await load() }
     catch (failure) { setError(humanError(failure, "تعذر إلغاء طلب المطعم.")) } finally { setSaving(false) }
   }
 
@@ -281,7 +305,7 @@ export function RestaurantManagementPage() {
     <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><Badge variant="outline" className="mb-3 border-primary/30 bg-primary/10 text-amber-700 dark:text-primary">تشغيل المطعم</Badge><h1 className="text-2xl font-black sm:text-3xl">المطبخ وقائمة الوجبات</h1><p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">الوجبة تُعرّف مرة واحدة بقيمها الغذائية، ثم يحدد الشيف سعرها وإتاحتها لكل فرع ولكل يوم.</p></div><nav aria-label="أقسام تشغيل المطعم" className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:flex-wrap">{availableTabs.map(item => <Button key={item.key} className="w-full justify-center lg:w-auto" variant={activeTab === item.key ? "default" : "outline"} onClick={() => setTab(item.key)}><item.icon />{item.label}</Button>)}</nav></header>
     {error && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
     {!loading && (activeTab === "menu" || activeTab === "kitchen") && (menu || carryover.length > 0) ? <DailyMealAvailability menu={menuWithCarryover(menu, carryover, date)} meals={meals} /> : null}
-    {loading ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} canCorrect={canCorrectMenu} addProduction={addProduction} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} onEdit={setEditingMeal} onDelete={setDeletingMeal} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel member={redemptionMember} setMember={member => setRedemptionMemberSelection({ organizationId: context.organizationId, branchId: context.branchId, ...(member ? { member } : {}) })} subscriptions={subscriptions} meals={meals} menu={redemptionMenu} form={scopedRedemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
+    {loading && activeTab !== "kitchen" ? <Card><CardContent className="grid min-h-72 place-items-center"><span className="size-9 animate-spin rounded-full border-4 border-primary border-t-transparent" /></CardContent></Card> : !availableTabs.length ? <Card><CardContent className="grid min-h-72 place-items-center text-sm text-muted-foreground">لا توجد صلاحيات مطعم متاحة لهذا الحساب.</CardContent></Card> : activeTab === "menu" ? <MenuPanel date={date} setDate={setDate} meals={meals} menu={menu} menuItems={menuItems} add={addMenuMeal} remove={removeMenuMeal} update={updateMenuMeal} publish={publishMenu} hide={hideMenu} saving={saving} canManage={canManageMenu} canCorrect={canCorrectMenu} addProduction={addProduction} /> : activeTab === "catalog" ? <CatalogPanel categories={categories} categoryName={categoryName} meals={meals} mealForm={mealForm} setMealField={setMealField} priceForm={priceForm} setPriceForm={setPriceForm} createMeal={createMeal} createPrice={createPrice} saving={saving} canManageCatalog={canManageCatalog} canManagePricing={canManagePricing} onEdit={setEditingMeal} onDelete={setDeletingMeal} /> : activeTab === "redemptions" ? <MealPlanRedemptionPanel member={redemptionMember} setMember={member => setRedemptionMemberSelection({ organizationId: context.organizationId, branchId: context.branchId, ...(member ? { member } : {}) })} subscriptions={subscriptions} meals={meals} menu={redemptionMenu} form={scopedRedemptionForm} setForm={setRedemptionForm} redeem={redeemMealPlan} saving={saving} /> : <KitchenPanel key={orderScope} loading={kitchenLoading} error={kitchenError} onRefresh={() => setKitchenReload(value => value + 1)} orders={orders} transition={transitionOrder} cancel={cancelOrder} saving={saving} scope={effectiveKitchenScope} setScope={setKitchenScope} canReadAllBranches={canReadAllRestaurantBranches} canPrepare={canPrepareOrders} canManage={canManageOrders} currentBranchName={branchName.get(context.branchId) ?? "الفرع الحالي"} branchName={branchName} />}
     {editingMeal && <MealEditDialog key={editingMeal.id} meal={editingMeal} categories={categories} branchId={context.branchId} saving={saving} onClose={() => setEditingMeal(undefined)} onSave={payload => updateCatalogMeal(editingMeal, payload)} />}
     {deletingMeal && <MealDeleteDialog meal={deletingMeal} saving={saving} onClose={() => setDeletingMeal(undefined)} onConfirm={() => archiveCatalogMeal(deletingMeal)} />}
   </div>
@@ -585,11 +609,23 @@ function MealPlanRedemptionPanel({ member, setMember, subscriptions, meals, menu
   </CardContent></Card>
 }
 
-function KitchenPanel({ orders, transition, cancel, saving, scope, setScope, canReadAllBranches, canPrepare, canManage, currentBranchName, branchName }: { orders: RestaurantOrder[]; transition: (order: RestaurantOrder, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") => void; cancel: (order: RestaurantOrder, reason: string) => void; saving: boolean; scope: "CURRENT" | "ALL"; setScope: (scope: "CURRENT" | "ALL") => void; canReadAllBranches: boolean; canPrepare: boolean; canManage: boolean; currentBranchName: string; branchName: Map<string, string> }) {
+function KitchenPanel({ orders, transition, cancel, saving, scope, setScope, canReadAllBranches, canPrepare, canManage, currentBranchName, branchName, loading, error, onRefresh }: { orders: RestaurantOrder[]; transition: (order: RestaurantOrder, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") => void; cancel: (order: RestaurantOrder, reason: string) => void; saving: boolean; scope: "CURRENT" | "ALL"; setScope: (value: "CURRENT" | "ALL") => void; canReadAllBranches: boolean; canPrepare: boolean; canManage: boolean; currentBranchName: string; branchName: Map<string, string>; loading: boolean; error: string; onRefresh: () => void }) {
   const [cancelTarget, setCancelTarget] = useState<RestaurantOrder | undefined>()
   const [cancelReason, setCancelReason] = useState("")
-  const active = orders.filter(order => ["CONFIRMED", "PREPARING", "READY"].includes(String(order.status)))
-  return <div className="space-y-4"><Card><CardContent className="flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center"><div><p className="font-black">نطاق طلبات المطبخ</p><p className="mt-1 text-xs text-muted-foreground">تعرض اللوحة طلبات {scope === "ALL" ? "جميع الفروع" : currentBranchName} فقط.</p></div><select aria-label="نطاق طلبات المطبخ" value={scope} onChange={event => setScope(event.target.value as "CURRENT" | "ALL")} className="h-11 min-w-56 rounded-xl border bg-background px-3 text-sm font-bold"><option value="CURRENT">الفرع الحالي — {currentBranchName}</option>{canReadAllBranches ? <option value="ALL">كل الفروع</option> : null}</select></CardContent></Card>{cancelTarget ? <Card className="border-red-300"><CardContent className="p-5"><h2 className="font-black text-destructive">إلغاء طلب #{cancelTarget.id.slice(0, 8).toUpperCase()}</h2><p className="mt-1 text-xs text-muted-foreground">اكتب سببًا واضحًا ليظهر في السجل التشغيلي، ثم أكد الإلغاء.</p><textarea autoFocus value={cancelReason} onChange={event => setCancelReason(event.target.value)} className="mt-3 min-h-24 w-full rounded-xl border bg-background p-3 text-sm" placeholder="مثال: طلب العضو الإلغاء قبل بدء التحضير" /><div className="mt-3 flex gap-2"><Button className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={saving || cancelReason.trim().length < 3} onClick={() => { cancel(cancelTarget, cancelReason.trim()); setCancelTarget(undefined); setCancelReason("") }}><Trash2 />تأكيد إلغاء الطلب</Button><Button variant="outline" onClick={() => { setCancelTarget(undefined); setCancelReason("") }}>تراجع</Button></div></CardContent></Card> : null}<div className="grid gap-4 xl:grid-cols-3">{(["CONFIRMED", "PREPARING", "READY"] as const).map(status => <Card key={status}><CardContent className="p-5"><div className="flex items-center justify-between"><h2 className="font-black">{status === "CONFIRMED" ? "طلبات جديدة" : status === "PREPARING" ? "قيد التحضير" : "جاهز للاستلام"}</h2><Badge>{active.filter(order => order.status === status).length}</Badge></div><div className="mt-4 space-y-3">{active.filter(order => order.status === status).map(order => <OrderCard key={order.id} order={order} branch={branchName.get(order.branchId) ?? "فرع غير معروف"} canPrepare={canPrepare} canManage={canManage} saving={saving} action={status === "CONFIRMED" ? "START_PREPARING" : status === "PREPARING" ? "MARK_READY" : "COMPLETE"} actionLabel={status === "CONFIRMED" ? "بدء التحضير" : status === "PREPARING" ? "جاهز للاستلام" : "تسليم وإكمال"} transition={transition} onCancel={() => setCancelTarget(order)} />)}{active.filter(order => order.status === status).length === 0 ? <p className="py-8 text-center text-xs text-muted-foreground">لا توجد طلبات في هذا النطاق.</p> : null}</div></CardContent></Card>)}</div></div>
+  const active = orders.filter(order => ["CONFIRMED", "PREPARING", "READY"].includes(order.status))
+  return <div className="space-y-4">
+    <Card><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+      <div><p className="font-black">نطاق طلبات المطبخ</p><p className="mt-1 text-xs text-muted-foreground">تعرض اللوحة طلبات {scope === "ALL" ? "جميع الفروع" : currentBranchName} فقط. إجمالي الطلبات النشطة: {active.length}</p></div>
+      <div className="flex flex-wrap gap-2">
+        <select aria-label="نطاق طلبات المطبخ" value={scope} onChange={event => setScope(event.target.value as "CURRENT" | "ALL")} className="h-11 min-w-56 rounded-xl border bg-background px-3 text-sm font-bold"><option value="CURRENT">الفرع الحالي — {currentBranchName}</option>{canReadAllBranches ? <option value="ALL">كل الفروع</option> : null}</select>
+        <Button variant="outline" disabled={loading} onClick={onRefresh}><RefreshCw className={loading ? "animate-spin" : ""} />تحديث الطلبات</Button>
+      </div>
+    </CardContent></Card>
+    {error && <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">{error}</p>}
+    {loading && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />جاري تحديث طلبات المطبخ…</p>}
+    {cancelTarget && <Card className="border-red-300"><CardContent className="p-5"><h2 className="font-black text-destructive">إلغاء طلب #{cancelTarget.id.slice(0, 8).toUpperCase()}</h2><p className="mt-1 text-xs text-muted-foreground">اكتب سببًا واضحًا ليظهر في السجل التشغيلي، ثم أكد الإلغاء.</p><textarea autoFocus value={cancelReason} onChange={event => setCancelReason(event.target.value)} className="mt-3 min-h-24 w-full rounded-xl border bg-background p-3 text-sm" placeholder="مثال: طلب العضو الإلغاء قبل بدء التحضير" /><div className="mt-3 flex gap-2"><Button className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={saving || cancelReason.trim().length < 3} onClick={() => { cancel(cancelTarget, cancelReason.trim()); setCancelTarget(undefined); setCancelReason("") }}><Trash2 />تأكيد إلغاء الطلب</Button><Button variant="outline" onClick={() => { setCancelTarget(undefined); setCancelReason("") }}>تراجع</Button></div></CardContent></Card>}
+    <div className="grid gap-4 xl:grid-cols-3">{(["CONFIRMED", "PREPARING", "READY"] as const).map(status => <Card key={status}><CardContent className="p-5"><div className="flex items-center justify-between"><h2 className="font-black">{status === "CONFIRMED" ? "طلبات جديدة" : status === "PREPARING" ? "قيد التحضير" : "جاهز للاستلام"}</h2><Badge>{active.filter(order => order.status === status).length}</Badge></div><div className="mt-4 space-y-3">{active.filter(order => order.status === status).map(order => <OrderCard key={order.id} order={order} branch={branchName.get(order.branchId) ?? "فرع غير معروف"} canPrepare={canPrepare} canManage={canManage} saving={saving} action={status === "CONFIRMED" ? "START_PREPARING" : status === "PREPARING" ? "MARK_READY" : "COMPLETE"} actionLabel={status === "CONFIRMED" ? "بدء التحضير" : status === "PREPARING" ? "جاهز للاستلام" : "تسليم وإكمال"} transition={transition} onCancel={() => setCancelTarget(order)} />)}{!loading && !error && !active.some(order => order.status === status) && <p className="py-8 text-center text-xs text-muted-foreground">لا توجد طلبات في هذا النطاق.</p>}</div></CardContent></Card>)}</div>
+  </div>
 }
 
 function OrderCard({ order, branch, canPrepare, canManage, saving, action, actionLabel, transition, onCancel }: { order: RestaurantOrder; branch: string; canPrepare: boolean; canManage: boolean; saving: boolean; action: "START_PREPARING" | "MARK_READY" | "COMPLETE"; actionLabel: string; transition: (order: RestaurantOrder, action: "START_PREPARING" | "MARK_READY" | "COMPLETE") => void; onCancel: () => void }) {
@@ -605,7 +641,6 @@ function list(value: unknown): Row[] { if (Array.isArray(value)) return value.fi
 function memberSecondary(member: MemberOption): string { const phone = member.phoneE164 ?? member.contacts?.find(contact => contact.type === "PHONE" && contact.isPrimary)?.value ?? member.contacts?.find(contact => contact.type === "PHONE")?.value; return [member.memberNumber, member.legacyMemberNumber ? `رقم النظام ${member.legacyMemberNumber}` : undefined, phone].filter(Boolean).join(" · ") || "لا توجد بيانات تعريف إضافية" }
 function mealPlanPortionClass(subscription?: SubscriptionOption): Exclude<MealPortionClass, "UNRESTRICTED"> | undefined { const code = subscription?.entitlements?.find(entitlement => entitlement.fulfillmentKind === "MEAL_PLAN")?.serviceCodeSnapshot; return code === "DIET_MEAL_150G" ? "STANDARD_150G" : code === "DIET_MEAL_200G" ? "LARGE_200G" : undefined }
 function portionLabel(portion?: MealPortionClass): string { return portion === "STANDARD_150G" ? "150 جم" : portion === "LARGE_200G" ? "200 جم" : "محدد" }
-function orderList(value: unknown): RestaurantOrder[] { return list(value).filter((item): item is RestaurantOrder => typeof item.id === "string" && typeof item.branchId === "string" && typeof item.status === "string" && typeof item.version === "number") }
 function number(value: unknown): number { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0 }
 function priceBreakdown(amount: string, taxRatePercent: string, taxInclusive: boolean): { net: number; tax: number; gross: number } | undefined { if (amount.trim() === "" || taxRatePercent.trim() === "") return undefined; const entered = Number(amount); const rate = Number(taxRatePercent); if (!Number.isFinite(entered) || entered < 0 || !Number.isFinite(rate) || rate < 0 || rate > 100) return undefined; const factor = 1 + rate / 100; const net = taxInclusive ? entered / factor : entered; const tax = net * rate / 100; return { net, tax, gross: net + tax } }
 function sar(value: number): string { return new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value) }

@@ -22,7 +22,7 @@ runInNewContext(`${code}\nexports.MenuPanel = MenuPanel; exports.DailyMealAvaila
     if (name === "lucide-react") return new Proxy({}, { get: () => () => null })
     if (name.startsWith("@/components/ui/")) return new Proxy({}, { get: (_, key) => ({ children, ...props }) => React.createElement(key === "Input" ? "input" : key === "Button" ? "button" : "div", props, children) })
     if (name === "@/components/date-time-input") return { DateTimeInput: props => React.createElement("input", props) }
-    if (["@/components/app-context", "@/components/toast-provider", "@/lib/api-client", "@/lib/human-errors"].includes(name)) return {}
+    if (["@/components/app-context", "@/components/toast-provider", "@/lib/api-client", "@/lib/human-errors", "@/lib/kitchen-orders"].includes(name)) return {}
     throw new Error(`Unexpected component dependency: ${name}`)
   },
 })
