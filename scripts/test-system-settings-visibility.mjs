@@ -9,6 +9,7 @@ import { Window } from "happy-dom"
 import ts from "typescript"
 import * as permissions from "../lib/permissions.ts"
 import { permissionPresentation } from "../lib/permission-display.ts"
+import * as gateLiveUpdates from "../lib/gate-live-updates.ts"
 
 const org="org",branch="branch-a"
 let current,path="/restaurant"
@@ -29,6 +30,7 @@ function component(file,extra=""){
   if(name==="lucide-react")return new Proxy({},{get:()=>()=>null})
   if(name==="@/components/app-context")return {useAppContext:()=>current}
   if(name==="@/lib/permissions")return permissions
+  if(name==="@/lib/gate-live-updates")return gateLiveUpdates
   if(name==="@/lib/utils")return {cn:(...values)=>values.filter(Boolean).join(" ")}
   if(name==="@/lib/system-guide-content")return {guideGroups:[]}
   if(name==="@/components/ui/button")return {Button:({children,...props})=>React.createElement("button",props,children)}

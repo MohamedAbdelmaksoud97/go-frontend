@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { apiRequest, hasRuntimeApi } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
+import { gateLiveUpdatesEnabled } from "@/lib/gate-live-updates"
 import { accessDeviceReason, accessReader, accessSeverity, accessSubject, accessSubjectNumber, accessSystemReason, gateOpenedButSystemRejected, type GateAccessEvent } from "@/lib/access-event"
 
 type DeviceMode="OBSERVE"|"ENFORCE"
@@ -32,7 +33,7 @@ export default function AccessControlPage(){
  const [registerOpen,setRegisterOpen]=useState(false)
  const [oneTimeKey,setOneTimeKey]=useState("")
  const [busy,setBusy]=useState("")
- const [lastLiveUpdate,setLastLiveUpdate]=useState<Date>()
+ const [lastUpdate,setLastUpdate]=useState<Date>()
 
  const load=useCallback(async()=>{
   if(!context.organizationId||!hasRuntimeApi())return
@@ -40,23 +41,24 @@ export default function AccessControlPage(){
   try{const [deviceResponse,eventResponse]=await Promise.all([
    apiRequest<Device[]>(`/organizations/${context.organizationId}/access-devices`),
    apiRequest<AccessEvent[]>(`/organizations/${context.organizationId}/access-device-events?limit=100`),
-  ]);setDevices(deviceResponse.data);setEvents(eventResponse.data)}
+  ]);setDevices(deviceResponse.data);setEvents(eventResponse.data);setLastUpdate(new Date())}
   catch(reason){setError(humanError(reason,"تعذر تحميل حالة البوابات. تأكد من نشر آخر إصدار للباك إند ثم حاول مجددًا."))}
   finally{setLoading(false)}
  },[context.organizationId])
  useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer)},[load])
  useEffect(()=>{
+  if(!gateLiveUpdatesEnabled)return
   function receiveLiveEvents(event:Event){
    const rows=(event as CustomEvent<AccessEvent[]>).detail
    if(!Array.isArray(rows))return
    setEvents(rows)
-   setLastLiveUpdate(new Date())
+   setLastUpdate(new Date())
   }
   window.addEventListener("go:access-events",receiveLiveEvents)
   return()=>window.removeEventListener("go:access-events",receiveLiveEvents)
  },[])
  useEffect(()=>{
-  if(!context.organizationId||!hasRuntimeApi())return
+  if(!gateLiveUpdatesEnabled||!context.organizationId||!hasRuntimeApi())return
   let cancelled=false
   async function refreshDevices(){try{const response=await apiRequest<Device[]>(`/organizations/${context.organizationId}/access-devices`);if(!cancelled)setDevices(response.data)}catch{}}
   const timer=window.setInterval(()=>void refreshDevices(),15_000)
@@ -87,7 +89,7 @@ export default function AccessControlPage(){
  }
 
  return <div className="space-y-6 fade-up">
-  <header className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex flex-wrap gap-2"><Badge variant="outline"><RadioTower/>التحكم في الوصول</Badge><Badge variant="success"><span className="size-2 animate-pulse rounded-full bg-current"/>اتصال مباشر فوري</Badge></div><h1 className="mt-4 text-3xl font-black">البوابات والبصمة</h1><p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">ربط لوحة ZKTeco بقرارات الدخول في GO ومتابعة كل حدث دون تخزين قوالب البصمة.{lastLiveUpdate&&<span className="mr-2">آخر تحديث حي: {lastLiveUpdate.toLocaleTimeString("ar-EG")}</span>}</p></div><div className="flex gap-2"><Button variant="outline" onClick={()=>void load()} disabled={loading}><RefreshCw className={loading?"animate-spin":""}/>تحديث</Button>{canManage&&<Button onClick={()=>setRegisterOpen(true)}><RadioTower/>تسجيل لوحة</Button>}</div></header>
+  <header className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex flex-wrap gap-2"><Badge variant="outline"><RadioTower/>التحكم في الوصول</Badge><Badge variant={gateLiveUpdatesEnabled?"success":"outline"}>{gateLiveUpdatesEnabled&&<span className="size-2 animate-pulse rounded-full bg-current"/>}{gateLiveUpdatesEnabled?"تحديثات مباشرة":"تحديث يدوي"}</Badge></div><h1 className="mt-4 text-3xl font-black">البوابات والبصمة</h1><p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">ربط لوحة ZKTeco بقرارات الدخول في GO ومتابعة كل حدث دون تخزين قوالب البصمة.{!gateLiveUpdatesEnabled&&" حدّث الصفحة أو اضغط «تحديث» لعرض أحدث الأحداث."}{lastUpdate&&<span className="mr-2">آخر تحديث: {lastUpdate.toLocaleTimeString("ar-EG")}</span>}</p></div><div className="flex gap-2"><Button variant="outline" onClick={()=>void load()} disabled={loading}><RefreshCw className={loading?"animate-spin":""}/>تحديث</Button>{canManage&&<Button onClick={()=>setRegisterOpen(true)}><RadioTower/>تسجيل لوحة</Button>}</div></header>
   {error&&<p role="alert" className="rounded-2xl border border-red-500/25 bg-red-500/10 p-4 text-sm font-bold text-red-600">{error}</p>}
   {notice&&<p role="status" className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4 text-sm font-bold text-emerald-700 dark:text-emerald-400">{notice}</p>}
   {oneTimeKey&&<OneTimeKey value={oneTimeKey} onClose={()=>setOneTimeKey("")}/>}

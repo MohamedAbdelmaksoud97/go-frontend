@@ -18,6 +18,7 @@ import { accessDeviceReason, accessReader, accessSeverity, accessSubject, access
 import type { AccountNotification } from "@/components/account-notification-inbox"
 import { GlobalSearch } from "@/components/global-search"
 import { useToast } from "@/components/toast-provider"
+import { gateLiveUpdatesEnabled } from "@/lib/gate-live-updates"
 
 type GateEvent = GateAccessEvent
 
@@ -101,11 +102,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if(context.loading||!context.userAccountId)return
     let cancelled=false
     async function loadNotifications(){try{const[items,count]=await Promise.all([apiRequest<AccountNotification[]>("/me/account-notifications?limit=5"),apiRequest<{unreadCount:number}>("/me/account-notifications/unread-count")]);if(!cancelled){setNotificationItems(items.data??[]);setUnreadNotifications(count.data.unreadCount??0)}}catch{if(!cancelled){setNotificationItems([]);setUnreadNotifications(0)}}}
-    void loadNotifications();const timer=window.setInterval(()=>void loadNotifications(),60_000)
+    void loadNotifications();const timer=window.setInterval(()=>void loadNotifications(),300_000)
     return()=>{cancelled=true;window.clearInterval(timer)}
   },[context.loading,context.userAccountId])
 
   useEffect(()=>{
+    if(!gateLiveUpdatesEnabled)return
     const timer=window.setTimeout(()=>{
       const enabled=typeof Notification!=="undefined"&&Notification.permission==="granted"&&localStorage.getItem("go-gate-desktop-alerts")==="enabled"
       gateAlertsEnabledRef.current=enabled
@@ -115,7 +117,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   },[])
 
   useEffect(()=>{
-    if(context.loading||!context.organizationId||!canReadGateEvents)return
+    if(!gateLiveUpdatesEnabled||context.loading||!context.organizationId||!canReadGateEvents)return
     let cancelled=false
     const abortController=new AbortController()
     let latestRows:GateEvent[]=[]
@@ -268,7 +270,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </>}
           <Button variant="outline" size="icon" onClick={toggleTheme} aria-label={dark ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"}>{dark ? <Sun /> : <Moon />}</Button>
-          {canReadGateEvents&&<Button variant="outline" size="icon" className="relative" aria-pressed={gateAlertsEnabled} aria-label={gateAlertsEnabled?"إيقاف تنبيهات البوابة الخارجية":"تفعيل تنبيهات البوابة الخارجية"} title={gateAlertsEnabled?"تنبيهات البوابة الخارجية مفعلة":"تفعيل تنبيهات البوابة الخارجية"} onClick={()=>void toggleGateDesktopAlerts()}><BellRing/>{gateAlertsEnabled&&<span className="absolute -left-0.5 -top-0.5 size-2.5 rounded-full border-2 border-background bg-emerald-500"/>}</Button>}
+          {gateLiveUpdatesEnabled&&canReadGateEvents&&<Button variant="outline" size="icon" className="relative" aria-pressed={gateAlertsEnabled} aria-label={gateAlertsEnabled?"إيقاف تنبيهات البوابة الخارجية":"تفعيل تنبيهات البوابة الخارجية"} title={gateAlertsEnabled?"تنبيهات البوابة الخارجية مفعلة":"تفعيل تنبيهات البوابة الخارجية"} onClick={()=>void toggleGateDesktopAlerts()}><BellRing/>{gateAlertsEnabled&&<span className="absolute -left-0.5 -top-0.5 size-2.5 rounded-full border-2 border-background bg-emerald-500"/>}</Button>}
           <div className="relative">
             <Button variant="outline" size="icon" onClick={() => setNotices(v => !v)} aria-label="الإشعارات"><Bell /></Button>
             {unreadNotifications>0&&<span className="pointer-events-none absolute -left-1 -top-1 grid min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-black leading-5 text-white">{unreadNotifications>99?"99+":unreadNotifications}</span>}

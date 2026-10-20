@@ -140,7 +140,7 @@ export function RestaurantManagementPage() {
       }
     }
     void refresh()
-    const interval = window.setInterval(() => void refresh(), 15_000)
+    const interval = window.setInterval(() => void refresh(), 60_000)
     return () => { active = false; controller.abort(); window.clearInterval(interval) }
   }, [activeTab, canReadOrders, context.branchId, context.organizationId, effectiveKitchenScope, orderScope, kitchenReload])
 
@@ -152,7 +152,7 @@ export function RestaurantManagementPage() {
         .then(response => { if (active) { setMenu(response.data); setMenuItems(response.data.items) } })
         .catch(() => { /* Menu availability must not block the kitchen queue. */ })
     }
-    const interval = window.setInterval(refresh, 15_000)
+    const interval = window.setInterval(refresh, 60_000)
     return () => { active = false; window.clearInterval(interval) }
   }, [activeTab, canReadMenu, context.organizationId, context.branchId, date])
 
