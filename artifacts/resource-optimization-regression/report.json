@@ -1,0 +1,54 @@
+{
+  "runAt": "2026-10-20T13:35:21.803Z",
+  "passed": true,
+  "localOnly": true,
+  "browserChecks": 36,
+  "suites": [
+    {
+      "name": "coaching-e2e",
+      "runAt": "2026-10-20T13:17:13.043Z",
+      "browserVersion": "156.0.8078.4",
+      "passedChecks": 17,
+      "remainingTestTables": 0,
+      "report": "../coaching-e2e/report.json"
+    },
+    {
+      "name": "report-pages-e2e",
+      "runAt": "2026-10-20T13:18:23.385Z",
+      "browserVersion": "156.0.8078.4",
+      "passedChecks": 9,
+      "remainingTestTables": 0,
+      "report": "../report-pages-e2e/report.json"
+    },
+    {
+      "name": "resource-regressions-e2e",
+      "runAt": "2026-10-20T13:33:50.816Z",
+      "browserVersion": "156.0.8078.4",
+      "passedChecks": 10,
+      "remainingTestTables": 0,
+      "report": "../resource-regressions-e2e/report.json"
+    }
+  ],
+  "backend": {
+    "command": "npm test -- --maxWorkers=2",
+    "passed": 1238,
+    "skipped": 33,
+    "failed": 0
+  },
+  "frontend": {
+    "command": "npm test",
+    "passed": 142,
+    "failed": 0,
+    "log": "../resource-regressions-e2e/frontend-checks.log"
+  },
+  "database": "Disposable local PostgreSQL (PGlite), real application migrations and services",
+  "cleanup": {
+    "allBrowserSuitesVerified": true,
+    "remainingTestTables": 0
+  },
+  "notes": [
+    "Updated the retired treasury client-aggregation test to verify rendered server summaries and source/payment-method refunds independently of the detail page.",
+    "The additional Chromium suite uses the Playwright clock to validate notification and kitchen timers.",
+    "Supabase Auth provider, physical gate hardware, production deployment, and production resource billing are outside this local verification."
+  ]
+}

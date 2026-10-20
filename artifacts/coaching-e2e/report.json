@@ -1,5 +1,5 @@
 {
-  "runAt": "2026-10-20T12:10:40.592Z",
+  "runAt": "2026-10-20T13:17:13.043Z",
   "database": "isolated local PostgreSQL (PGlite), real migrations and business services",
   "browser": "Playwright Chromium",
   "browserVersion": "156.0.8078.4",
@@ -7,87 +7,87 @@
     {
       "name": "assignment-screen-opens-without-downloading-branch-members",
       "passed": true,
-      "durationMs": 3520
+      "durationMs": 4062
     },
     {
       "name": "profile-specialty-branch-and-availability-through-ui",
       "passed": true,
-      "durationMs": 9938
+      "durationMs": 11443
     },
     {
       "name": "member-picker-loads-bounded-pages-and-searches-beyond-the-first-page",
       "passed": true,
-      "durationMs": 2374
+      "durationMs": 3384
     },
     {
       "name": "member-assignment-through-ui",
       "passed": true,
-      "durationMs": 1107
+      "durationMs": 1336
     },
     {
       "name": "template-and-administrative-plan-through-ui",
       "passed": true,
-      "durationMs": 3273
+      "durationMs": 5591
     },
     {
       "name": "trainer-overview-loads-summary-without-plan-commission-or-measurement-history",
       "passed": true,
-      "durationMs": 817
+      "durationMs": 1036
     },
     {
       "name": "multiple-measurements-and-immediate-history-refresh-through-ui",
       "passed": true,
-      "durationMs": 2938
+      "durationMs": 3892
     },
     {
       "name": "administrative-measurements-load-with-member-labels-and-no-directory-download",
       "passed": true,
-      "durationMs": 1707
+      "durationMs": 2680
     },
     {
       "name": "trainer-creates-and-edits-plan-from-template-through-ui",
       "passed": true,
-      "durationMs": 1742
+      "durationMs": 2742
     },
     {
       "name": "member-reads-exercises-and-records-completion-through-ui",
       "passed": true,
-      "durationMs": 2419
+      "durationMs": 2185
     },
     {
       "name": "recorded-progress-is-preserved-and-plan-can-close-through-ui",
       "passed": true,
-      "durationMs": 2829
+      "durationMs": 3744
     },
     {
       "name": "member-transfer-retains-history-and-moves-active-plan-through-ui",
       "passed": true,
-      "durationMs": 3861
+      "durationMs": 3700
     },
     {
       "name": "commission-rule-accrual-approval-and-payment-through-ui",
       "passed": true,
-      "durationMs": 4393
+      "durationMs": 5147
     },
     {
       "name": "assignment-ending-and-branch-ending-through-ui",
       "passed": true,
-      "durationMs": 1985
+      "durationMs": 3102
     },
     {
       "name": "permissions-and-stale-version-protection-through-real-api",
       "passed": true,
-      "durationMs": 112
+      "durationMs": 170
     },
     {
       "name": "plans-and-templates-load-one-page-at-a-time-and-search-the-full-list",
       "passed": true,
-      "durationMs": 7014
+      "durationMs": 8731
     },
     {
       "name": "detailed-guide-and-mobile-layout-through-ui",
       "passed": true,
-      "durationMs": 3132
+      "durationMs": 4797
     }
   ],
   "browserErrors": [],

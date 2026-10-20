@@ -23,7 +23,8 @@
     "test:report-permissions": "node --test scripts/test-report-permissions.mjs",
     "test:system-role-editor": "node --test scripts/test-system-role-editor.mjs",
     "test:coaching:e2e": "node ../gosystem/node_modules/tsx/dist/cli.mjs scripts/test-coaching-e2e.mjs",
-    "test:reports:e2e": "node ../gosystem/node_modules/tsx/dist/cli.mjs scripts/test-report-pages-e2e.mjs"
+    "test:reports:e2e": "node ../gosystem/node_modules/tsx/dist/cli.mjs scripts/test-report-pages-e2e.mjs",
+    "test:resources:e2e": "node ../gosystem/node_modules/tsx/dist/cli.mjs scripts/test-resource-regressions-e2e.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

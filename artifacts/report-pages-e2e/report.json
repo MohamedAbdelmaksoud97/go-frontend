@@ -1,5 +1,5 @@
 {
-  "runAt": "2026-10-20T12:42:17.018Z",
+  "runAt": "2026-10-20T13:18:23.385Z",
   "browser": "Playwright Chromium",
   "browserVersion": "156.0.8078.4",
   "database": "isolated local PostgreSQL (PGlite), real migrations, HTTP routes and business services",
@@ -7,47 +7,47 @@
     {
       "name": "opening-report-loads-a-bounded-daily-page-only",
       "passed": true,
-      "durationMs": 3622
+      "durationMs": 3278
     },
     {
       "name": "subscription-summary-covers-all-123-and-next-page-does-not-fetch-summary-again",
       "passed": true,
-      "durationMs": 1262
+      "durationMs": 1277
     },
     {
       "name": "search-filters-the-complete-result-and-retains-focus",
       "passed": true,
-      "durationMs": 2755
+      "durationMs": 2261
     },
     {
       "name": "treasury-summary-is-complete-and-export-fetches-full-detail-only-on-demand",
       "passed": true,
-      "durationMs": 2491
+      "durationMs": 2419
     },
     {
       "name": "print-prepares-every-matching-row-before-opening-print",
       "passed": true,
-      "durationMs": 1764
+      "durationMs": 1810
     },
     {
       "name": "target-package-report-pages-searches-and-exports-its-full-filtered-scope",
       "passed": true,
-      "durationMs": 7196
+      "durationMs": 7280
     },
     {
       "name": "daily-pagination-and-monthly-grouping-preserve-full-period-totals",
       "passed": true,
-      "durationMs": 4486
+      "durationMs": 4560
     },
     {
       "name": "export-failure-produces-no-partial-file-and-can-be-retried",
       "passed": true,
-      "durationMs": 1256
+      "durationMs": 1117
     },
     {
       "name": "report-access-and-mobile-layout-remain-scoped",
       "passed": true,
-      "durationMs": 1850
+      "durationMs": 1927
     }
   ],
   "browserErrors": [],

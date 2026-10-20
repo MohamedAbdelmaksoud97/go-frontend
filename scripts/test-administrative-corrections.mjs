@@ -138,15 +138,32 @@ test("printed corrections show the original document, reduction, reason, and cur
   assert.ok(!html.includes("<script>"))
 })
 
-test("treasury attributes correction refunds to the correct source and payment method", () => {
-  const exports = loadModule("components/reports-workspace.tsx", {}, "\nexports.testSummary=treasurySourceSummaries")
-  const row = { entryId: "invoice", sourceFinancialBreakdown: "SERVICE:10000:8700:1300:0:2000|BOOKING:20000:17400:2600:0:500", paymentMethodRevenueBreakdown: "CARD:10000:2000|BANK_TRANSFER:20000:500", sourceMethodRefundBreakdown: "SERVICE:CARD:2000|BOOKING:CARD:0|SERVICE:BANK_TRANSFER:0|BOOKING:BANK_TRANSFER:500", outstandingMinor: "0" }
-  const all = exports.testSummary([row])
-  assert.equal(all.find(item => item.source === "SERVICE").refunded, 2000)
-  assert.equal(all.find(item => item.source === "BOOKING").refunded, 500)
-  const card = exports.testSummary([row], "CARD")
-  assert.equal(card.find(item => item.source === "SERVICE").refunded, 2000)
-  assert.equal(card.find(item => item.source === "BOOKING").refunded, 0)
+test("treasury displays server correction-refund summaries by source and selected payment method independently of detail pages", () => {
+  const exports = loadModule("components/reports-workspace.tsx", {}, "\nexports.testTreasury=TreasurySections")
+  const service = { source: "SERVICE", gross: 10000, netBeforeTax: 8700, tax: 1300, discount: 0, entries: 1, received: 10000, refunded: 2000, outstanding: 0, methods: [{ method: "CARD", received: 10000, refunded: 2000, net: 8000 }] }
+  const booking = { source: "BOOKING", gross: 20000, netBeforeTax: 17400, tax: 2600, discount: 0, entries: 1, received: 20000, refunded: 500, outstanding: 0, methods: [{ method: "CARD", received: 5000, refunded: 0, net: 5000 }, { method: "BANK_TRANSFER", received: 15000, refunded: 500, net: 14500 }] }
+  const money = minor => new Intl.NumberFormat("ar-SA", { style: "currency", currency: "SAR", maximumFractionDigits: 2 }).format(minor / 100)
+  // The API now calculates these summaries over the full filtered scope. An empty
+  // detail page must not erase refunds or reallocate them to another source.
+  for (const sources of [[service, booking], [service, { ...booking, received: 5000, refunded: 0, methods: [booking.methods[0]] }]]) {
+    const document = new Window().document
+    document.body.innerHTML = renderToStaticMarkup(React.createElement(exports.testTreasury, { rows: [], sources, branches: new Map() }))
+    const tables = document.querySelectorAll(".treasury-management-summary table")
+    const sourceRows = tables[0].querySelectorAll("tbody tr")
+    assert.equal(sourceRows.length, 2)
+    assert.equal(sourceRows[0].cells[0].textContent, "خدمات")
+    assert.equal(sourceRows[0].cells[7].textContent, money(2000))
+    assert.equal(sourceRows[1].cells[0].textContent, "حجوزات")
+    assert.equal(sourceRows[1].cells[7].textContent, money(sources[1].refunded))
+    const methodRows = [...tables[1].querySelectorAll("tbody tr")]
+    assert.equal(methodRows[0].cells[0].textContent, "خدمات")
+    assert.equal(methodRows[0].cells[1].textContent, "بطاقة")
+    assert.equal(methodRows[0].cells[3].textContent, money(2000))
+    assert.equal(methodRows[1].cells[0].textContent, "حجوزات")
+    assert.equal(methodRows[1].cells[3].textContent, money(0))
+    assert.equal(methodRows.length, sources[1].methods.length + 1)
+    assert.equal(tables[0].querySelector("tfoot tr").cells[7].textContent, money(2000 + sources[1].refunded))
+  }
 })
 
 test("member invoice history keeps authorized amounts while finance links follow visibility", () => {

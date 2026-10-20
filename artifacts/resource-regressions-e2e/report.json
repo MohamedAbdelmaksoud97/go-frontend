@@ -1,0 +1,105 @@
+{
+  "runAt": "2026-10-20T13:33:50.816Z",
+  "browser": "Playwright Chromium",
+  "browserVersion": "156.0.8078.4",
+  "database": "isolated local PostgreSQL (PGlite), real migrations, SQL, HTTP routes and business services; test-only token verifier",
+  "checks": [
+    {
+      "name": "subscription-pages-retain-members-policies-and-cursor-order",
+      "passed": true,
+      "durationMs": 5099
+    },
+    {
+      "name": "freeze-and-resume-update-the-list-and-full-persisted-history",
+      "passed": true,
+      "durationMs": 2011
+    },
+    {
+      "name": "renewal-policy-dialog-and-cancellation-preview-remain-correct",
+      "passed": true,
+      "durationMs": 1141
+    },
+    {
+      "name": "attendance-consumes-the-chosen-subscription-on-the-local-database",
+      "passed": true,
+      "durationMs": 1498
+    },
+    {
+      "name": "subscriptions-remain-scoped-by-branch-and-permission",
+      "passed": true,
+      "durationMs": 2696
+    },
+    {
+      "name": "notifications-poll-at-five-minutes-and-marking-read-still-persists",
+      "passed": true,
+      "durationMs": 2702
+    },
+    {
+      "name": "kitchen-orders-and-menu-refresh-once-per-minute-with-new-live-database-data",
+      "passed": true,
+      "durationMs": 2809
+    },
+    {
+      "name": "kitchen-preparation-delivery-and-meal-entitlement-consumption-still-work",
+      "passed": true,
+      "durationMs": 1471
+    },
+    {
+      "name": "gates-do-not-stream-or-poll-and-manual-refresh-and-reload-show-new-data",
+      "passed": true,
+      "durationMs": 4171
+    },
+    {
+      "name": "main-system-pages-open-without-browser-or-server-errors",
+      "passed": true,
+      "durationMs": 11467
+    }
+  ],
+  "metrics": {
+    "notifications": {
+      "intervalMs": 300000,
+      "initialInboxRequests": 1,
+      "inboxRequestsBeforeDeadline": 1,
+      "inboxRequestsAfterDeadline": 2
+    },
+    "kitchen": {
+      "intervalMs": 60000,
+      "queueRequestsBeforeDeadline": 3,
+      "queueRequestsAfterDeadline": 6,
+      "additionalMenuRequests": 1
+    },
+    "gates": {
+      "streamRequests": 0,
+      "additionalPeriodicRequestsInOneMinute": 0,
+      "manualRefreshVerified": true,
+      "pageReloadVerified": true
+    },
+    "smokePages": [
+      "/",
+      "/members",
+      "/subscriptions",
+      "/attendance",
+      "/restaurant",
+      "/access-control",
+      "/finance",
+      "/cashier",
+      "/reports",
+      "/audit",
+      "/operations",
+      "/notifications"
+    ]
+  },
+  "browserErrors": [],
+  "failedResponses": [],
+  "cleanup": {
+    "localOnly": true,
+    "seededMembersBeforeCleanup": 2,
+    "remainingTestTables": 0
+  },
+  "limitations": [
+    "Local development build, not production hosting or billing",
+    "Supabase Auth provider and physical gate hardware are outside this local test",
+    "Renewal dialog is exercised in Chromium; renewal persistence is covered by the backend integration suite"
+  ],
+  "passed": true
+}
