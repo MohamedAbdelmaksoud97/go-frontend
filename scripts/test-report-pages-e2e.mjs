@@ -39,6 +39,49 @@ async function csvDownload(name, expectedRows) {
   assert.equal(csv.trim().split("\n").length, expectedRows + 1)
   return csv
 }
+async function verifyPrintOutput(rowSelector, expectedRows) {
+  let releaseExport
+  const pendingExport = new Promise(resolve => { releaseExport = resolve })
+  const delayExport = async route => {
+    if (new URL(route.request().url()).searchParams.get("limit") === "1000") await pendingExport
+    await route.fallback()
+  }
+  await page.route("**/reports/**", delayExport)
+  try {
+    await page.evaluate(selector => {
+      window.__reportPrintAudit = undefined
+      window.print = () => {
+        const preparation = [...document.querySelectorAll('.reports-print-root [role="status"]')].find(element => element.textContent.includes("جارٍ تجهيز التقرير الكامل"))
+        window.__reportPrintAudit = {
+          rowCount: document.querySelectorAll(selector).length,
+          printMedia: window.matchMedia("print").matches,
+          preparationPresent: Boolean(preparation),
+          preparationDisplay: preparation ? getComputedStyle(preparation).display : undefined,
+          visibleText: document.querySelector(".reports-print-root").innerText,
+        }
+      }
+    }, rowSelector)
+    await page.getByRole("button", { name: "طباعة التقرير", exact: true }).click()
+    const preparation = page.getByRole("status").filter({ hasText: "جارٍ تجهيز التقرير الكامل" })
+    // Keep the real export request pending: the status must remain visible on
+    // screen and disappear through print CSS, rather than by finishing early.
+    await expect(preparation).toBeVisible()
+    await page.emulateMedia({ media: "print" })
+    await expect(preparation).toBeHidden()
+    releaseExport()
+    await expect.poll(() => page.evaluate(() => window.__reportPrintAudit?.rowCount)).toBe(expectedRows)
+    const audit = await page.evaluate(() => window.__reportPrintAudit)
+    assert.equal(audit.printMedia, true)
+    assert.equal(audit.preparationPresent, true, "Check the print snapshot while its preparation status is still mounted")
+    assert.equal(audit.preparationDisplay, "none")
+    assert.ok(!audit.visibleText.includes("جارٍ تجهيز التقرير الكامل"))
+  } finally {
+    releaseExport()
+    await page.emulateMedia({ media: "screen" })
+    await page.unroute("**/reports/**", delayExport)
+  }
+  await expect(page.getByRole("button", { name: "طباعة التقرير", exact: true })).toBeEnabled()
+}
 try {
   environment = await createLocalCoachingEnvironment()
   const fixtures = await seedLocalReportingData(environment)
@@ -62,6 +105,9 @@ try {
     const data = requests.filter(url => url.pathname.includes("/api/backend/") && url.pathname.includes("/reports/"))
     assert.equal(data.length, 1); assert.equal(data[0].searchParams.get("limit"), "50"); assert.equal(data[0].searchParams.get("view"), "PAGE")
   })
+  await check("overview-print-hides-preparation-status-without-losing-daily-rows", async () => {
+    await verifyPrintOutput(".hidden.print\\:block tbody tr", 20)
+  })
   await check("subscription-summary-covers-all-123-and-next-page-does-not-fetch-summary-again", async () => {
     const first = await reportResponse(url => url.searchParams.get("reportType") === "SUBSCRIPTIONS", () => page.getByRole("tab", { name: "الاشتراكات", exact: true }).click())
     assert.equal(first.data.length, 50); assert.equal(first.meta.summary.totalRows, 123); assert.equal(first.meta.summary.sums.discountMinor, "7626")
@@ -84,20 +130,18 @@ try {
     assert.equal(valid.meta.summary.totalRows, 2); await expect(tableRows()).toHaveCount(2)
   })
   await check("treasury-summary-is-complete-and-export-fetches-full-detail-only-on-demand", async () => {
-    assert.equal(requests.filter(url => url.searchParams.get("limit") === "1000").length, 0)
+    const exportsBefore = requests.filter(url => url.searchParams.get("limit") === "1000").length
     const result = await reportResponse(url => url.searchParams.get("reportType") === "TREASURY", () => page.getByRole("tab", { name: "الخزنة", exact: true }).click())
     assert.equal(result.meta.summary.totalRows, 123)
     assert.equal(result.meta.summary.treasurySources.find(row => row.source === "OTHER").gross, 19926)
     await expect(page.locator(".treasury-other-income-section:visible tbody tr")).toHaveCount(50)
     const csv = await csvDownload("treasury-full.csv", 123)
     assert.ok(csv.includes("Report income 001") && csv.includes("Report income 123"))
-    assert.equal(requests.filter(url => url.searchParams.get("limit") === "1000").length, 1)
+    assert.equal(requests.filter(url => url.searchParams.get("limit") === "1000").length, exportsBefore + 1)
     await page.screenshot({ path: path.join(artifactRoot, "01-treasury.png"), fullPage: false })
   })
-  await check("print-prepares-every-matching-row-before-opening-print", async () => {
-    await page.evaluate(() => { window.print = () => { window.__printedReportRows = document.querySelectorAll(".hidden.print\\:block .treasury-other-income-section tbody tr").length } })
-    await page.getByRole("button", { name: "طباعة التقرير", exact: true }).click()
-    await expect.poll(() => page.evaluate(() => window.__printedReportRows)).toBe(123)
+  await check("treasury-print-prepares-every-row-and-hides-preparation-status", async () => {
+    await verifyPrintOutput(".hidden.print\\:block .treasury-other-income-section tbody tr", 123)
   })
   await check("target-package-report-pages-searches-and-exports-its-full-filtered-scope", async () => {
     await page.goto(`${baseUrl}/reports/package/${fixtures.packageA}?from=2026-10-01&to=2026-10-20&branchId=${environment.ids.branch}&name=Report%20package%20A`)
@@ -108,6 +152,14 @@ try {
     await expect(tableRows()).toHaveCount(1); await csvDownload("target-filtered.csv", 1)
     await reportResponse(url => !url.searchParams.has("search"), () => search.fill(""))
     await expect(tableRows()).toHaveCount(50); await csvDownload("target-full.csv", 120)
+  })
+  await check("target-package-print-hides-preparation-status-and-includes-all-120-rows", async () => {
+    await verifyPrintOutput(".reports-details-card tbody tr", 120)
+  })
+  await check("target-promotion-print-hides-preparation-status-and-includes-all-61-rows", async () => {
+    await page.goto(`${baseUrl}/reports/promotion/${fixtures.promotion}?from=2026-10-01&to=2026-10-20&branchId=${environment.ids.branch}&name=Report%20promotion`)
+    await expect(tableRows()).toHaveCount(50)
+    await verifyPrintOutput(".reports-details-card tbody tr", 61)
   })
   await check("daily-pagination-and-monthly-grouping-preserve-full-period-totals", async () => {
     await page.goto(`${baseUrl}/reports`)
