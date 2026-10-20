@@ -1,6 +1,6 @@
 "use client"
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { Activity, BadgeDollarSign, CalendarCheck2, CalendarClock, CalendarDays, CalendarRange, CircleDollarSign, ClipboardList, CreditCard, Download, FileSpreadsheet, Gift, Landmark, PackageCheck, ReceiptText, ScanFace, Search, ShoppingCart, Users, UtensilsCrossed, WalletCards } from "lucide-react"
@@ -10,6 +10,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { DateTimeInput } from "@/components/date-time-input"
 import { Input } from "@/components/ui/input"
 import { apiRequest } from "@/lib/api-client"
+import { useCoachingSearch } from "@/lib/use-coaching-page"
+import { useReportPage, reportExportRows, REPORT_PAGE_SIZE, type ReportSummary } from "@/lib/use-report-page"
 import { humanError } from "@/lib/human-errors"
 import { canViewReport, reportPermissions } from "@/lib/permissions"
 import { accessDeviceReason, accessReader, accessSystemReason, type GateAccessEvent } from "@/lib/access-event"
@@ -31,13 +33,8 @@ type Metric = { label: string; value: string; note?: string }
 type Column = { key: string; label: string; value: (row: DetailRecord) => string; href?: (row: DetailRecord) => string | undefined; className?: string; cellClassName?: (row: DetailRecord) => string }
 type ReportLinkContext = { from: string; to: string; branchId: string }
 type DetailSortOption = { value: string; label: string; kind: "date" | "number" | "text"; keys: string[]; direction: "asc" | "desc" }
-type ReportCacheEntry<T> = { rows: T[]; asOf: string | null; complete: boolean }
 type SystemServiceOption = { id: string; code: string; name: string; categoryId?: string }
 
-const DETAIL_PAGE_SIZE = 500
-const VISIBLE_ROWS_PER_PAGE = 100
-const REPORT_CACHE_LIMIT = 12
-const PAYMENT_METHOD_CODES = ["CASH", "CARD", "BANK_TRANSFER", "GATEWAY", "WALLET"] as const
 const TREASURY_SOURCE_CODES = ["MEMBERSHIP", "SERVICE", "BOOKING", "RETAIL", "RESTAURANT", "OTHER"] as const
 
 const reports: Array<{ id: ReportSection; label: string; description: string; icon: typeof Activity }> = [
@@ -86,98 +83,52 @@ export function ReportsWorkspace() {
   const [restaurantSource, setRestaurantSource] = useState<RestaurantSourceFilter>("ALL")
   const [sortBy, setSortBy] = useState("NEWEST")
   const [search, setSearch] = useState("")
-  const deferredSearch = useDeferredValue(search)
-  const [storedDailyRows, setDailyRows] = useState<DailyReport[]>([])
-  const [storedDetailRows, setDetailRows] = useState<DetailRecord[]>([])
-  const [loadedDailyKey, setLoadedDailyKey] = useState("")
-  const [loadedDetailKey, setLoadedDetailKey] = useState("")
+  const deferredSearch = useCoachingSearch(search)
   const [systemServices, setSystemServices] = useState<{ organizationId: string; loaded: boolean; items: SystemServiceOption[] }>({ organizationId: "", loaded: false, items: [] })
-  const [loadedDetailType, setLoadedDetailType] = useState<DetailType>()
-  const [dailyAsOf, setDailyAsOf] = useState<string | null>(null)
-  const [detailAsOf, setDetailAsOf] = useState<string | null>(null)
-  const [dailyLoading, setDailyLoading] = useState(true)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [detailLoadingMore, setDetailLoadingMore] = useState(false)
-  const [dailyError, setDailyError] = useState("")
-  const [detailError, setDetailError] = useState("")
   const [detailPage, setDetailPage] = useState(1)
   const [validationError, setValidationError] = useState("")
-  const dailyCache = useRef(new Map<string, ReportCacheEntry<DailyReport>>())
-  const detailCache = useRef(new Map<string, ReportCacheEntry<DetailRecord>>())
   const detailType = detailTypes[section]
   const showDailyTable = section === "overview" || section === "net" || (section === "treasury" && treasuryView !== "DETAIL")
   const dailyReportType = section === "net" ? "NET_TREASURY" : section === "treasury" ? "TREASURY" : "OVERVIEW"
   const authorizationKey = `${context.userAccountId}:${JSON.stringify(context.grants)}`
   const scopeKey = `${authorizationKey}:${context.organizationId}:${branchId || "ALL"}:${range.from}:${range.to}`
-  const dailyKey = `${scopeKey}:${dailyReportType}`
-  const detailKey = `${scopeKey}:${detailType}`
-  const dailyRows = useMemo(() => loadedDailyKey === dailyKey && canViewActiveReport ? storedDailyRows : [], [canViewActiveReport, dailyKey, loadedDailyKey, storedDailyRows])
-  const detailRows = useMemo(() => loadedDetailKey === detailKey && canViewActiveReport ? storedDetailRows : [], [canViewActiveReport, detailKey, loadedDetailKey, storedDetailRows])
-
-  useEffect(() => {
-    if (!context.organizationId || !canViewActiveReport || !showDailyTable) return
-    let cancelled = false
-    const controller = new AbortController()
-    const cacheKey = dailyKey
-    const cached = dailyCache.current.get(cacheKey)
-    const frame = requestAnimationFrame(() => {
-      if (cached !== undefined) {
-        setDailyRows(cached.rows); setLoadedDailyKey(cacheKey); setDailyAsOf(cached.asOf); setDailyLoading(false); setDailyError("")
-        return
-      }
-      setDailyLoading(true); setDailyError("")
-      const params = new URLSearchParams({ from: range.from, to: range.to })
-      params.set("reportType", dailyReportType)
-      if (branchId) params.set("branchId", branchId)
-      void apiRequest<DailyReport[]>(`/organizations/${context.organizationId}/reports/branch-daily?${params}`, { signal: controller.signal }).then(dailyResponse => {
-        if (cancelled) return
-        const rows = Array.isArray(dailyResponse.data) ? dailyResponse.data : []
-        const asOf = String(dailyResponse.meta?.asOf ?? "") || null
-        rememberReport(dailyCache.current, cacheKey, { rows, asOf, complete: true })
-        setDailyRows(rows); setLoadedDailyKey(cacheKey); setDailyAsOf(asOf)
-      }).catch(reason => { if (!cancelled) { setDailyRows([]); setLoadedDailyKey(cacheKey); setDailyError(humanError(reason, "تعذر إعداد ملخص التقرير للفترة المحددة.")) } }).finally(() => { if (!cancelled) setDailyLoading(false) })
-    })
-    return () => { cancelled = true; controller.abort(); cancelAnimationFrame(frame) }
-  }, [branchId, canViewActiveReport, context.organizationId, dailyKey, dailyReportType, range, showDailyTable])
-
-  useEffect(() => {
-    if (!context.organizationId || !detailType || !canViewActiveReport || showDailyTable) return
-    let cancelled = false
-    const controller = new AbortController()
-    const cacheKey = detailKey
-    const cached = detailCache.current.get(cacheKey)
-    const frame = requestAnimationFrame(() => {
-      if (cached !== undefined) {
-        setDetailRows(cached.rows); setLoadedDetailKey(cacheKey); setLoadedDetailType(detailType); setDetailAsOf(cached.asOf); setDetailLoading(false); setDetailError(""); setDetailLoadingMore(!cached.complete)
-      } else {
-        setDetailRows([]); setLoadedDetailType(undefined); setDetailAsOf(null); setDetailLoading(true); setDetailError("")
-      }
-    })
-    if (cached?.complete) return () => { cancelled = true; controller.abort(); cancelAnimationFrame(frame) }
-    const timer = window.setTimeout(() => {
-      const params = new URLSearchParams({ from: range.from, to: range.to, reportType: detailType })
-      if (branchId) params.set("branchId", branchId)
-      let hasUsableRows = (cached?.rows.length ?? 0) > 0
-      setDetailLoadingMore(hasUsableRows)
-      void loadDetailedReportPages(`/organizations/${context.organizationId}/reports/details`, params, controller.signal, cached?.rows ?? [], entry => {
-        if (cancelled) return
-        hasUsableRows = entry.rows.length > 0
-        rememberReport(detailCache.current, cacheKey, entry)
-        setDetailRows(entry.rows); setLoadedDetailKey(cacheKey); setLoadedDetailType(detailType); setDetailAsOf(entry.asOf); setDetailLoading(false); setDetailLoadingMore(!entry.complete)
-      }).then(entry => {
-        if (cancelled) return
-        rememberReport(detailCache.current, cacheKey, entry)
-        setDetailRows(entry.rows); setLoadedDetailKey(cacheKey); setLoadedDetailType(detailType); setDetailAsOf(entry.asOf); setDetailLoading(false); setDetailLoadingMore(false)
-      }).catch(reason => {
-        if (cancelled) return
-        if (!hasUsableRows) { setDetailRows([]); setDetailError(humanError(reason, "تعذر إعداد التقرير للفترة المحددة.")) }
-        setLoadedDetailKey(cacheKey); setLoadedDetailType(detailType)
-        setDetailLoading(false); setDetailLoadingMore(false)
-      })
-    }, 120)
-    return () => { cancelled = true; controller.abort(); cancelAnimationFrame(frame); window.clearTimeout(timer) }
-  }, [branchId, canViewActiveReport, context.organizationId, detailKey, detailType, range, showDailyTable])
-
+  const dailyMode = (section === "net" || (section === "treasury" && treasuryView !== "DETAIL")) && treasuryView === "MONTH" ? "MONTH" : "DAY"
+  const dailyParams = new URLSearchParams({ from: range.from, to: range.to, reportType: dailyReportType, groupBy: dailyMode })
+  if (branchId) dailyParams.set("branchId", branchId)
+  const dailyPath = context.organizationId && canViewActiveReport && showDailyTable ? `/organizations/${context.organizationId}/reports/branch-daily?${dailyParams}` : null
+  const dailyKey = `${scopeKey}:${dailyPath}`
+  const dailyPage = useReportPage(dailyPath, authorizationKey, detailPage)
+  const dailyRows = dailyPage.rows as unknown as DailyReport[]
+  const dailyAsOf = dailyPage.asOf
+  const dailyError = dailyPage.error
+  const dailyLoading = dailyPage.loading
+  const sortingOptions = useMemo(() => detailSortOptions(section), [section])
+  const activeSort = useMemo(() => sortingOptions.find(option => option.value === sortBy) ?? sortingOptions[0], [sortBy, sortingOptions])
+  const detailParams = new URLSearchParams({ from: range.from, to: range.to, reportType: detailType ?? "MEMBERS", sortBy: activeSort.value })
+  if (branchId) detailParams.set("branchId", branchId)
+  if (deferredSearch) detailParams.set("search", deferredSearch)
+  if (section === "subscriptions" || section === "expiry") { detailParams.set("validity", validity); detailParams.set("packageFilter", packageFilter) }
+  if (section === "expiry" && expiryHorizon !== "ALL") detailParams.set("expiryHorizon", expiryHorizon)
+  if (section === "services") { detailParams.set("serviceCategory", serviceCategory); detailParams.set("serviceFilter", serviceFilter) }
+  if (section === "restaurantRevenue") detailParams.set("restaurantSource", restaurantSource)
+  if (section === "attendance") detailParams.set("attendanceDecision", attendanceDecision)
+  if (section === "bookings") detailParams.set("bookingStatus", bookingStatus)
+  if (section === "treasury") { detailParams.set("paymentMethod", paymentMethod); detailParams.set("revenueSource", revenueSource) }
+  const detailPath = context.organizationId && detailType && canViewActiveReport && !showDailyTable ? `/organizations/${context.organizationId}/reports/details?${detailParams}` : null
+  const detailKey = `${authorizationKey}:${detailPath}`
+  const reportPage = useReportPage(detailPath, authorizationKey, detailPage)
+  const detailRows = reportPage.rows
+  const loadedDetailType = detailType
+  const detailAsOf = reportPage.asOf
+  const detailError = reportPage.error
+  const [exportError, setExportError] = useState("")
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState(0)
+  const [printSnapshot, setPrintSnapshot] = useState<{ key: string; rows: DetailRecord[] }>()
+  const exportRequest = useRef<AbortController | null>(null)
+  const exportKey = showDailyTable ? dailyKey : detailKey
+  useEffect(() => { setExporting(false); setExportError(""); return () => exportRequest.current?.abort() }, [exportKey]) // eslint-disable-line react-hooks/set-state-in-effect
+  const printRows = printSnapshot?.key === exportKey ? printSnapshot.rows : detailRows
   useEffect(() => {
     if (section !== "services" || !context.organizationId || !canViewActiveReport || !context.canAccessOrganization(["catalog.read"])) return
     const organizationId = context.organizationId
@@ -193,20 +144,20 @@ export function ReportsWorkspace() {
   const branchNames = useMemo(() => new Map(context.branches.map(branch => [branch.id, branch.nameAr ?? branch.name ?? "فرع"])), [context.branches])
   const packageOptions = useMemo(() => {
     const values = new Map<string, string>()
-    if (loadedDetailType === "SUBSCRIPTIONS" || loadedDetailType === "SUBSCRIPTION_EXPIRY") for (const row of detailRows) {
+    if (loadedDetailType === "SUBSCRIPTIONS" || loadedDetailType === "SUBSCRIPTION_EXPIRY") for (const row of reportPage.summary?.options.packages ?? []) {
       const key = subscriptionPackageKey(row)
       const name = String(row.packageName ?? "").trim()
       if (key && name) values.set(key, name)
     }
     return [...values].map(([value, label]) => ({ value, label })).sort((left, right) => left.label.localeCompare(right.label, "ar"))
-  }, [detailRows, loadedDetailType])
-  const activePackageFilter = packageFilter === "ALL" || packageOptions.some(option => option.value === packageFilter) ? packageFilter : "ALL"
+  }, [reportPage.summary, loadedDetailType])
+  const activePackageFilter = packageFilter
   const serviceCategories = useMemo(() => {
     const values = new Map<string, string>()
-    if (loadedDetailType === "SERVICES") for (const row of detailRows) values.set(String(row.serviceCategoryId ?? "UNCATEGORIZED"), String(row.serviceCategoryName ?? "غير مصنف"))
+    if (loadedDetailType === "SERVICES") for (const row of reportPage.summary?.options.services ?? []) values.set(String(row.serviceCategoryId ?? "UNCATEGORIZED"), String(row.serviceCategoryName ?? "غير مصنف"))
     return [...values].map(([value, label]) => ({ value, label })).sort((left, right) => left.label.localeCompare(right.label, "ar"))
-  }, [detailRows, loadedDetailType])
-  const activeServiceCategory = serviceCategory === "ALL" || serviceCategories.some(option => option.value === serviceCategory) ? serviceCategory : "ALL"
+  }, [reportPage.summary, loadedDetailType])
+  const activeServiceCategory = serviceCategory
   const serviceOptions = useMemo(() => {
     const values = new Map<string, string>()
     if (systemServices.organizationId === context.organizationId && systemServices.loaded) {
@@ -214,7 +165,7 @@ export function ReportsWorkspace() {
         if (activeServiceCategory !== "ALL" && String(service.categoryId ?? "UNCATEGORIZED") !== activeServiceCategory) continue
         values.set(`id:${service.id}`, service.code ? `${service.name} · ${service.code}` : service.name)
       }
-    } else if (loadedDetailType === "SERVICES") for (const row of detailRows) {
+    } else if (loadedDetailType === "SERVICES") for (const row of reportPage.summary?.options.services ?? []) {
         if (activeServiceCategory !== "ALL" && String(row.serviceCategoryId ?? "UNCATEGORIZED") !== activeServiceCategory) continue
         const key = serviceReportKey(row)
         const name = String(row.serviceName ?? "خدمة").trim()
@@ -222,37 +173,20 @@ export function ReportsWorkspace() {
         if (key) values.set(key, code ? `${name} · ${code}` : name)
     }
     return [...values].map(([value, label]) => ({ value, label })).sort((left, right) => left.label.localeCompare(right.label, "ar"))
-  }, [activeServiceCategory, context.organizationId, detailRows, loadedDetailType, systemServices])
-  const activeServiceFilter = serviceFilter === "ALL" || serviceOptions.some(option => option.value === serviceFilter) ? serviceFilter : "ALL"
-  const sortingOptions = useMemo(() => detailSortOptions(section), [section])
-  const activeSort = useMemo(() => sortingOptions.find(option => option.value === sortBy) ?? sortingOptions[0], [sortBy, sortingOptions])
-  const visibleDetails = useMemo(() => sortDetailRows((loadedDetailType === detailType ? detailRows : []).filter(row => {
-    if ((section === "subscriptions" || section === "expiry") && validity !== "ALL" && Boolean(row.isValid) !== (validity === "VALID")) return false
-    if ((section === "subscriptions" || section === "expiry") && activePackageFilter !== "ALL" && subscriptionPackageKey(row) !== activePackageFilter) return false
-    if (section === "services" && activeServiceCategory !== "ALL" && String(row.serviceCategoryId ?? "UNCATEGORIZED") !== activeServiceCategory) return false
-    if (section === "services" && activeServiceFilter !== "ALL" && serviceReportKey(row) !== activeServiceFilter) return false
-    if (section === "restaurantRevenue" && restaurantSource !== "ALL" && row.sourceType !== restaurantSource) return false
-    if (section === "expiry" && expiryHorizon !== "ALL" && Number(row.remainingDays) > Number(expiryHorizon)) return false
-    if (section === "attendance" && attendanceDecision !== "ALL" && row.decision !== attendanceDecision) return false
-    if (section === "bookings" && bookingStatus !== "ALL" && row.status !== bookingStatus) return false
-    if (section === "treasury" && paymentMethod !== "ALL" && !paymentMethodCodes(row.paymentMethods).includes(paymentMethod)) return false
-    if (section === "treasury" && revenueSource !== "ALL" && !treasuryRowHasSource(row, revenueSource)) return false
-    if (!deferredSearch.trim()) return true
-    const needle = deferredSearch.trim().toLocaleLowerCase("ar")
-    return Object.values(row).some(value => String(value ?? "").toLocaleLowerCase("ar").includes(needle))
-  }), activeSort), [activePackageFilter, activeServiceCategory, activeServiceFilter, activeSort, attendanceDecision, bookingStatus, deferredSearch, detailRows, detailType, expiryHorizon, loadedDetailType, paymentMethod, restaurantSource, revenueSource, section, validity])
-  const dailyMode = (section === "net" || (section === "treasury" && treasuryView !== "DETAIL")) && treasuryView === "MONTH" ? "MONTH" : "DAY"
-  const dailyDisplay = useMemo(() => groupDailyRows(dailyRows, dailyMode), [dailyMode, dailyRows])
+  }, [activeServiceCategory, context.organizationId, reportPage.summary, loadedDetailType, systemServices])
+  const activeServiceFilter = serviceFilter
+  const visibleDetails = detailRows
+  const dailyDisplay = dailyRows
   const activeReport = reports.find(item => item.id === section) ?? reports[0]
   const canReadMemberReport = canViewReport(context.grants, reportPermissions.members, context.organizationId, branchId)
   const columns = detailColumns(section, branchNames, { from: range.from, to: range.to, branchId }).map(column => canReadMemberReport ? column : { ...column, href: undefined })
-  const loading = showDailyTable ? dailyLoading || loadedDailyKey !== dailyKey : detailLoading || loadedDetailType !== detailType || loadedDetailKey !== detailKey
-  const error = showDailyTable ? dailyError : detailError
+  const loading = showDailyTable ? dailyLoading : reportPage.loading
+  const error = exportError || (showDailyTable ? dailyError : detailError)
   const asOf = showDailyTable ? dailyAsOf : detailAsOf
-  const detailPageCount = Math.max(1, Math.ceil(visibleDetails.length / VISIBLE_ROWS_PER_PAGE))
+  const detailPageCount = Math.max(1, Math.ceil(((showDailyTable ? dailyPage : reportPage).summary?.totalRows ?? 0) / REPORT_PAGE_SIZE))
   const activeDetailPage = Math.min(detailPage, detailPageCount)
-  const pagedDetails = useMemo(() => visibleDetails.slice((activeDetailPage - 1) * VISIBLE_ROWS_PER_PAGE, activeDetailPage * VISIBLE_ROWS_PER_PAGE), [activeDetailPage, visibleDetails])
-  const metrics = reportMetrics(section, dailyRows, visibleDetails, showDailyTable, paymentMethod, revenueSource)
+  const pagedDetails = visibleDetails
+  const metrics = showDailyTable ? dailyReportMetrics(section, [{ ...dailyPage.summary?.sums, currency: "SAR" } as unknown as DailyReport]) : serverReportMetrics(section, reportPage.summary)
   const selectedPackageName = packageOptions.find(option => option.value === activePackageFilter)?.label
   const selectedServiceCategoryName = serviceCategories.find(option => option.value === activeServiceCategory)?.label
   const selectedServiceName = serviceOptions.find(option => option.value === activeServiceFilter)?.label
@@ -262,72 +196,57 @@ export function ReportsWorkspace() {
     const days = rangeDays(draftFrom, draftTo)
     if (days < 1) { setValidationError("تاريخ البداية يجب أن يسبق تاريخ النهاية أو يساويه."); return }
     if (days > 366) { setValidationError("الحد الأقصى للفترة هو 366 يومًا."); return }
-    setValidationError(""); setDetailPage(1); setRange({ from: draftFrom, to: draftTo })
+    setValidationError(""); setDetailPage(1); setRange({ from: draftFrom, to: draftTo }); dailyPage.reload(); reportPage.reload()
   }
   function selectPreset(preset: "TODAY" | "WEEK" | "MONTH") {
     const to = today(); const from = preset === "TODAY" ? to : preset === "WEEK" ? addDays(to, -6) : `${to.slice(0, 7)}-01`
-    setDraftFrom(from); setDraftTo(to); setValidationError(""); setDetailPage(1); setRange({ from, to })
+    setDraftFrom(from); setDraftTo(to); setValidationError(""); setDetailPage(1); setRange({ from, to }); dailyPage.reload(); reportPage.reload()
   }
-  function exportCsv() {
-    const table = showDailyTable ? dailyColumns(section).map(column => ({ label: column.label, values: dailyDisplay.map(row => column.value(row, branchNames)) })) : columns.map(column => ({ label: column.label, values: visibleDetails.map(row => column.value(row)) }))
+  async function exportCsv() {
+    if (exporting) return
+    const controller = new AbortController(); exportRequest.current = controller
+    setExporting(true); setExportError(""); setExportProgress(0)
+    try {
+    const exportDetails = await reportExportRows((showDailyTable ? dailyPath : detailPath)!, controller.signal, setExportProgress)
+    controller.signal.throwIfAborted()
+    const table = showDailyTable ? dailyColumns(section).map(column => ({ label: column.label, values: (exportDetails as unknown as DailyReport[]).map(row => column.value(row, branchNames)) })) : columns.map(column => ({ label: column.label, values: exportDetails.map(row => column.value(row)) }))
     const count = table[0]?.values.length ?? 0
     const escape = (value: string) => `"${value.replaceAll('"', '""')}"`
     const csv = [table.map(column => column.label), ...Array.from({ length: count }, (_, index) => table.map(column => column.values[index] ?? ""))].map(row => row.map(escape).join(",")).join("\n")
     const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }))
     const link = document.createElement("a"); link.href = url; link.download = `go-report-${section}-${range.from}-${range.to}.csv`; link.click(); URL.revokeObjectURL(url)
+    } catch (reason) { if (!controller.signal.aborted) setExportError(humanError(reason, "تعذر تصدير التقرير كاملًا. حاول مجددًا.")) }
+    finally { if (exportRequest.current === controller) setExporting(false) }
+  }
+  async function printReport() {
+    if (exporting) return
+    const controller = new AbortController(); exportRequest.current = controller
+    setExporting(true); setExportError(""); setExportProgress(0)
+    try {
+      const rows = await reportExportRows((showDailyTable ? dailyPath : detailPath)!, controller.signal, setExportProgress)
+      controller.signal.throwIfAborted()
+      setPrintSnapshot({ key: exportKey, rows })
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      controller.signal.throwIfAborted(); window.print()
+    } catch (reason) { if (!controller.signal.aborted) setExportError(humanError(reason, "تعذر تجهيز التقرير للطباعة.")) }
+    finally { if (exportRequest.current === controller) { setExporting(false); setPrintSnapshot(undefined) } }
   }
 
   if (context.loading) return <p role="status">جارٍ تحميل الصلاحيات...</p>
   if (!canViewActiveReport) return <p role="alert" className="rounded-xl border p-6">لا تملك صلاحية الاطلاع على أي تقرير في الفرع المحدد.</p>
 
   return <main className="reports-print-root space-y-5" dir="rtl">
-    <header className="reports-print-hidden flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><p className="text-xs font-bold text-primary">مركز التقارير</p><h1 className="mt-2 text-2xl font-black sm:text-3xl">التقارير الإدارية والمالية</h1><p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">أنشئ تقريرًا دقيقًا لأي فترة، راجع التفاصيل، ثم اطبعه أو صدّره إلى CSV.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportCsv} disabled={loading || detailLoadingMore || (!dailyRows.length && !visibleDetails.length)}><Download />تصدير CSV</Button><Button onClick={() => window.print()} disabled={loading || detailLoadingMore}><FileSpreadsheet />طباعة التقرير</Button></div></header>
+    <header className="reports-print-hidden flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><p className="text-xs font-bold text-primary">مركز التقارير</p><h1 className="mt-2 text-2xl font-black sm:text-3xl">التقارير الإدارية والمالية</h1><p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">أنشئ تقريرًا دقيقًا لأي فترة، راجع التفاصيل، ثم اطبعه أو صدّره إلى CSV.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void exportCsv()} disabled={loading || exporting || (!dailyRows.length && !visibleDetails.length)}><Download />تصدير CSV</Button><Button onClick={() => void printReport()} disabled={loading || exporting}><FileSpreadsheet />طباعة التقرير</Button></div></header>
     <Card className="reports-print-hidden"><CardContent className="space-y-4 p-4"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto] xl:items-end"><label className="text-xs font-bold">من تاريخ<DateTimeInput aria-label="بداية فترة التقرير" type="date" value={draftFrom} onChange={event => setDraftFrom(event.target.value)} className="mt-2 h-11" /></label><label className="text-xs font-bold">إلى تاريخ<DateTimeInput aria-label="نهاية فترة التقرير" type="date" value={draftTo} onChange={event => setDraftTo(event.target.value)} className="mt-2 h-11" /></label><label className="text-xs font-bold">الفرع<select aria-label="فرع التقرير" value={branchId} onChange={event => { setDetailPage(1); setBranchSelection({ contextBranchId: context.branchId, value: event.target.value }) }} className="mt-2 h-11 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-primary">{context.branches.length > 1 && <option value="">كل الفروع المسموح بها</option>}{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.nameAr ?? branch.name ?? "فرع"}</option>)}</select></label><Button className="h-11" onClick={applyRange}><CalendarRange />تطبيق الفترة</Button></div><div className="flex flex-wrap items-center gap-2"><span className="text-[11px] font-bold text-muted-foreground">فترات سريعة:</span><Button size="sm" variant="outline" onClick={() => selectPreset("TODAY")}>اليوم</Button><Button size="sm" variant="outline" onClick={() => selectPreset("WEEK")}>آخر 7 أيام</Button><Button size="sm" variant="outline" onClick={() => selectPreset("MONTH")}>الشهر الحالي</Button><span className="mr-auto rounded-lg bg-primary/10 px-3 py-2 text-[11px] font-bold text-amber-800 dark:text-primary"><CalendarDays className="ml-1 inline size-4" />{formatRange(range.from, range.to)}</span></div>{validationError && <p role="alert" className="text-xs font-bold text-red-600">{validationError}</p>}</CardContent></Card>
     <nav className="reports-print-hidden flex gap-2 overflow-x-auto pb-1" aria-label="أنواع التقارير" role="tablist">{availableReports.map(item => { const Icon = item.icon; return <button key={item.id} type="button" role="tab" aria-selected={section === item.id} onClick={() => { setSection(item.id); setDetailPage(1); setSearch(""); setSortBy(detailSortOptions(item.id)[0].value); if (item.id === "expiry") setValidity("VALID"); if (item.id === "subscriptions") setValidity("ALL") }} className={`flex shrink-0 items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition ${section === item.id ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:border-primary/50"}`}><Icon className="size-4" aria-hidden="true" />{item.label}</button> })}</nav>
     <section className="reports-print-header hidden print:block"><div className="reports-print-brand"><div className="print-logo-plate"><Image src="/go-fitness-logo.png" alt="شعار GO Fitness" width={104} height={58}/></div><div><strong>GO Fitness</strong><span>التقارير الإدارية والمالية</span></div></div><div className="reports-print-heading"><h1>{activeReport.label}</h1><p>{formatRange(range.from, range.to)} · {branchId ? branchNames.get(branchId) ?? "الفرع المحدد" : "كل الفروع المسموح بها"}</p>{printFilterSummary && <p>الفلاتر: {printFilterSummary}</p>}</div></section>
-    <Card className="reports-print-hidden border-primary/20 bg-primary/5"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-black">{activeReport.label}</h2><p className="mt-1 text-xs leading-6 text-muted-foreground">{activeReport.description}</p>{section === "expiry" && <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black" aria-label="دليل ألوان اقتراب انتهاء الاشتراك"><span className="rounded-md bg-red-500/15 px-2 py-1 text-red-800 dark:text-red-300">يوم أو أقل</span><span className="rounded-md bg-orange-500/15 px-2 py-1 text-orange-800 dark:text-orange-300">2–3 أيام</span><span className="rounded-md bg-amber-500/15 px-2 py-1 text-amber-800 dark:text-amber-300">4–7 أيام</span><span className="rounded-md bg-blue-500/12 px-2 py-1 text-blue-800 dark:text-blue-300">8–14 يومًا</span><span className="rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-800 dark:text-emerald-300">15 يومًا فأكثر</span></div>}{(section === "packages" || section === "promotions") && <p className="mt-1 text-[10px] leading-5 text-muted-foreground">صافي العائد = إجمالي المبيعات − الاستردادات المنسوبة. لا يمثل ربحًا محاسبيًا بعد التكلفة لعدم وجود تكلفة مباشرة مسجلة لكل باقة.</p>}</div><div className="flex flex-wrap gap-2">{(section === "subscriptions" || section === "expiry") && <><select aria-label="فلترة الاشتراكات باسم الباقة" value={activePackageFilter} onChange={event => { setPackageFilter(event.target.value); setDetailPage(1) }} className="h-10 min-w-44 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل الباقات</option>{packageOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><select aria-label="حالة سريان الاشتراك" value={validity} onChange={event => { setValidity(event.target.value as typeof validity); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل الاشتراكات</option><option value="VALID">سارية فقط</option><option value="INVALID">غير سارية فقط</option></select></>}{section === "restaurantRevenue" && <label className="flex items-center gap-2 text-xs font-bold"><span>مصدر الطلب</span><select aria-label="تصفية إيرادات المطعم حسب مصدر الطلب" value={restaurantSource} onChange={event => { setRestaurantSource(event.target.value as RestaurantSourceFilter); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل مصادر الطلب</option><option value="SALES">بيع مباشر</option><option value="MEAL_PLAN">خطة وجبات</option></select></label>}{section === "services" && <><select aria-label="فلترة الخدمات حسب نوع الخدمة" value={activeServiceCategory} onChange={event => { setServiceCategory(event.target.value); setServiceFilter("ALL"); setDetailPage(1) }} className="h-10 min-w-44 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل أنواع الخدمات</option>{serviceCategories.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><select aria-label="فلترة التقرير حسب الخدمة" value={activeServiceFilter} onChange={event => { setServiceFilter(event.target.value); setDetailPage(1) }} className="h-10 min-w-52 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل الخدمات</option>{serviceOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></>}{section === "expiry" && <select aria-label="مدة اقتراب انتهاء الاشتراك" value={expiryHorizon} onChange={event => { setExpiryHorizon(event.target.value as typeof expiryHorizon); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="1">خلال يوم</option><option value="3">خلال 3 أيام</option><option value="7">خلال 7 أيام</option><option value="14">خلال 14 يومًا</option><option value="30">خلال 30 يومًا</option><option value="ALL">كل المدد</option></select>}{section === "attendance" && <select aria-label="نتيجة الحضور" value={attendanceDecision} onChange={event => setAttendanceDecision(event.target.value as typeof attendanceDecision)} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل محاولات الدخول</option><option value="ACCEPTED">المقبولة فقط</option><option value="REJECTED">المرفوضة فقط</option></select>}{section === "bookings" && <select aria-label="حالة الحجز" value={bookingStatus} onChange={event => setBookingStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل حالات الحجز</option><option value="PENDING_PAYMENT">بانتظار الدفع</option><option value="CONFIRMED">مؤكد</option><option value="COMPLETED">مكتمل</option><option value="CANCELLED">ملغى</option><option value="NO_SHOW">لم يحضر</option></select>}{(section === "treasury" || section === "net") && <div className="flex rounded-xl border bg-background p-1" aria-label="تجميع تقرير الخزنة">{(section === "treasury" ? [["DETAIL", "تفصيلي"], ["DAY", "يومي"], ["MONTH", "شهري"]] : [["DAY", "يومي"], ["MONTH", "شهري"]]).map(([value, label]) => <button key={value} type="button" onClick={() => setTreasuryView(value as TreasuryView)} className={`rounded-lg px-3 py-1.5 text-[11px] font-bold ${treasuryView === value ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>{label}</button>)}</div>}</div></CardContent></Card>
-    {error ? <Card><CardContent className="p-10 text-center"><p className="font-bold text-red-600">تعذر عرض التقرير</p><p className="mt-2 text-xs text-muted-foreground">{error}</p></CardContent></Card> : loading ? <div className="grid min-h-64 place-items-center" aria-label="جارٍ إعداد التقرير"><span className="size-10 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div> : <><section className="reports-metrics-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((metric, index) => <Card key={metric.label} className="reports-metric-card"><CardContent className="reports-metric-content p-5"><span className={`reports-metric-icon mb-4 grid size-10 place-items-center rounded-xl ${index % 3 === 0 ? "bg-primary/12 text-amber-600" : index % 3 === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{metricIcon(section)}</span><p className="text-xs font-bold text-muted-foreground">{metric.label}</p><p className="mt-2 text-2xl font-black tabular-nums">{metric.value}</p>{metric.note && <p className="mt-1 text-[10px] text-muted-foreground">{metric.note}</p>}</CardContent></Card>)}</section>{!showDailyTable && <div className="reports-print-hidden grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1fr)_auto_auto_auto]"><div className="relative"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={event => { setSearch(event.target.value); setDetailPage(1) }} className="pr-10" placeholder="ابحث داخل نتائج التقرير..." /></div><select aria-label="ترتيب نتائج التقرير" value={activeSort.value} onChange={event => { setSortBy(event.target.value); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option disabled value="">ترتيب النتائج</option>{sortingOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{section === "treasury" && <><select aria-label="تصفية الخزنة حسب مصدر الإيراد" value={revenueSource} onChange={event => { setRevenueSource(event.target.value as RevenueSourceFilter); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل مصادر الإيراد</option><option value="MEMBERSHIP">اشتراكات</option><option value="SERVICE">خدمات</option><option value="BOOKING">حجوزات</option><option value="RESTAURANT">مطبخ</option><option value="RETAIL">منتجات</option><option value="MIXED">فواتير متعددة المصادر</option><option value="OTHER">إيرادات أخرى</option></select><select aria-label="تصفية التقرير حسب طريقة الدفع" value={paymentMethod} onChange={event => { setPaymentMethod(event.target.value as PaymentMethodFilter); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل طرق الدفع</option><option value="CASH">نقدي</option><option value="CARD">بطاقة</option><option value="BANK_TRANSFER">تحويل بنكي</option><option value="GATEWAY">بوابة دفع</option><option value="WALLET">محفظة إلكترونية</option></select></>}</div>}<Card className="reports-details-card overflow-hidden"><div className="reports-details-heading border-b px-5 py-4"><h2 className="font-black">تفاصيل {activeReport.label}</h2><p className="mt-1 text-xs text-muted-foreground">{showDailyTable ? dailyDisplay.length : visibleDetails.length} سجلًا ظاهرًا{detailLoadingMore ? " · جارٍ استكمال البيانات في الخلفية" : ""}{asOf ? ` · آخر تحديث ${formatDateTime(asOf)}` : ""}</p></div><div className="reports-table-wrap overflow-x-auto">{showDailyTable ? <DailyTable section={section} rows={dailyDisplay} branchNames={branchNames} /> : section === "treasury" ? <><div className="print:hidden"><TreasurySections rows={pagedDetails} summaryRows={visibleDetails} branches={branchNames} selectedMethod={paymentMethod} selectedSource={revenueSource} /></div><div className="hidden print:block"><TreasurySections rows={visibleDetails} summaryRows={visibleDetails} branches={branchNames} selectedMethod={paymentMethod} selectedSource={revenueSource} /></div></> : <><div className="print:hidden"><DetailsTable columns={columns} rows={pagedDetails} /></div><div className="hidden print:block"><DetailsTable columns={columns} rows={visibleDetails} /></div></>}</div>{!showDailyTable && detailPageCount > 1 && <div className="reports-print-hidden flex items-center justify-between gap-3 border-t px-4 py-3"><Button type="button" size="sm" variant="outline" disabled={activeDetailPage <= 1} onClick={() => setDetailPage(page => Math.max(1, page - 1))}>السابق</Button><span className="text-xs font-bold text-muted-foreground">الصفحة {activeDetailPage} من {detailPageCount}</span><Button type="button" size="sm" variant="outline" disabled={activeDetailPage >= detailPageCount} onClick={() => setDetailPage(page => Math.min(detailPageCount, page + 1))}>التالي</Button></div>}</Card></>}
+    <Card className="reports-print-hidden border-primary/20 bg-primary/5"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-black">{activeReport.label}</h2><p className="mt-1 text-xs leading-6 text-muted-foreground">{activeReport.description}</p>{section === "expiry" && <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black" aria-label="دليل ألوان اقتراب انتهاء الاشتراك"><span className="rounded-md bg-red-500/15 px-2 py-1 text-red-800 dark:text-red-300">يوم أو أقل</span><span className="rounded-md bg-orange-500/15 px-2 py-1 text-orange-800 dark:text-orange-300">2–3 أيام</span><span className="rounded-md bg-amber-500/15 px-2 py-1 text-amber-800 dark:text-amber-300">4–7 أيام</span><span className="rounded-md bg-blue-500/12 px-2 py-1 text-blue-800 dark:text-blue-300">8–14 يومًا</span><span className="rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-800 dark:text-emerald-300">15 يومًا فأكثر</span></div>}{(section === "packages" || section === "promotions") && <p className="mt-1 text-[10px] leading-5 text-muted-foreground">صافي العائد = إجمالي المبيعات − الاستردادات المنسوبة. لا يمثل ربحًا محاسبيًا بعد التكلفة لعدم وجود تكلفة مباشرة مسجلة لكل باقة.</p>}</div><div className="flex flex-wrap gap-2">{(section === "subscriptions" || section === "expiry") && <><select aria-label="فلترة الاشتراكات باسم الباقة" value={activePackageFilter} onChange={event => { setPackageFilter(event.target.value); setDetailPage(1) }} className="h-10 min-w-44 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل الباقات</option>{packageOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><select aria-label="حالة سريان الاشتراك" value={validity} onChange={event => { setValidity(event.target.value as typeof validity); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل الاشتراكات</option><option value="VALID">سارية فقط</option><option value="INVALID">غير سارية فقط</option></select></>}{section === "restaurantRevenue" && <label className="flex items-center gap-2 text-xs font-bold"><span>مصدر الطلب</span><select aria-label="تصفية إيرادات المطعم حسب مصدر الطلب" value={restaurantSource} onChange={event => { setRestaurantSource(event.target.value as RestaurantSourceFilter); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل مصادر الطلب</option><option value="SALES">بيع مباشر</option><option value="MEAL_PLAN">خطة وجبات</option></select></label>}{section === "services" && <><select aria-label="فلترة الخدمات حسب نوع الخدمة" value={activeServiceCategory} onChange={event => { setServiceCategory(event.target.value); setServiceFilter("ALL"); setDetailPage(1) }} className="h-10 min-w-44 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل أنواع الخدمات</option>{serviceCategories.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><select aria-label="فلترة التقرير حسب الخدمة" value={activeServiceFilter} onChange={event => { setServiceFilter(event.target.value); setDetailPage(1) }} className="h-10 min-w-52 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل الخدمات</option>{serviceOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></>}{section === "expiry" && <select aria-label="مدة اقتراب انتهاء الاشتراك" value={expiryHorizon} onChange={event => { setExpiryHorizon(event.target.value as typeof expiryHorizon); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="1">خلال يوم</option><option value="3">خلال 3 أيام</option><option value="7">خلال 7 أيام</option><option value="14">خلال 14 يومًا</option><option value="30">خلال 30 يومًا</option><option value="ALL">كل المدد</option></select>}{section === "attendance" && <select aria-label="نتيجة الحضور" value={attendanceDecision} onChange={event => setAttendanceDecision(event.target.value as typeof attendanceDecision)} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل محاولات الدخول</option><option value="ACCEPTED">المقبولة فقط</option><option value="REJECTED">المرفوضة فقط</option></select>}{section === "bookings" && <select aria-label="حالة الحجز" value={bookingStatus} onChange={event => setBookingStatus(event.target.value)} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل حالات الحجز</option><option value="PENDING_PAYMENT">بانتظار الدفع</option><option value="CONFIRMED">مؤكد</option><option value="COMPLETED">مكتمل</option><option value="CANCELLED">ملغى</option><option value="NO_SHOW">لم يحضر</option></select>}{(section === "treasury" || section === "net") && <div className="flex rounded-xl border bg-background p-1" aria-label="تجميع تقرير الخزنة">{(section === "treasury" ? [["DETAIL", "تفصيلي"], ["DAY", "يومي"], ["MONTH", "شهري"]] : [["DAY", "يومي"], ["MONTH", "شهري"]]).map(([value, label]) => <button key={value} type="button" onClick={() => { setTreasuryView(value as TreasuryView); setDetailPage(1) }} className={`rounded-lg px-3 py-1.5 text-[11px] font-bold ${treasuryView === value ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>{label}</button>)}</div>}</div></CardContent></Card>
+    {exporting && <p role="status" className="text-sm">جارٍ تجهيز التقرير الكامل… {exportProgress} سجلًا</p>}{error ? <Card><CardContent className="p-10 text-center"><p className="font-bold text-red-600">تعذر عرض التقرير</p><p className="mt-2 text-xs text-muted-foreground">{error}</p><Button className="mt-4" variant="outline" onClick={() => { setExportError(""); (showDailyTable ? dailyPage : reportPage).reload() }}>إعادة المحاولة</Button></CardContent></Card> : <><section className="reports-metrics-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((metric, index) => <Card key={metric.label} className="reports-metric-card"><CardContent className="reports-metric-content p-5"><span className={`reports-metric-icon mb-4 grid size-10 place-items-center rounded-xl ${index % 3 === 0 ? "bg-primary/12 text-amber-600" : index % 3 === 1 ? "bg-blue-500/10 text-blue-600" : "bg-emerald-500/10 text-emerald-600"}`}>{metricIcon(section)}</span><p className="text-xs font-bold text-muted-foreground">{metric.label}</p><p className="mt-2 text-2xl font-black tabular-nums">{loading ? "…" : metric.value}</p>{metric.note && <p className="mt-1 text-[10px] text-muted-foreground">{metric.note}</p>}</CardContent></Card>)}</section>{!showDailyTable && <div className="reports-print-hidden grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1fr)_auto_auto_auto]"><div className="relative"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} maxLength={160} aria-label="البحث في نتائج التقرير" onChange={event => { setSearch(event.target.value); setDetailPage(1) }} className="pr-10" placeholder="ابحث داخل نتائج التقرير..." /></div><select aria-label="ترتيب نتائج التقرير" value={activeSort.value} onChange={event => { setSortBy(event.target.value); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option disabled value="">ترتيب النتائج</option>{sortingOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{section === "treasury" && <><select aria-label="تصفية الخزنة حسب مصدر الإيراد" value={revenueSource} onChange={event => { setRevenueSource(event.target.value as RevenueSourceFilter); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل مصادر الإيراد</option><option value="MEMBERSHIP">اشتراكات</option><option value="SERVICE">خدمات</option><option value="BOOKING">حجوزات</option><option value="RESTAURANT">مطبخ</option><option value="RETAIL">منتجات</option><option value="MIXED">فواتير متعددة المصادر</option><option value="OTHER">إيرادات أخرى</option></select><select aria-label="تصفية التقرير حسب طريقة الدفع" value={paymentMethod} onChange={event => { setPaymentMethod(event.target.value as PaymentMethodFilter); setDetailPage(1) }} className="h-10 rounded-xl border bg-background px-3 text-xs font-bold"><option value="ALL">كل طرق الدفع</option><option value="CASH">نقدي</option><option value="CARD">بطاقة</option><option value="BANK_TRANSFER">تحويل بنكي</option><option value="GATEWAY">بوابة دفع</option><option value="WALLET">محفظة إلكترونية</option></select></>}</div>}<Card className="reports-details-card overflow-hidden"><div className="reports-details-heading border-b px-5 py-4"><h2 className="font-black">تفاصيل {activeReport.label}</h2><p className="mt-1 text-xs text-muted-foreground">{(showDailyTable ? dailyPage : reportPage).summary?.totalRows ?? 0} سجلًا مطابقًا{asOf ? ` · آخر تحديث ${formatDateTime(asOf)}` : ""}</p></div><div className="reports-table-wrap overflow-x-auto">{loading ? <div className="grid min-h-64 place-items-center" role="status">جارٍ إعداد التقرير…</div> : showDailyTable ? <><div className="print:hidden"><DailyTable section={section} rows={dailyDisplay} branchNames={branchNames} /></div><div className="hidden print:block"><DailyTable section={section} rows={(printSnapshot?.key === exportKey ? printSnapshot.rows : dailyDisplay) as unknown as DailyReport[]} branchNames={branchNames} /></div></> : section === "treasury" ? <><div className="print:hidden"><TreasurySections rows={pagedDetails} sources={reportPage.summary?.treasurySources ?? []} branches={branchNames} /></div><div className="hidden print:block"><TreasurySections rows={printRows} sources={reportPage.summary?.treasurySources ?? []} branches={branchNames} /></div></> : <><div className="print:hidden"><DetailsTable columns={columns} rows={pagedDetails} /></div><div className="hidden print:block"><DetailsTable columns={columns} rows={printRows} /></div></>}</div>{detailPageCount > 1 && <div className="reports-print-hidden flex items-center justify-between gap-3 border-t px-4 py-3"><Button type="button" size="sm" variant="outline" disabled={activeDetailPage <= 1} onClick={() => setDetailPage(page => Math.max(1, page - 1))}>السابق</Button><span className="text-xs font-bold text-muted-foreground">الصفحة {activeDetailPage} من {detailPageCount}</span><Button type="button" size="sm" variant="outline" disabled={activeDetailPage >= detailPageCount} onClick={() => setDetailPage(page => Math.min(detailPageCount, page + 1))}>التالي</Button></div>}</Card></>}
   </main>
 }
 
-async function loadDetailedReportPages(
-  path: string,
-  filters: URLSearchParams,
-  signal: AbortSignal,
-  initialRows: DetailRecord[] = [],
-  onFirstPage?: (entry: ReportCacheEntry<DetailRecord>) => void,
-) {
-  const pageSize = DETAIL_PAGE_SIZE
-  const maximumRows = 50_000
-  const rows: DetailRecord[] = [...initialRows]
-  let meta: Awaited<ReturnType<typeof apiRequest<DetailRecord[]>>>["meta"] | undefined
-  for (let offset = initialRows.length; offset < maximumRows; offset += pageSize) {
-    const params = new URLSearchParams(filters)
-    params.set("limit", String(pageSize))
-    params.set("offset", String(offset))
-    const response = await apiRequest<DetailRecord[]>(`${path}?${params}`, { signal })
-    const page = Array.isArray(response.data) ? response.data : []
-    rows.push(...page)
-    meta = response.meta
-    const entry: ReportCacheEntry<DetailRecord> = { rows: [...rows], asOf: String(meta?.asOf ?? "") || null, complete: page.length < pageSize }
-    if (offset === 0 || entry.complete) onFirstPage?.(entry)
-    if (entry.complete) return entry
-  }
-  throw new Error("حجم التقرير كبير جدًا. يرجى تحديد فترة أقصر أو فرع محدد لعرض النتائج كاملة.")
-}
-
-function rememberReport<T>(cache: Map<string, ReportCacheEntry<T>>, key: string, entry: ReportCacheEntry<T>): void {
-  cache.delete(key)
-  cache.set(key, entry)
-  while (cache.size > REPORT_CACHE_LIMIT) {
-    const oldestKey = cache.keys().next().value
-    if (oldestKey === undefined) break
-    cache.delete(oldestKey)
-  }
-}
-
 function DetailsTable({ columns, rows }: { columns: Column[]; rows: DetailRecord[] }) { return <table className="reports-table w-full min-w-[980px] text-right"><thead className="bg-secondary/45"><tr>{columns.map(column => <th key={column.key} className="px-4 py-3 text-[10px] font-bold text-muted-foreground">{column.label}</th>)}</tr></thead><tbody className="divide-y">{rows.map((row, index) => <tr key={String(row.entryId ?? row.restaurantOrderLineId ?? row.orderId ?? row.subscriptionId ?? row.memberId ?? row.packageId ?? row.promotionId ?? row.reservationId ?? row.invoiceId ?? row.expenseId ?? row.attemptId ?? row.serviceId ?? `${row.branchId ?? "row"}-${row.paymentMethod ?? index}`)} className="hover:bg-secondary/25">{columns.map(column => { const value = column.value(row); const href = column.href?.(row); return <td key={column.key} className={`whitespace-nowrap px-4 py-4 text-xs font-semibold ${column.className ?? ""} ${column.cellClassName?.(row) ?? ""}`}>{href ? <Link href={href} className="font-black text-primary underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">{value}</Link> : value}</td> })}</tr>)}{!rows.length && <tr><td colSpan={columns.length} className="px-5 py-16 text-center text-sm text-muted-foreground">لا توجد بيانات مطابقة للفترة والفلاتر المحددة.</td></tr>}</tbody></table> }
-function TreasurySections({ rows, summaryRows, branches, selectedMethod, selectedSource }: { rows: DetailRecord[]; summaryRows: DetailRecord[]; branches: Map<string, string>; selectedMethod: PaymentMethodFilter; selectedSource: RevenueSourceFilter }) {
+function TreasurySections({ rows, sources, branches }: { rows: DetailRecord[]; sources: TreasurySourceSummary[]; branches: Map<string, string> }) {
   const invoiceRows = rows.filter(row => row.entryKind !== "OTHER_INCOME")
   const otherRows = rows.filter(row => row.entryKind === "OTHER_INCOME")
   const branch: Column = { key: "branch", label: "الفرع", value: row => branches.get(String(row.branchId)) ?? "فرع" }
@@ -355,7 +274,7 @@ function TreasurySections({ rows, summaryRows, branches, selectedMethod, selecte
     { key: "date", label: "تاريخ الإيراد", value: row => formatDateTime(row.issuedAt) },
     branch,
   ]
-  const sourceSummaries = treasurySourceSummaries(summaryRows, selectedMethod === "ALL" ? undefined : selectedMethod, selectedSource === "ALL" ? undefined : selectedSource)
+  const sourceSummaries = sources
   const totalGross = sourceSummaries.reduce((sum, source) => sum + source.gross, 0)
   const totalNet = sourceSummaries.reduce((sum, source) => sum + source.netBeforeTax, 0)
   const totalTax = sourceSummaries.reduce((sum, source) => sum + source.tax, 0)
@@ -403,36 +322,34 @@ function dailyColumns(section: ReportSection): DailyColumn[] {
   return [...base, { key: "invoices", label: "الفواتير", value: row => formatMoney(row.invoicedGrossMinor) }, { key: "collected", label: "التحصيل", value: row => formatMoney(row.collectedMinor) }, { key: "expenses", label: "المصروفات", value: row => formatMoney(row.paidExpensesMinor) }, { key: "net", label: "صافي الخزنة", value: row => formatMoney(Number(row.netCollectedMinor) - Number(row.paidExpensesMinor)) }, { key: "subscriptions", label: "اشتراكات جديدة", value: row => String(row.newSubscriptions) }, { key: "attendance", label: "حضور مقبول", value: row => String(row.attendanceAccepted) }]
 }
 
-function reportMetrics(section: ReportSection, daily: DailyReport[], details: DetailRecord[], showDailyTable: boolean, paymentMethod: PaymentMethodFilter, revenueSource: RevenueSourceFilter): Metric[] {
-  const sumDaily = (key: keyof DailyReport) => daily.reduce((sum, row) => sum + Number(row[key] ?? 0), 0); const sumDetails = (key: string) => details.reduce((sum, row) => sum + Number(row[key] ?? 0), 0)
-  if (section === "members") { const memberIds = new Set(details.map(row => String(row.memberId))); const subscriptionRows = details.filter(row => Boolean(row.subscriptionId)); const membersWithSubscription = new Set(subscriptionRows.map(row => String(row.memberId))); const membersWithPromotion = new Set(subscriptionRows.filter(row => row.promotionApplied).map(row => String(row.memberId))); return [{ label: "إجمالي الأعضاء", value: String(memberIds.size) }, { label: "أعضاء لديهم اشتراك", value: String(membersWithSubscription.size), note: "اشتراك متقاطع مع الفترة المحددة" }, { label: "أعضاء دون اشتراك", value: String(memberIds.size - membersWithSubscription.size), note: "لا يوجد اشتراك متقاطع مع الفترة" }, { label: "إجمالي الاشتراكات", value: String(subscriptionRows.length) }, { label: "اشتراكات سارية", value: String(subscriptionRows.filter(row => row.isValid).length) }, { label: "اشتراكات بعرض", value: String(subscriptionRows.filter(row => row.promotionApplied).length) }, { label: "أعضاء استفادوا من عرض", value: String(membersWithPromotion.size) }, { label: "إجمالي الخصومات", value: formatMoney(subscriptionRows.reduce((sum, row) => sum + Number(row.discountMinor ?? 0), 0)) }] }
-  if (section === "subscriptions") return [{ label: "إجمالي الاشتراكات", value: String(details.length) }, { label: "اشتراكات سارية", value: String(details.filter(row => row.isValid).length) }, { label: "غير سارية", value: String(details.filter(row => !row.isValid).length) }, { label: "تنتهي خلال 7 أيام", value: String(details.filter(row => row.isValid && Number(row.remainingDays) <= 7).length) }, { label: "اشتراكات بعرض", value: String(details.filter(row => row.promotionApplied).length) }, { label: "إجمالي الخصومات", value: formatMoney(sumDetails("discountMinor")) }]
-  if (section === "expiry") return [{ label: "بحاجة لتواصل اليوم", value: String(details.filter(row => row.isValid && Number(row.remainingDays) <= 1).length), note: "متبقي يوم أو أقل" }, { label: "خلال 3 أيام", value: String(details.filter(row => row.isValid && Number(row.remainingDays) <= 3).length) }, { label: "خلال 7 أيام", value: String(details.filter(row => row.isValid && Number(row.remainingDays) <= 7).length) }, { label: "إجمالي القائمة", value: String(details.length) }]
-  if (section === "packages") return [{ label: "عدد الباقات", value: String(details.length) }, { label: "إجمالي المشتركين", value: String(sumDetails("subscribersCount")), note: "قد يتكرر العضو بين باقات مختلفة" }, { label: "الاشتراكات المباعة", value: String(sumDetails("subscriptionsCount")) }, { label: "صافي العائد", value: formatMoney(sumDetails("netRevenueMinor")) }, { label: "إجمالي المبيعات", value: formatMoney(sumDetails("grossMinor")) }, { label: "الخصومات", value: formatMoney(sumDetails("discountMinor")) }, { label: "المستردات", value: formatMoney(sumDetails("refundedMinor")) }, { label: "التجديدات", value: String(sumDetails("renewalsCount")) }]
-  if (section === "promotions") return [{ label: "عدد العروض", value: String(details.length) }, { label: "المشتركون عبر العروض", value: String(sumDetails("subscribersCount")), note: "قد يتكرر العضو بين عروض مختلفة" }, { label: "استخدامات العروض", value: String(sumDetails("usesCount")) }, { label: "صافي العائد", value: formatMoney(sumDetails("netRevenueMinor")) }, { label: "مبيعات مرتبطة بالعروض", value: formatMoney(sumDetails("grossMinor")) }, { label: "إجمالي الخصم", value: formatMoney(sumDetails("discountMinor")) }, { label: "المستردات", value: formatMoney(sumDetails("refundedMinor")) }, { label: "عروض بلا استخدام", value: String(details.filter(row => Number(row.usesCount) === 0).length) }]
-  if (section === "services") return [{ label: "عدد الخدمات", value: String(details.length) }, { label: "الوحدات المباعة", value: String(sumDetails("quantity")) }, { label: "إجمالي الخصومات", value: formatMoney(sumDetails("discountMinor")) }, { label: "إجمالي المبيعات", value: formatMoney(sumDetails("grossMinor")) }, { label: "المسترد", value: formatMoney(sumDetails("refundedMinor")) }, { label: "الصافي بعد الاسترداد", value: formatMoney(sumDetails("netRevenueMinor")) }]
-  if (section === "attendance") return [{ label: "إجمالي المحاولات", value: String(details.length) }, { label: "دخول مقبول", value: String(details.filter(row => row.decision === "ACCEPTED").length) }, { label: "دخول مرفوض", value: String(details.filter(row => row.decision === "REJECTED").length) }, { label: "نسبة القبول", value: details.length ? `${Math.round(details.filter(row => row.decision === "ACCEPTED").length / details.length * 100)}%` : "0%" }]
-  if(section==="access")return[{label:"إجمالي أحداث البوابة",value:String(details.length)},{label:"دخول سجله GO",value:String(details.filter(row=>row.processingCode==="SYSTEM_ACCEPTED").length)},{label:"رفض من اللوحة",value:String(details.filter(row=>row.deviceDecision==="DENIED").length)},{label:"فتحت اللوحة ورفض GO",value:String(details.filter(row=>row.deviceDecision==="ALLOWED"&&String(row.processingCode??"").startsWith("SYSTEM_REJECTED_")).length),note:"تجميد أو حظر أو عدم صلاحية ونحو ذلك"},{label:"PIN غير مربوط",value:String(details.filter(row=>row.processingStatus==="UNMAPPED_CREDENTIAL").length)}]
-  if (section === "bookings") { const completed = details.filter(row => row.status === "COMPLETED").length; const cancelled = details.filter(row => row.status === "CANCELLED").length; const noShow = details.filter(row => row.status === "NO_SHOW").length; const averageOccupancy = details.length ? Math.round(sumDetails("occupancyRate") / details.length) : 0; return [{ label: "إجمالي الحجوزات", value: String(details.length) }, { label: "إجمالي المشاركين", value: String(sumDetails("participantCount")) }, { label: "المقاعد المحجوزة", value: String(sumDetails("seats")) }, { label: "متوسط الإشغال", value: `${averageOccupancy}%` }, { label: "قيمة الحجوزات", value: formatMoney(sumDetails("grossMinor")) }, { label: "معدل الإكمال", value: details.length ? `${Math.round(completed / details.length * 100)}%` : "0%" }, { label: "الملغاة", value: String(cancelled) }, { label: "عدم الحضور", value: String(noShow) }, { label: "معدل الفاقد", value: details.length ? `${Math.round((cancelled + noShow) / details.length * 100)}%` : "0%", note: "الإلغاء + عدم الحضور" }] }
-  if (section === "debts") return [{ label: "إجمالي المديونية", value: formatMoney(sumDetails("outstandingMinor")) }, { label: "عدد الفواتير", value: String(details.length) }, { label: "إجمالي الفواتير", value: formatMoney(sumDetails("grossMinor")) }, { label: "المبالغ المسددة", value: formatMoney(sumDetails("paidMinor")) }]
-  if (section === "expenses") return [{ label: "إجمالي المصروفات", value: formatMoney(sumDetails("amountMinor")) }, { label: "مصروفات مدفوعة", value: formatMoney(details.filter(row => row.status === "PAID").reduce((sum, row) => sum + Number(row.amountMinor ?? 0), 0)) }, { label: "عدد السجلات", value: String(details.length) }, { label: "بانتظار الإجراء", value: String(details.filter(row => !["PAID", "VOIDED"].includes(String(row.status))).length) }]
-  if (section === "pointOfSale") { const completedSales = details.filter(row => ["PAID", "FULFILLED"].includes(String(row.orderStatus))); const sumCompleted = (key: string) => completedSales.reduce((sum, row) => sum + Number(row[key] ?? 0), 0); return [{ label: "عمليات البيع", value: String(details.length) }, { label: "عمليات مكتملة", value: String(completedSales.length) }, { label: "مبيعات مكتملة", value: formatMoney(sumCompleted("grossMinor")) }, { label: "خصومات المبيعات المكتملة", value: formatMoney(sumCompleted("discountMinor")) }, { label: "المحصل", value: formatMoney(sumDetails("receivedMinor")) }, { label: "المسترد", value: formatMoney(sumDetails("refundedMinor")) }, { label: "صافي التحصيل", value: formatMoney(sumDetails("netRevenueMinor")) }, { label: "المتبقي", value: formatMoney(sumDetails("outstandingMinor")) }] }
-  if (section === "restaurantRevenue") { const orderIds = new Set(details.map(row => String(row.restaurantOrderId))); const completed = new Set(details.filter(row => row.status === "COMPLETED").map(row => String(row.restaurantOrderId))); const cancelled = new Set(details.filter(row => row.status === "CANCELLED").map(row => String(row.restaurantOrderId))); const realizedRows = details.filter(row => !["PENDING", "CANCELLED"].includes(String(row.status))); const realizedGross = realizedRows.reduce((sum, row) => sum + Number(row.grossMinor ?? 0), 0); const realizedQuantity = realizedRows.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0); return [{ label: "طلبات المطعم", value: String(orderIds.size) }, { label: "الطلبات المكتملة", value: String(completed.size) }, { label: "الطلبات الملغاة", value: String(cancelled.size) }, { label: "الوجبات المؤكدة", value: String(realizedQuantity) }, { label: "قيمة الطلبات المؤكدة", value: formatMoney(realizedGross) }, { label: "المحصل", value: formatMoney(sumDetails("collectedMinor")) }, { label: "المسترد", value: formatMoney(sumDetails("refundedMinor")) }, { label: "صافي الإيراد المحصل", value: formatMoney(sumDetails("netRevenueMinor")) }] }
-  if (section === "paymentMethods") return [{ label: "إجمالي المحصل", value: formatMoney(sumDetails("receivedMinor")) }, { label: "إجمالي المسترد", value: formatMoney(sumDetails("refundedMinor")) }, { label: "صافي الإيراد", value: formatMoney(sumDetails("netRevenueMinor")) }, { label: "عمليات الدفع", value: String(sumDetails("transactionsCount")) }, ...paymentMethodTotalsFromRows(details).map(item => ({ label: `صافي ${paymentMethodName(item.method)}`, value: formatMoney(item.net), note: `المحصل ${formatMoney(item.received)} · المسترد ${formatMoney(item.refunded)}` }))]
-  if (section === "treasury") return showDailyTable
-    ? [{ label: "المحصل", value: formatMoney(sumDaily("collectedMinor")) }, { label: "المسترد", value: formatMoney(sumDaily("refundedMinor")) }, { label: "المصروفات المدفوعة", value: formatMoney(sumDaily("paidExpensesMinor")) }, { label: "صافي الخزنة", value: formatMoney(sumDaily("netCollectedMinor") - sumDaily("paidExpensesMinor")) }]
-    : treasuryMetrics(details, paymentMethod === "ALL" ? undefined : paymentMethod, revenueSource === "ALL" ? undefined : revenueSource)
+function serverReportMetrics(section: ReportSection, summary?: ReportSummary): Metric[] {
+  const n = summary?.totalRows ?? 0, c = summary?.counts ?? {}
+  const sumDetails = (key: string) => Number(summary?.sums[key] ?? 0)
+  if (section === "members") return [{ label: "إجمالي الأعضاء", value: String(c.members ?? 0) }, { label: "أعضاء لديهم اشتراك", value: String(c.membersWithSubscription ?? 0), note: "اشتراك متقاطع مع الفترة المحددة" }, { label: "أعضاء دون اشتراك", value: String((c.members ?? 0) - (c.membersWithSubscription ?? 0)) }, { label: "إجمالي الاشتراكات", value: String(c.subscriptions ?? 0) }, { label: "اشتراكات سارية", value: String(c.valid ?? 0) }, { label: "اشتراكات بعرض", value: String(c.withPromotion ?? 0) }, { label: "أعضاء استفادوا من عرض", value: String(c.membersWithPromotion ?? 0) }, { label: "إجمالي الخصومات", value: formatMoney(sumDetails("discountMinor")) }]
+  if (section === "subscriptions") return [{ label: "إجمالي الاشتراكات", value: String(n) }, { label: "اشتراكات سارية", value: String((c.valid ?? 0)) }, { label: "غير سارية", value: String((c.invalid ?? 0)) }, { label: "تنتهي خلال 7 أيام", value: String((c.expires7 ?? 0)) }, { label: "اشتراكات بعرض", value: String((c.withPromotion ?? 0)) }, { label: "إجمالي الخصومات", value: formatMoney(sumDetails("discountMinor")) }]
+  if (section === "expiry") return [{ label: "بحاجة لتواصل اليوم", value: String((c.expires1 ?? 0)), note: "متبقي يوم أو أقل" }, { label: "خلال 3 أيام", value: String((c.expires3 ?? 0)) }, { label: "خلال 7 أيام", value: String((c.expires7 ?? 0)) }, { label: "إجمالي القائمة", value: String(n) }]
+  if (section === "packages") return [{ label: "عدد الباقات", value: String(n) }, { label: "إجمالي المشتركين", value: String(sumDetails("subscribersCount")), note: "قد يتكرر العضو بين باقات مختلفة" }, { label: "الاشتراكات المباعة", value: String(sumDetails("subscriptionsCount")) }, { label: "صافي العائد", value: formatMoney(sumDetails("netRevenueMinor")) }, { label: "إجمالي المبيعات", value: formatMoney(sumDetails("grossMinor")) }, { label: "الخصومات", value: formatMoney(sumDetails("discountMinor")) }, { label: "المستردات", value: formatMoney(sumDetails("refundedMinor")) }, { label: "التجديدات", value: String(sumDetails("renewalsCount")) }]
+  if (section === "promotions") return [{ label: "عدد العروض", value: String(n) }, { label: "المشتركون عبر العروض", value: String(sumDetails("subscribersCount")), note: "قد يتكرر العضو بين عروض مختلفة" }, { label: "استخدامات العروض", value: String(sumDetails("usesCount")) }, { label: "صافي العائد", value: formatMoney(sumDetails("netRevenueMinor")) }, { label: "مبيعات مرتبطة بالعروض", value: formatMoney(sumDetails("grossMinor")) }, { label: "إجمالي الخصم", value: formatMoney(sumDetails("discountMinor")) }, { label: "المستردات", value: formatMoney(sumDetails("refundedMinor")) }, { label: "عروض بلا استخدام", value: String((c.unused ?? 0)) }]
+  if (section === "services") return [{ label: "عدد الخدمات", value: String(n) }, { label: "الوحدات المباعة", value: String(sumDetails("quantity")) }, { label: "إجمالي الخصومات", value: formatMoney(sumDetails("discountMinor")) }, { label: "إجمالي المبيعات", value: formatMoney(sumDetails("grossMinor")) }, { label: "المسترد", value: formatMoney(sumDetails("refundedMinor")) }, { label: "الصافي بعد الاسترداد", value: formatMoney(sumDetails("netRevenueMinor")) }]
+  if (section === "attendance") return [{ label: "إجمالي المحاولات", value: String(n) }, { label: "دخول مقبول", value: String((c.accepted ?? 0)) }, { label: "دخول مرفوض", value: String((c.rejected ?? 0)) }, { label: "نسبة القبول", value: n ? `${Math.round((c.accepted ?? 0) / n * 100)}%` : "0%" }]
+  if(section==="access")return[{label:"إجمالي أحداث البوابة",value:String(n)},{label:"دخول سجله GO",value:String((c.accepted ?? 0))},{label:"رفض من اللوحة",value:String((c.denied ?? 0))},{label:"فتحت اللوحة ورفض GO",value:String((c.systemRejected ?? 0)),note:"تجميد أو حظر أو عدم صلاحية ونحو ذلك"},{label:"PIN غير مربوط",value:String((c.unmapped ?? 0))}]
+  if (section === "bookings") { const completed = (c.completed ?? 0); const cancelled = (c.cancelled ?? 0); const noShow = (c.noShow ?? 0); const averageOccupancy = n ? Math.round(sumDetails("occupancyRate") / n) : 0; return [{ label: "إجمالي الحجوزات", value: String(n) }, { label: "إجمالي المشاركين", value: String(sumDetails("participantCount")) }, { label: "المقاعد المحجوزة", value: String(sumDetails("seats")) }, { label: "متوسط الإشغال", value: `${averageOccupancy}%` }, { label: "قيمة الحجوزات", value: formatMoney(sumDetails("grossMinor")) }, { label: "معدل الإكمال", value: n ? `${Math.round(completed / n * 100)}%` : "0%" }, { label: "الملغاة", value: String(cancelled) }, { label: "عدم الحضور", value: String(noShow) }, { label: "معدل الفاقد", value: n ? `${Math.round((cancelled + noShow) / n * 100)}%` : "0%", note: "الإلغاء + عدم الحضور" }] }
+  if (section === "debts") return [{ label: "إجمالي المديونية", value: formatMoney(sumDetails("outstandingMinor")) }, { label: "عدد الفواتير", value: String(n) }, { label: "إجمالي الفواتير", value: formatMoney(sumDetails("grossMinor")) }, { label: "المبالغ المسددة", value: formatMoney(sumDetails("paidMinor")) }]
+  if (section === "expenses") return [{ label: "إجمالي المصروفات", value: formatMoney(sumDetails("amountMinor")) }, { label: "مصروفات مدفوعة", value: formatMoney(sumDetails("paidAmountMinor")) }, { label: "عدد السجلات", value: String(n) }, { label: "بانتظار الإجراء", value: String((c.pending ?? 0)) }]
+  if (section === "pointOfSale") return [{ label: "عمليات البيع", value: String(n) }, { label: "عمليات مكتملة", value: String(c.completed ?? 0) }, { label: "مبيعات مكتملة", value: formatMoney(sumDetails("completedgrossMinor")) }, { label: "خصومات المبيعات المكتملة", value: formatMoney(sumDetails("completeddiscountMinor")) }, { label: "المحصل", value: formatMoney(sumDetails("receivedMinor")) }, { label: "المسترد", value: formatMoney(sumDetails("refundedMinor")) }, { label: "صافي التحصيل", value: formatMoney(sumDetails("netRevenueMinor")) }, { label: "المتبقي", value: formatMoney(sumDetails("outstandingMinor")) }]
+  if (section === "restaurantRevenue") return [{ label: "طلبات المطعم", value: String(c.orders ?? 0) }, { label: "الطلبات المكتملة", value: String(c.completed ?? 0) }, { label: "الطلبات الملغاة", value: String(c.cancelled ?? 0) }, { label: "الوجبات المؤكدة", value: String(sumDetails("realizedquantity")) }, { label: "قيمة الطلبات المؤكدة", value: formatMoney(sumDetails("realizedgrossMinor")) }, { label: "المحصل", value: formatMoney(sumDetails("collectedMinor")) }, { label: "المسترد", value: formatMoney(sumDetails("refundedMinor")) }, { label: "صافي الإيراد المحصل", value: formatMoney(sumDetails("netRevenueMinor")) }]
+  if (section === "paymentMethods") return [{ label: "إجمالي المحصل", value: formatMoney(sumDetails("receivedMinor")) }, { label: "إجمالي المسترد", value: formatMoney(sumDetails("refundedMinor")) }, { label: "صافي الإيراد", value: formatMoney(sumDetails("netRevenueMinor")) }, { label: "عمليات الدفع", value: String(sumDetails("transactionsCount")) }, ...(summary?.paymentMethods ?? []).map(item => ({ label: `صافي ${paymentMethodName(item.method)}`, value: formatMoney(item.net), note: `المحصل ${formatMoney(item.received)} · المسترد ${formatMoney(item.refunded)}` }))]
+  if (section === "treasury") return treasuryMetrics(summary?.treasurySources ?? [])
+  return []
+}
+
+function dailyReportMetrics(section: ReportSection, daily: DailyReport[]): Metric[] {
+  const sumDaily = (key: keyof DailyReport) => daily.reduce((sum, row) => sum + Number(row[key] ?? 0), 0)
+  if (section === "treasury") return [{ label: "المحصل", value: formatMoney(sumDaily("collectedMinor")) }, { label: "المسترد", value: formatMoney(sumDaily("refundedMinor")) }, { label: "المصروفات المدفوعة", value: formatMoney(sumDaily("paidExpensesMinor")) }, { label: "صافي الخزنة", value: formatMoney(sumDaily("netCollectedMinor") - sumDaily("paidExpensesMinor")) }]
   const collected = sumDaily("collectedMinor"), refunds = sumDaily("refundedMinor"), expenses = sumDaily("paidExpensesMinor")
   if (section === "net") return [{ label: "التحصيل", value: formatMoney(collected) }, { label: "المستردات", value: formatMoney(refunds) }, { label: "المصروفات المدفوعة", value: formatMoney(expenses) }, { label: "صافي الخزنة", value: formatMoney(collected - refunds - expenses), note: "التحصيل − المستردات − المصروفات المدفوعة" }]
   const attendanceTotal = sumDaily("attendanceAccepted") + sumDaily("attendanceRejected"); const bookingTotal = sumDaily("reservationsTotal"); const bookingLoss = sumDaily("reservationsCancelled") + sumDaily("reservationsNoShow")
   return [{ label: "إجمالي الفواتير", value: formatMoney(sumDaily("invoicedGrossMinor")) }, { label: "صافي الخزنة", value: formatMoney(collected - refunds - expenses) }, { label: "اشتراكات جديدة", value: String(sumDaily("newSubscriptions")) }, { label: "التجديدات", value: String(sumDaily("renewedSubscriptions")) }, { label: "زيارات مقبولة", value: String(sumDaily("attendanceAccepted")) }, { label: "نسبة رفض الدخول", value: attendanceTotal ? `${Math.round(sumDaily("attendanceRejected") / attendanceTotal * 100)}%` : "0%" }, { label: "إجمالي الحجوزات", value: String(bookingTotal) }, { label: "فاقد الحجوزات", value: bookingTotal ? `${Math.round(bookingLoss / bookingTotal * 100)}%` : "0%", note: "الإلغاء + عدم الحضور" }]
-}
-
-function groupDailyRows(rows: DailyReport[], mode: "DAY" | "MONTH"): DailyReport[] {
-  if (mode === "DAY") return rows
-  const grouped = new Map<string, DailyReport>(); const moneyKeys = ["invoicedGrossMinor", "collectedMinor", "refundedMinor", "netCollectedMinor", "paidExpensesMinor", "restaurantGrossMinor", "cashDifferenceMinor"] as const; const countKeys = ["newMembers", "newSubscriptions", "renewedSubscriptions", "attendanceAccepted", "attendanceRejected", "reservationsTotal", "reservationsConfirmed", "reservationsCompleted", "reservationsCancelled", "reservationsNoShow", "restaurantOrders", "restaurantCompletedOrders", "restaurantCancelledOrders", "cashShiftsClosed"] as const
-  for (const row of rows) { const period = row.businessDate.slice(0, 7); const key = `${row.branchId}-${period}`; const current = grouped.get(key); if (!current) { grouped.set(key, { ...row, businessDate: period }); continue }; const next = { ...current }; moneyKeys.forEach(name => { next[name] = String(Number(current[name]) + Number(row[name])) }); countKeys.forEach(name => { next[name] = Number(current[name]) + Number(row[name]) }); grouped.set(key, next) }
-  return [...grouped.values()].sort((a, b) => a.businessDate.localeCompare(b.businessDate) || a.branchId.localeCompare(b.branchId))
 }
 
 function detailSortOptions(section: ReportSection): [DetailSortOption, ...DetailSortOption[]] {
@@ -458,29 +375,6 @@ function detailSortOptions(section: ReportSection): [DetailSortOption, ...Detail
   if (section === "paymentMethods") return [amountDesc(["netRevenueMinor"], "أعلى صافي إيراد"), amountAsc(["netRevenueMinor"], "أقل صافي إيراد"), nameAsc]
   if (section === "treasury") return [newest(["issuedAt"]), oldest(["issuedAt"]), amountDesc(["grossMinor"]), amountAsc(["grossMinor"]), nameAsc, nameDesc]
   return [newest(["businessDate"]), oldest(["businessDate"])]
-}
-
-function sortDetailRows(rows: DetailRecord[], option: DetailSortOption): DetailRecord[] {
-  const collator = new Intl.Collator("ar", { numeric: true, sensitivity: "base" })
-  const sortable = rows.map((row, index) => ({ row, index, value: detailSortValue(row, option) }))
-  sortable.sort((left, right) => {
-    if (left.value === null && right.value === null) return left.index - right.index
-    if (left.value === null) return 1
-    if (right.value === null) return -1
-    const comparison = typeof left.value === "number" && typeof right.value === "number"
-      ? left.value - right.value
-      : collator.compare(String(left.value), String(right.value))
-    return comparison === 0 ? left.index - right.index : comparison * (option.direction === "asc" ? 1 : -1)
-  })
-  return sortable.map(item => item.row)
-}
-
-function detailSortValue(row: DetailRecord, option: DetailSortOption): string | number | null {
-  const raw = option.keys.map(key => row[key]).find(value => value !== null && value !== undefined && value !== "")
-  if (raw === undefined || raw === null || raw === "") return null
-  if (option.kind === "number") { const value = Number(raw); return Number.isFinite(value) ? value : null }
-  if (option.kind === "date") { const value = new Date(String(raw)).getTime(); return Number.isNaN(value) ? null : value }
-  return String(raw)
 }
 
 function memberLabel(row: DetailRecord) { return `${row.memberName ?? "زائر"} · ${row.memberNumber ?? "—"}${row.memberIsBlocked ? " · محظور" : ""}` }
@@ -550,83 +444,7 @@ function treasuryRevenueSourceLabel(row: DetailRecord) {
   return sources.map(revenueSourceName).join("، ") || revenueSourceName(String(row.revenueSource ?? "OTHER"))
 }
 
-function treasuryRowHasSource(row: DetailRecord, source: RevenueSourceFilter) {
-  const sources = treasuryFinancialParts(row).map(part => part.source)
-  if (source === "MIXED") return sources.length > 1 || String(row.revenueSource ?? "") === "MIXED"
-  return sources.includes(source)
-}
-
-function treasuryPaymentParts(row: DetailRecord) {
-  return String(row.paymentMethodRevenueBreakdown ?? "").split("|").map(part => {
-    const [method = "", received = "0", refunded = "0"] = part.split(":")
-    return { method, received: Number(received), refunded: Number(refunded) }
-  }).filter(part => part.method)
-}
-
-function allocateByWeight(total: number, parts: TreasuryFinancialPart[]) {
-  if (!parts.length) return []
-  const roundedTotal = Math.round(total)
-  const sign = roundedTotal < 0 ? -1 : 1
-  const absoluteTotal = Math.abs(roundedTotal)
-  const weights = parts.map(part => Math.max(0, Math.abs(part.gross)))
-  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0)
-  if (!weightTotal) return parts.map((_, index) => index === 0 ? roundedTotal : 0)
-  const raw = weights.map(weight => absoluteTotal * weight / weightTotal)
-  const allocated = raw.map(value => Math.floor(value))
-  let remainder = absoluteTotal - allocated.reduce((sum, value) => sum + value, 0)
-  const order = raw.map((value, index) => ({ index, fraction: value - allocated[index] })).sort((left, right) => right.fraction - left.fraction || left.index - right.index)
-  for (let index = 0; remainder > 0; index += 1, remainder -= 1) allocated[order[index % order.length].index] += 1
-  return allocated.map(value => value * sign)
-}
-
-function treasurySourceSummaries(rows: DetailRecord[], selectedMethod?: string, selectedSource?: RevenueSourceFilter): TreasurySourceSummary[] {
-  type MutableSummary = TreasuryFinancialPart & { entryIds: Set<string>; received: number; refunded: number; outstanding: number; methods: Map<string, PaymentMethodTotal> }
-  const summaries = new Map<string, MutableSummary>()
-  const ensure = (source: string) => {
-    let summary = summaries.get(source)
-    if (!summary) {
-      summary = { source, gross: 0, netBeforeTax: 0, tax: 0, discount: 0, entryIds: new Set(), received: 0, refunded: 0, outstanding: 0, methods: new Map() }
-      summaries.set(source, summary)
-    }
-    return summary
-  }
-  const displayedSources = selectedSource && selectedSource !== "MIXED" ? [selectedSource] : [...TREASURY_SOURCE_CODES]
-  displayedSources.forEach(ensure)
-  for (const row of rows) {
-    const parts = treasuryFinancialParts(row)
-    const includedIndexes = parts.map((part, index) => ({ part, index })).filter(({ part }) => !selectedSource || selectedSource === "MIXED" || part.source === selectedSource)
-    const outstanding = allocateByWeight(Number(row.outstandingMinor ?? 0), parts)
-    const entryId = String(row.entryId ?? row.invoiceId ?? row.invoiceNumber ?? "")
-    for (const { part, index } of includedIndexes) {
-      const summary = ensure(part.source)
-      summary.gross += part.gross; summary.netBeforeTax += part.netBeforeTax; summary.tax += part.tax; summary.discount += part.discount
-      summary.outstanding += outstanding[index] ?? 0
-      summary.entryIds.add(entryId)
-    }
-    for (const payment of treasuryPaymentParts(row)) {
-      if (selectedMethod && payment.method !== selectedMethod) continue
-      const received = allocateByWeight(payment.received, parts)
-      const specificRefunds = String(row.sourceMethodRefundBreakdown ?? "").split("|").map(value => {
-        const [source, method, amount] = value.split(":")
-        return { source, method, amount: Number(amount ?? 0) }
-      }).filter(value => value.source && value.method === payment.method)
-      const refunded = specificRefunds.length ? parts.map(part => specificRefunds.filter(value => value.source === part.source).reduce((sum, value) => sum + value.amount, 0)) : allocateByWeight(payment.refunded, parts)
-      includedIndexes.forEach(({ part, index }) => {
-        const summary = ensure(part.source)
-        const method = summary.methods.get(payment.method) ?? { method: payment.method, received: 0, refunded: 0, net: 0 }
-        method.received += received[index] ?? 0; method.refunded += refunded[index] ?? 0; method.net = method.received - method.refunded
-        summary.methods.set(payment.method, method)
-        summary.received += received[index] ?? 0; summary.refunded += refunded[index] ?? 0
-      })
-    }
-  }
-  const standard = displayedSources.map(source => summaries.get(source)).filter((summary): summary is MutableSummary => Boolean(summary))
-  const extra = [...summaries.values()].filter(summary => !TREASURY_SOURCE_CODES.includes(summary.source as typeof TREASURY_SOURCE_CODES[number]) && (summary.entryIds.size || summary.gross || summary.received || summary.refunded)).sort((left, right) => revenueSourceName(left.source).localeCompare(revenueSourceName(right.source), "ar"))
-  return [...standard, ...extra].map(summary => ({ source: summary.source, gross: summary.gross, netBeforeTax: summary.netBeforeTax, tax: summary.tax, discount: summary.discount, entries: summary.entryIds.size, received: summary.received, refunded: summary.refunded, outstanding: summary.outstanding, methods: [...summary.methods.values()].sort((left, right) => paymentMethodName(left.method).localeCompare(paymentMethodName(right.method), "ar")) }))
-}
-
-function treasuryMetrics(rows: DetailRecord[], selectedMethod?: string, selectedSource?: RevenueSourceFilter): Metric[] {
-  const sources = treasurySourceSummaries(rows, selectedMethod, selectedSource)
+function treasuryMetrics(sources: TreasurySourceSummary[]): Metric[] {
   const sum = (key: "gross" | "netBeforeTax" | "tax" | "discount" | "received" | "refunded" | "outstanding") => sources.reduce((total, source) => total + source[key], 0)
   return [
     { label: "إجمالي الإيرادات", value: formatMoney(sum("gross")) },
@@ -641,16 +459,6 @@ function treasuryMetrics(rows: DetailRecord[], selectedMethod?: string, selected
   ]
 }
 
-function paymentMethodTotalsFromRows(rows: DetailRecord[]): PaymentMethodTotal[] {
-  const totals = new Map<string, PaymentMethodTotal>(PAYMENT_METHOD_CODES.map(method => [method, { method, received: 0, refunded: 0, net: 0 }]))
-  for (const row of rows) {
-    const method = String(row.paymentMethod ?? "")
-    if (!totals.has(method)) totals.set(method, { method, received: 0, refunded: 0, net: 0 })
-    const total = totals.get(method); if (!total) continue
-    total.received += Number(row.receivedMinor ?? 0); total.refunded += Number(row.refundedMinor ?? 0); total.net += Number(row.netRevenueMinor ?? 0)
-  }
-  return [...totals.values()]
-}
 function rangeDays(from: string, to: string) { const start = new Date(`${from}T00:00:00Z`), end = new Date(`${to}T00:00:00Z`); if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0; return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1 }
 function addDays(value: string, days: number) { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10) }
 function today() { const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000); return local.toISOString().slice(0, 10) }

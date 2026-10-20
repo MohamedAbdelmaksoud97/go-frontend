@@ -10,13 +10,14 @@ import { humanError } from "@/lib/human-errors"
 
 type MemberOption = { id: string; name: string; memberNumber: string; phoneE164?: string; nationalId?: string }
 
-async function memberPage(organizationId: string, branchId: string, search: string, signal: AbortSignal, cursor?: string) {
-  const query = new URLSearchParams({ branchId, status: "ACTIVE", limit: "50" })
+async function memberPage(organizationId: string, branchId: string, search: string, signal: AbortSignal, activeOnly: boolean, cursor?: string) {
+  const query = new URLSearchParams({ branchId, limit: "50" })
+  if (activeOnly) query.set("status", "ACTIVE")
   if (search) query.set("search", search)
   if (cursor) query.set("cursor", cursor)
   const response = await apiRequest<unknown>(`/organizations/${organizationId}/members?${query}`, { signal })
   if (cursor && response.meta?.nextCursor === cursor) throw new Error("تعذر تحميل المزيد من الأعضاء. حاول البحث بالاسم أو رقم العضوية.")
-  const members = coachingList(response.data).filter(row => row.status === "ACTIVE").map(row => ({
+  const members = coachingList(response.data).filter(row => !activeOnly || row.status === "ACTIVE").map(row => ({
     id: String(row.id), name: String(row.name), memberNumber: String(row.memberNumber ?? "—"),
     ...(row.phoneE164 ? { phoneE164: String(row.phoneE164) } : {}),
     ...(row.nationalId ? { nationalId: String(row.nationalId) } : {}),
@@ -24,7 +25,7 @@ async function memberPage(organizationId: string, branchId: string, search: stri
   return { members, nextCursor: response.meta?.nextCursor }
 }
 
-export function TrainerMemberPicker({ organizationId, branchId, selectedId, onSelect }: { organizationId: string; branchId: string; selectedId: string; onSelect: (member: MemberOption | undefined) => void }) {
+export function TrainerMemberPicker({ organizationId, branchId, selectedId, onSelect, activeOnly = true }: { organizationId: string; branchId: string; selectedId: string; onSelect: (member: MemberOption | undefined) => void; activeOnly?: boolean }) {
   const inputId = useId()
   const [query, setQuery] = useState("")
   const [members, setMembers] = useState<MemberOption[]>([])
@@ -44,21 +45,21 @@ export function TrainerMemberPicker({ organizationId, branchId, selectedId, onSe
       if (search.length === 1) { setLoading(false); return }
       setLoading(true)
       try {
-        const page = await memberPage(organizationId, branchId, search, controller.signal)
+        const page = await memberPage(organizationId, branchId, search, controller.signal, activeOnly)
         if (!controller.signal.aborted) { setMembers(page.members); setNextCursor(page.nextCursor) }
       } catch (reason) {
         if (!controller.signal.aborted) setError(humanError(reason, "تعذر تحميل الأعضاء. حاول مرة أخرى."))
       } finally { if (!controller.signal.aborted) setLoading(false) }
     }, search ? 300 : 0)
     return () => { window.clearTimeout(timer); controller.abort(); if (request.current === controller) request.current = null }
-  }, [organizationId, branchId, search, retry])
+  }, [organizationId, branchId, search, retry, activeOnly])
 
   async function loadMore() {
     const controller = request.current
     if (!nextCursor || !controller || controller.signal.aborted || loading || loadingMore) return
     setLoadingMore(true); setError("")
     try {
-      const page = await memberPage(organizationId, branchId, search, controller.signal, nextCursor)
+      const page = await memberPage(organizationId, branchId, search, controller.signal, activeOnly, nextCursor)
       if (!controller.signal.aborted) {
         setMembers(current => [...current, ...page.members.filter(row => !current.some(member => member.id === row.id))])
         setNextCursor(page.nextCursor)

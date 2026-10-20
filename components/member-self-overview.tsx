@@ -8,7 +8,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { DateTimeInput } from "@/components/date-time-input"
 import { CoachingPlanExercises } from "@/components/coaching-ui"
-import { loadCoachingPages } from "@/lib/coaching"
+import { useCoachingPage } from "@/lib/use-coaching-page"
+import { CoachingPageMore } from "@/components/coaching-list-controls"
 import { useToast } from "@/components/toast-provider"
 import { apiRequest, createIdempotencyKey } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
@@ -32,8 +33,8 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
   const toast = useToast()
   const visibleTabs = allTabs.filter(tab => !tabs || tabs.includes(tab.key))
   const [active, setActive] = useState<MemberOverviewTab>(initialTab ?? visibleTabs[0]?.key ?? "subscriptions")
-  const [rows, setRows] = useState<Row[]>([])
-  const [loading, setLoading] = useState(true)
+  const [regularRows, setRows] = useState<Row[]>([])
+  const [regularLoading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState("")
   const [cancellation, setCancellation] = useState<{ row: Row; kind: "subscription" | "reservation" }>()
@@ -52,17 +53,20 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
   const selectedScheduledStart = freezeMode === "LATER" ? new Date(freezeStartAt) : undefined
   const selectedScheduleAllowed = selectedScheduledStart === undefined || (Number.isFinite(selectedScheduledStart.getTime()) && selectedScheduledStart > new Date() && (selectedFreezeDeadline === undefined || selectedScheduledStart < selectedFreezeDeadline))
 
+  const trainingPage = useCoachingPage(active === "training-plans" ? `/self/organizations/${member.organizationId}/members/${member.memberId}/training-plans?limit=50` : null)
+  const rows = active === "training-plans" ? trainingPage.rows : regularRows
+  const loading = active === "training-plans" ? trainingPage.initialLoading : regularLoading
   async function load() {
+    if (active === "training-plans") { setError(""); trainingPage.reload(); return }
     setLoading(true); setError("")
     try {
       const path = `/self/organizations/${member.organizationId}/members/${member.memberId}/${active}?limit=100`
-      if (active === "training-plans") setRows(await loadCoachingPages(path))
-      else setRows(list((await apiRequest<unknown>(path)).data))
+      setRows(list((await apiRequest<unknown>(path)).data))
     } catch (reason) { setError(humanError(reason, "تعذر تحميل بيانات العضوية.")) }
     finally { setLoading(false) }
   }
 
-  useEffect(() => { const frame = requestAnimationFrame(() => void load()); return () => cancelAnimationFrame(frame) }, [active, member.memberId, member.organizationId]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (active === "training-plans") return; const frame = requestAnimationFrame(() => void load()); return () => cancelAnimationFrame(frame) }, [active, member.memberId, member.organizationId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function transitionExercise(plan: Row, item: Row, status: "COMPLETED" | "SKIPPED") {
     setBusy(String(item.id)); setError("")
@@ -166,7 +170,7 @@ export function MemberSelfOverview({ member, tabs, initialTab, showMemberHeader 
                 if (value === "freezes") { const policy = subscriptionFreezePolicy(row); const scheduled = pendingFreezeSchedule(row); setFreezeRequest(row); setFreezeDays(String(policy.recommendedDays)); setFreezeReason(scheduled ? "طلب العضو إلغاء الجدولة" : ""); setFreezeMode("NOW"); return }
                 if (value === "renewals") { void prepareRenewal(row); return }
                 void subscriptionAction(row, value)
-              }} />}{active === "invoices" && <Button size="sm" variant="outline" onClick={() => printInvoice(row, member)}><Printer />طباعة</Button>}{active === "reservations" && member.canBook && !["CANCELLED", "COMPLETED", "NO_SHOW"].includes(String(row.status)) && <Button size="sm" variant="destructive" disabled={busy === String(row.id)} onClick={() => { setCancellation({ row, kind: "reservation" }); setReason("") }}>إلغاء الحجز</Button>}</div></div>{active === "training-plans" && <CoachingPlanExercises plan={row} busy={busy} onTransition={(item, status) => void transitionExercise(row, item, status)}/>}</article>)}{!rows.length && <div className="rounded-2xl border border-dashed py-10 text-center"><p className="text-sm font-bold">لا توجد بيانات في هذا القسم بعد</p><p className="mt-1 text-xs text-muted-foreground">ستظهر هنا تلقائيًا فور تنفيذ العملية المرتبطة.</p></div>}</div>}</div></CardContent></Card>
+              }} />}{active === "invoices" && <Button size="sm" variant="outline" onClick={() => printInvoice(row, member)}><Printer />طباعة</Button>}{active === "reservations" && member.canBook && !["CANCELLED", "COMPLETED", "NO_SHOW"].includes(String(row.status)) && <Button size="sm" variant="destructive" disabled={busy === String(row.id)} onClick={() => { setCancellation({ row, kind: "reservation" }); setReason("") }}>إلغاء الحجز</Button>}</div></div>{active === "training-plans" && <CoachingPlanExercises plan={row} busy={busy} onTransition={(item, status) => void transitionExercise(row, item, status)}/>}</article>)}{!rows.length && <div className="rounded-2xl border border-dashed py-10 text-center"><p className="text-sm font-bold">لا توجد بيانات في هذا القسم بعد</p><p className="mt-1 text-xs text-muted-foreground">ستظهر هنا تلقائيًا فور تنفيذ العملية المرتبطة.</p></div>}</div>}{active === "training-plans" && <CoachingPageMore page={trainingPage} label="عرض المزيد من الخطط"/>}</div></CardContent></Card>
     {freezeRequest && <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="freeze-title" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setFreezeRequest(undefined) }}>
       <div className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border bg-card p-6 shadow-2xl">
         <div className="flex items-start gap-4"><div><p className="text-xs font-bold text-primary">وفق سياسة الباقة</p><h3 id="freeze-title" className="mt-1 text-xl font-black">{selectedPendingSchedule ? "إدارة التجميد المجدول" : "تجميد الاشتراك"}</h3></div><Button className="mr-auto" size="icon" variant="ghost" aria-label="إغلاق" disabled={Boolean(busy)} onClick={() => setFreezeRequest(undefined)}><X /></Button></div>

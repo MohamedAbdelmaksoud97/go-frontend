@@ -155,7 +155,10 @@ try {
   })
 
   await check("template-and-administrative-plan-through-ui", async () => {
+    const beforeMembers = assignmentMemberRequests.length
     await admin.getByRole("button", { name: "الخطط والقوالب", exact: true }).click()
+    await expect(admin.getByRole("heading", { name: "خطط التدريب والقوالب", exact: true })).toBeVisible()
+    assert.equal(assignmentMemberRequests.length, beforeMembers, "Opening programs must not load the member directory")
     await admin.getByRole("button", { name: "قوالب التدريب", exact: true }).click()
     await admin.getByRole("button", { name: "قالب تدريب جديد", exact: true }).click()
     const dialog = admin.getByRole("dialog")
@@ -177,7 +180,9 @@ try {
     await admin.getByRole("button", { name: "خطط الأعضاء", exact: true }).click()
     await admin.getByRole("button", { name: "خطة تدريب جديدة", exact: true }).click()
     const planDialog = admin.getByRole("dialog")
-    await planDialog.getByLabel("المتدرب", { exact: true }).selectOption(environment.ids.member)
+    await planDialog.getByRole("button", { name: "اختيار المتدرب", exact: true }).click()
+    await planDialog.getByLabel("ابحث عن العضو", { exact: true }).fill("GO900001")
+    await planDialog.getByRole("button", { name: /متدرب اختبار أول/ }).click()
     await planDialog.getByLabel("ابدأ من قالب", { exact: true }).selectOption(templateId)
     await planDialog.getByLabel("اسم الخطة", { exact: true }).fill("خطة إدارية تجريبية")
     await planDialog.getByLabel("المدرب المسؤول", { exact: true }).selectOption(coachId)
@@ -189,7 +194,14 @@ try {
 
   const { page: coach } = await contextFor(environment.tokens.coach)
   activePage = coach
+  const coachHistoryRequests = []
+  coach.on("request", request => { const url = new URL(request.url()); if (url.pathname.includes("/trainer/") && /training-plans|commissions|measurements/.test(url.pathname)) coachHistoryRequests.push(url) })
   await coach.goto(`${baseUrl}/trainer`)
+  await check("trainer-overview-loads-summary-without-plan-commission-or-measurement-history", async () => {
+    await expect(coach.getByRole("heading", { name: /مرحبًا/ })).toBeVisible()
+    await expect(coach.getByText("إجمالي عمولاتي", { exact: true })).toBeVisible()
+    assert.equal(coachHistoryRequests.length, 0)
+  })
   await check("multiple-measurements-and-immediate-history-refresh-through-ui", async () => {
     await api(environment.tokens.admin, `${org()}/measurement-types`, "POST", { code: "QA_WEIGHT", name: "الوزن التجريبي", unit: "kg", dataKind: "DECIMAL", minimumValue: "20", maximumValue: "300" }, 201)
     await api(environment.tokens.admin, `${org()}/measurement-types`, "POST", { code: "QA_HEIGHT", name: "الطول التجريبي", unit: "cm", dataKind: "INTEGER", minimumValue: "50", maximumValue: "250" }, 201)
@@ -212,6 +224,23 @@ try {
     await saveDialog(coach, "حفظ جلسة القياس", 201)
     await expect(coach.getByText(/الوزن التجريبي: 79.2/)).toBeVisible()
     await capture(coach, "03-coaching-measurements")
+  })
+
+  await check("administrative-measurements-load-with-member-labels-and-no-directory-download", async () => {
+    activePage = admin
+    const before = assignmentMemberRequests.length
+    await admin.getByRole("button", { name: "القياسات", exact: true }).click()
+    await expect(admin.getByRole("heading", { name: "سجل قياسات المتدربين", exact: true })).toBeVisible()
+    await expect(admin.getByRole("heading", { name: "متدرب اختبار أول", exact: true })).toHaveCount(2)
+    assert.equal(assignmentMemberRequests.length, before)
+    await admin.getByRole("button", { name: "تسجيل جلسة قياس", exact: true }).click()
+    const dialog = admin.getByRole("dialog")
+    assert.equal(assignmentMemberRequests.length, before, "Measurement dialog must not fetch members until the picker is opened")
+    await dialog.getByRole("button", { name: "اختيار المتدرب", exact: true }).click()
+    await dialog.getByLabel("ابحث عن العضو", { exact: true }).fill("GO900001")
+    await dialog.getByRole("button", { name: /متدرب اختبار أول/ }).click()
+    await dialog.getByRole("button", { name: "إغلاق", exact: true }).click()
+    activePage = coach
   })
 
   await check("trainer-creates-and-edits-plan-from-template-through-ui", async () => {
@@ -326,6 +355,49 @@ try {
     await api(environment.tokens.outsider, `${org()}/trainers/${coachId}`, "PATCH", { expectedVersion: current.version, displayName: "مرفوض" }, 403)
     await api(environment.tokens.admin, `${org()}/trainers/${coachId}`, "PATCH", { expectedVersion: 1, displayName: "نسخة قديمة" }, 409)
     await api(environment.tokens.coach, `/self/organizations/${environment.ids.organization}/trainer/training-plans/${administrativePlanId}`, "PATCH", { expectedVersion: 3, branchId: environment.ids.branch, name: "خطة المدرب الآخر" }, 403)
+  })
+
+  await check("plans-and-templates-load-one-page-at-a-time-and-search-the-full-list", async () => {
+    await environment.pg.query("insert into app.member_training_plans(id,organization_id,member_id,trainer_profile_id,name,starts_on,status,created_by) select ('b1000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,$1,$2,$3,'Resource plan '||lpad(n::text,3,'0'),current_date,'ACTIVE',$4 from generate_series(1,55) n", [environment.ids.organization, environment.ids.member, coachId, environment.ids.admin])
+    await environment.pg.query("insert into app.training_plan_templates(id,organization_id,code,name,status,created_by) select ('b2000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,$1,'RESOURCE_QA_'||n,'Resource template '||lpad(n::text,3,'0'),'ACTIVE',$2 from generate_series(1,55) n", [environment.ids.organization, environment.ids.admin])
+    const pageRequests = []
+    const track = request => { const url = new URL(request.url()); if (url.searchParams.get("q")?.startsWith("Resource ") && /\/(member-training-plans|training-plan-templates)$/.test(url.pathname)) pageRequests.push(url) }
+    admin.on("request", track)
+    const beforeMembers = assignmentMemberRequests.length
+    await admin.getByRole("button", { name: "الخطط والقوالب", exact: true }).click()
+    const search = admin.getByLabel("البحث في خطط التدريب", { exact: true })
+    const cards = admin.getByTestId(/^training-program-/)
+    for (const [tab, prefix] of [["خطط الأعضاء", "Resource plan"], ["قوالب التدريب", "Resource template"]]) {
+      const more = admin.getByRole("button", { name: tab === "خطط الأعضاء" ? "عرض المزيد من الخطط" : "عرض المزيد من القوالب", exact: true })
+      await admin.getByRole("button", { name: tab, exact: true }).click()
+      await Promise.all([admin.waitForResponse(response => new URL(response.url()).searchParams.get("q") === prefix && response.request().method() === "GET" && response.status() === 200), search.fill(prefix)])
+      await expect(cards).toHaveCount(50)
+      await expect(admin.getByRole("heading", { name: `${prefix} 001`, exact: true })).toHaveCount(0)
+      await expect(more).toBeVisible()
+      assert.equal(pageRequests.filter(url => url.searchParams.get("q") === prefix && url.searchParams.has("cursor")).length, 0, "The next cursor must not be fetched automatically")
+      await more.click()
+      await expect(cards).toHaveCount(55)
+      await expect(more).toHaveCount(0)
+      const ids = await cards.evaluateAll(elements => elements.map(element => element.getAttribute("data-testid")))
+      assert.equal(new Set(ids).size, 55, "Appending a page must not repeat records")
+      await search.fill(`${prefix} 001`)
+      await expect(cards).toHaveCount(1)
+      await expect(admin.getByRole("heading", { name: `${prefix} 001`, exact: true })).toBeVisible()
+    }
+    assert.equal(assignmentMemberRequests.length, beforeMembers, "Browsing full plan and template histories must not load the member directory")
+    admin.off("request", track)
+    const ownPath = `/api/backend/api/v1/self/organizations/${environment.ids.organization}/trainer/training-plans`
+    const ownRequests = []
+    coach.on("request", request => { const url = new URL(request.url()); if (url.pathname === ownPath) ownRequests.push(url) })
+    await coach.getByRole("button", { name: "نظرة اليوم", exact: true }).click()
+    await coach.getByRole("button", { name: "تحديث", exact: true }).click()
+    await expect(coach.getByText("إجمالي عمولاتي", { exact: true })).toBeVisible()
+    assert.equal(ownRequests.length, 0)
+    await coach.getByRole("button", { name: "خطط التدريب", exact: true }).click()
+    await Promise.all([coach.waitForResponse(response => new URL(response.url()).pathname === ownPath && new URL(response.url()).searchParams.get("q") === "Resource plan" && response.status() === 200), coach.getByLabel("البحث في خططي", { exact: true }).fill("Resource plan")])
+    await expect(coach.getByTestId(/^training-plan-/)).toHaveCount(50)
+    await coach.getByRole("button", { name: "عرض المزيد من الخطط", exact: true }).click()
+    await expect(coach.getByTestId(/^training-plan-/)).toHaveCount(55)
   })
 
   await check("detailed-guide-and-mobile-layout-through-ui", async () => {

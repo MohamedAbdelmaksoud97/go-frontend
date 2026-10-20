@@ -6,10 +6,12 @@ import {
   Dumbbell, HandCoins, Loader2, MapPin, NotebookTabs, Plus, RefreshCw, Ruler,
   Search, Sparkles, Target, TrendingUp, UserRound, Users,
 } from "lucide-react"
+import { useCoachingPage, useCoachingSearch } from "@/lib/use-coaching-page"
+import { CoachingPageMore } from "@/components/coaching-list-controls"
 import { CoachingPlanEditor } from "@/components/coaching-plan-editor"
 import { CoachingMeasurementDialog } from "@/components/coaching-measurement-dialog"
 import { CoachingField } from "@/components/coaching-ui"
-import { coachingDate, loadCoachingPages } from "@/lib/coaching"
+import { coachingDate } from "@/lib/coaching"
 import { useAppContext } from "@/components/app-context"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -28,7 +30,7 @@ type MemberRow = Row & {
 }
 type ScheduleRow = Row & { id?: string; startsAt?: string; endsAt?: string; resourceName?: string; branchName?: string; bookedCount?: number; capacity?: number; status?: string; attendees?: Row[] }
 type PlanRow = Row & { id?: string; memberId?: string; memberName?: string; memberNumber?: string; name?: string; goal?: string; startsOn?: string; endsOn?: string; status?: string; items?: Row[] }
-type WorkspaceData = { trainer?: Row; members: MemberRow[]; schedule: ScheduleRow[]; plans: PlanRow[]; commissions: Row[] }
+type WorkspaceData = { trainer?: Row; members: MemberRow[]; schedule: ScheduleRow[] }
 type TabKey = "overview" | "members" | "schedule" | "plans" | "commissions"
 
 const tabs: { key: TabKey; label: string; icon: typeof Users }[] = [
@@ -43,7 +45,7 @@ export function TrainerWorkspace() {
   const context = useAppContext()
   const toast = useToast()
   const [active, setActive] = useState<TabKey>("overview")
-  const [data, setData] = useState<WorkspaceData>({ members: [], schedule: [], plans: [], commissions: [] })
+  const [data, setData] = useState<WorkspaceData>({ members: [], schedule: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [query, setQuery] = useState("")
@@ -59,32 +61,33 @@ export function TrainerWorkspace() {
   const canRecordMeasurements = context.canAccess(["measurements.manage"])
   const canManagePlans = context.canAccess(["coaching.training-plans.manage"])
 
+  const [planSearch, setPlanSearch] = useState("")
+  const search = useCoachingSearch(planSearch)
+  const trainerBase = `/self/organizations/${context.organizationId}/trainer`
+  const plansPage = useCoachingPage(context.organizationId && active === "plans" ? `${trainerBase}/training-plans?limit=50${search ? `&q=${encodeURIComponent(search)}` : ""}` : null)
+  const commissionsPage = useCoachingPage(context.organizationId && active === "commissions" ? `${trainerBase}/commissions?limit=50` : null)
   async function load() {
     if (!context.organizationId) return
     setLoading(true); setError("")
     try {
       const base = `/self/organizations/${context.organizationId}/trainer`
       const trainer = await apiRequest<Row>(base)
-      const [members, schedule, plans, commissions] = await Promise.allSettled([
+      const [members, schedule] = await Promise.allSettled([
         apiRequest<unknown>(`${base}/members`),
         apiRequest<unknown>(`${base}/schedule?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`),
-        loadCoachingPages(`${base}/training-plans?limit=100`).then(data => ({ data })),
-        loadCoachingPages(`${base}/commissions?limit=100`).then(data => ({ data })),
       ])
       const next: WorkspaceData = {
         trainer: trainer.data,
         members: members.status === "fulfilled" ? list(members.value.data) as MemberRow[] : [],
         schedule: schedule.status === "fulfilled" ? list(schedule.value.data) as ScheduleRow[] : [],
-        plans: plans.status === "fulfilled" ? list(plans.value.data) as PlanRow[] : [],
-        commissions: commissions.status === "fulfilled" ? list(commissions.value.data) : [],
       }
       setData(next)
-      if ([members, schedule, plans, commissions].some(result => result.status === "rejected")) {
+      if ([members, schedule].some(result => result.status === "rejected")) {
         setError("تم فتح مساحة المدرب، لكن تعذر تحميل بعض البيانات الثانوية. استخدم «تحديث» لإعادة المحاولة.")
       }
       setSelectedMemberId(current => next.members.some(member => member.memberId === current) ? current : next.members[0]?.memberId ?? "")
     } catch (reason) {
-      setData({ members: [], schedule: [], plans: [], commissions: [] })
+      setData({ members: [], schedule: [] })
       setError(humanError(reason, "تعذر تحميل مساحة المدرب. تأكد من ربط حساب الموظف بملف مدرب نشط داخل الفرع."))
     } finally { setLoading(false) }
   }
@@ -92,17 +95,18 @@ export function TrainerWorkspace() {
   useEffect(() => { const frame = requestAnimationFrame(() => void load()); return () => cancelAnimationFrame(frame) }, [context.organizationId, range.from, range.to]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!selectedMemberId || !context.organizationId) return
+    if (active !== "members" || !selectedMemberId || !context.organizationId) return
     let cancelled = false
+    const controller = new AbortController()
     const frame = requestAnimationFrame(() => {
       setMeasurementsLoading(true)
-      void apiRequest<unknown>(`/self/organizations/${context.organizationId}/trainer/members/${selectedMemberId}/measurements?limit=12`)
+      void apiRequest<unknown>(`/self/organizations/${context.organizationId}/trainer/members/${selectedMemberId}/measurements?limit=12`, { signal: controller.signal })
         .then(response => { if (!cancelled) setMeasurements(list(response.data)) })
         .catch(() => { if (!cancelled) setMeasurements([]) })
         .finally(() => { if (!cancelled) setMeasurementsLoading(false) })
     })
-    return () => { cancelled = true; cancelAnimationFrame(frame) }
-  }, [context.organizationId, selectedMemberId, measurementReload])
+    return () => { cancelled = true; controller.abort(); cancelAnimationFrame(frame) }
+  }, [active, context.organizationId, selectedMemberId, measurementReload])
 
   async function transitionItem(plan: PlanRow, item: Row, status: "COMPLETED" | "SKIPPED") {
     const planId = String(plan.id ?? ""), itemId = String(item.id ?? "")
@@ -111,7 +115,7 @@ export function TrainerWorkspace() {
     try {
       await apiRequest(`/self/organizations/${context.organizationId}/trainer/training-plans/${planId}/items/${itemId}/transitions`, { method: "POST", body: JSON.stringify({ status }) })
       toast.success(status === "COMPLETED" ? "تم اعتماد تنفيذ التمرين." : "تم تسجيل عدم تنفيذ التمرين.")
-      await load()
+      await load(); plansPage.reload()
     } catch (reason) { toast.error(humanError(reason, "تعذر تحديث حالة التمرين.")) } finally { setBusy("") }
   }
 
@@ -120,15 +124,15 @@ export function TrainerWorkspace() {
     try {
       const member = data.members.find(item => item.memberId === plan.memberId)
       await apiRequest(`/self/organizations/${context.organizationId}/trainer/training-plans/${plan.id}`, { method: "PATCH", body: JSON.stringify({ expectedVersion: Number(plan.version), branchId: member?.branchId ?? context.branchId, status }) })
-      toast.success("تم تحديث حالة الخطة."); await load()
+      toast.success("تم تحديث حالة الخطة."); await load(); plansPage.reload()
     } catch (reason) { toast.error(humanError(reason, "تعذر تحديث الخطة.")) } finally { setBusy("") }
   }
 
   const selectedMember = data.members.find(member => member.memberId === selectedMemberId)
   const todaySchedule = data.schedule.filter(slot => isToday(slot.startsAt))
-  const activePlans = data.plans.filter(plan => plan.status === "ACTIVE")
+  const trainerSummary = (data.trainer?.summary ?? {}) as Row
   const filteredMembers = data.members.filter(member => normalize(`${member.memberName} ${member.memberNumber} ${member.phoneE164} ${member.nationalId}`).includes(normalize(query)))
-  const totalCommission = data.commissions.filter(row => ["ACCRUED", "APPROVED", "PAID"].includes(String(row.status))).reduce((sum, row) => sum + Number(row.commissionAmountMinor ?? 0), 0)
+  const totalCommission = Number(trainerSummary.commissionTotalMinor ?? 0)
 
   return <div className="fade-up space-y-6">
     <section className="overflow-hidden rounded-[2rem] border border-primary/20 bg-gradient-to-l from-primary/[.12] via-card to-card p-6 sm:p-8">
@@ -140,7 +144,7 @@ export function TrainerWorkspace() {
         <div className="flex flex-wrap gap-2 lg:mr-auto">
           {canRecordMeasurements && <Button onClick={() => setMeasurementMemberId(selectedMemberId || data.members[0]?.memberId || "")} disabled={!data.members.length}><Ruler />تسجيل قياس</Button>}
           {canManagePlans && <Button variant="outline" onClick={() => setPlanMemberId(selectedMemberId || data.members[0]?.memberId || "")} disabled={!data.members.length}><Plus />خطة تدريب جديدة</Button>}
-          <Button variant="outline" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? "animate-spin" : ""} />تحديث</Button>
+          <Button variant="outline" onClick={() => { void load(); plansPage.reload(); commissionsPage.reload(); setMeasurementReload(value => value + 1) }} disabled={loading}><RefreshCw className={loading ? "animate-spin" : ""} />تحديث</Button>
         </div>
       </div>
     </section>
@@ -151,25 +155,25 @@ export function TrainerWorkspace() {
 
     {error && <p role="alert" className="rounded-2xl bg-red-500/10 p-4 text-sm font-semibold text-red-600">{error}</p>}
     {loading ? <div className="grid min-h-80 place-items-center rounded-3xl border bg-card"><div className="text-center"><Loader2 className="mx-auto animate-spin text-primary" /><p className="mt-3 text-sm text-muted-foreground">نجهّز مساحة عملك…</p></div></div> : <>
-      {active === "overview" && <Overview members={data.members} schedule={todaySchedule} plans={activePlans} totalCommission={totalCommission} onMember={id => { setSelectedMemberId(id); setActive("members") }} onSchedule={() => setActive("schedule")} onPlans={() => setActive("plans")} />}
+      {active === "overview" && <Overview members={data.members} schedule={todaySchedule} activePlanCount={Number(trainerSummary.activePlans ?? 0)} totalCommission={totalCommission} onMember={id => { setSelectedMemberId(id); setActive("members") }} onSchedule={() => setActive("schedule")} onPlans={() => setActive("plans")} />}
       {active === "members" && <MembersView members={filteredMembers} query={query} setQuery={setQuery} selected={selectedMember} select={setSelectedMemberId} measurements={measurements} measurementsLoading={measurementsLoading} onMeasurement={setMeasurementMemberId} onPlan={setPlanMemberId} canRecordMeasurements={canRecordMeasurements} canManagePlans={canManagePlans} />}
       {active === "schedule" && <><div className="grid gap-3 rounded-2xl border bg-card p-4 sm:grid-cols-2"><CoachingField label="الجدول من"><DateTimeInput type="date" value={coachingDate(range.from)} onChange={event => { if (event.target.value) setRange(current => ({ ...current, from: new Date(`${event.target.value}T00:00:00`).toISOString() })) }} /></CoachingField><CoachingField label="الجدول إلى"><DateTimeInput type="date" min={coachingDate(range.from)} value={coachingDate(range.to)} onChange={event => { if (event.target.value) setRange(current => ({ ...current, to: new Date(`${event.target.value}T23:59:59`).toISOString() })) }} /></CoachingField></div><ScheduleView rows={data.schedule} /></>}
-      {active === "plans" && <PlansView rows={data.plans} busy={busy} canManage={canManagePlans} onEdit={setEditingPlan} onState={updatePlanState} onTransition={transitionItem} onMember={id => { setSelectedMemberId(id); setActive("members") }} />}
-      {active === "commissions" && <CommissionsView rows={data.commissions} />}
+      {active === "plans" && <><Input aria-label="البحث في خططي" maxLength={160} placeholder="اسم الخطة أو المتدرب أو رقم العضوية" value={planSearch} onChange={event => setPlanSearch(event.target.value)}/>{plansPage.initialLoading ? <Loader2 className="mx-auto animate-spin"/> : <PlansView rows={plansPage.rows} busy={busy} canManage={canManagePlans} onEdit={setEditingPlan} onState={updatePlanState} onTransition={transitionItem} onMember={id => { setSelectedMemberId(id); setActive("members") }} />}<CoachingPageMore page={plansPage} label="عرض المزيد من الخطط"/></>}
+      {active === "commissions" && <>{commissionsPage.initialLoading ? <Loader2 className="mx-auto animate-spin"/> : <CommissionsView rows={commissionsPage.rows} />}<CoachingPageMore page={commissionsPage} label="عرض المزيد من العمولات"/></>}
     </>}
 
     {canRecordMeasurements && measurementMemberId && <CoachingMeasurementDialog organizationId={context.organizationId} branchId={context.branchId} members={data.members} initialMemberId={measurementMemberId} onClose={() => setMeasurementMemberId("")} onSaved={() => { setSelectedMemberId(measurementMemberId); setMeasurementMemberId(""); setMeasurementReload(value => value + 1); void load(); toast.success("تم حفظ جلسة القياس.") }} />}
-    {canManagePlans && (planMemberId || editingPlan) && <CoachingPlanEditor organizationId={context.organizationId} branchId={context.branchId} members={data.members} initialMemberId={planMemberId} existing={editingPlan} onClose={() => { setPlanMemberId(""); setEditingPlan(undefined) }} onSaved={() => { setPlanMemberId(""); setEditingPlan(undefined); void load(); setActive("plans") }} />}
+    {canManagePlans && (planMemberId || editingPlan) && <CoachingPlanEditor organizationId={context.organizationId} branchId={context.branchId} members={data.members} initialMemberId={planMemberId} existing={editingPlan} onClose={() => { setPlanMemberId(""); setEditingPlan(undefined) }} onSaved={() => { setPlanMemberId(""); setEditingPlan(undefined); void load(); plansPage.reload(); setActive("plans") }} />}
 
   </div>
 }
 
-function Overview({ members, schedule, plans, totalCommission, onMember, onSchedule, onPlans }: { members: MemberRow[]; schedule: ScheduleRow[]; plans: PlanRow[]; totalCommission: number; onMember: (id: string) => void; onSchedule: () => void; onPlans: () => void }) {
+function Overview({ members, schedule, activePlanCount, totalCommission, onMember, onSchedule, onPlans }: { members: MemberRow[]; schedule: ScheduleRow[]; activePlanCount: number; totalCommission: number; onMember: (id: string) => void; onSchedule: () => void; onPlans: () => void }) {
   const withoutPlan = members.filter(member => !member.activePlanId)
   const stats = [
     { label: "متدربون نشطون", value: members.length, hint: withoutPlan.length ? `${withoutPlan.length} بحاجة إلى خطة` : "كل المتدربين لديهم خطط", icon: Users, color: "text-blue-600 bg-blue-500/10" },
     { label: "جلسات اليوم", value: schedule.length, hint: schedule.length ? `${schedule.reduce((sum, row) => sum + Number(row.bookedCount ?? 0), 0)} حجوزات` : "لا توجد جلسات اليوم", icon: CalendarDays, color: "text-violet-600 bg-violet-500/10" },
-    { label: "خطط نشطة", value: plans.length, hint: "مرتبطة بحسابات الأعضاء", icon: Target, color: "text-emerald-600 bg-emerald-500/10" },
+    { label: "خطط نشطة", value: activePlanCount, hint: "مرتبطة بحسابات الأعضاء", icon: Target, color: "text-emerald-600 bg-emerald-500/10" },
     { label: "إجمالي عمولاتي", value: money(totalCommission), hint: "المستحقة والمعتمدة والمدفوعة", icon: CircleDollarSign, color: "text-amber-700 bg-amber-500/10" },
   ]
   return <div className="space-y-5">

@@ -22,7 +22,8 @@
     "test": "npm run check:coverage && npm run check:errors && npm run test:security && npm run test:permissions && npm run test:report-permissions && npm run test:system-role-editor && npm run test:audit && npm run test:counter && npm run test:corrections && npm run test:member-access && npm run test:employee-photo && npm run test:attendance && npm run test:restaurant && npm run lint",
     "test:report-permissions": "node --test scripts/test-report-permissions.mjs",
     "test:system-role-editor": "node --test scripts/test-system-role-editor.mjs",
-    "test:coaching:e2e": "node ../gosystem/node_modules/tsx/dist/cli.mjs scripts/test-coaching-e2e.mjs"
+    "test:coaching:e2e": "node ../gosystem/node_modules/tsx/dist/cli.mjs scripts/test-coaching-e2e.mjs",
+    "test:reports:e2e": "node ../gosystem/node_modules/tsx/dist/cli.mjs scripts/test-report-pages-e2e.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
