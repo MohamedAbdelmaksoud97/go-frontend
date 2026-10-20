@@ -1,3 +1,5 @@
+import { coachingGuide } from "@/lib/coaching-guide"
+
 export type GuideLink = {
   href: string
   label: string
@@ -33,6 +35,7 @@ export type GuidePage = {
 const shot = (file: string, alt: string, caption: string) => ({ src: `/guide/screenshots/${file}`, alt, caption })
 
 export const guidePages: GuidePage[] = [
+  coachingGuide,
   {
     slug: "service-booking-corrections", group: "الإدارة والرقابة", title: "تصحيح خدمة أو حجز مسجل بالخطأ", duration: "دقيقتان", roles: "مدير النظام فقط",
     description: "إلغاء البند الخاطئ مع حفظ الفاتورة الأصلية والسبب وتسوية قيمته المالية.", keywords: ["تصحيح", "خطأ", "خدمة", "حجز", "استرداد", "تخفيض", "فاتورة"],

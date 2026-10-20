@@ -26,6 +26,21 @@ const publicCopy: Record<number, { title: string; detail: string }> = {
   504: { title: "استغرقت الخدمة وقتًا طويلًا", detail: "لم تكتمل استجابة الخدمة في الوقت المتوقع. حاول مرة أخرى بعد قليل." },
 }
 
+const coachingDetails: Record<string, string> = {
+  trainer_in_use: "انقل أو أنهِ تعيينات المتدربين وراجع الجلسات المستقبلية قبل إيقاف المدرب.",
+  trainer_branch_in_use: "انقل أو أنهِ تعيينات المتدربين وراجع الجلسات المستقبلية قبل إنهاء تعيين الفرع.",
+  trainer_schedule_in_use: "راجع أو ألغِ الجلسات المستقبلية المرتبطة بالمدرب قبل تعديل ساعات إتاحته.",
+  training_plan_has_progress: "بدأ تسجيل تنفيذ التمارين. احتفظ بسجل التقدم وأنشئ خطة جديدة لتغيير التمارين.",
+  training_plan_closed: "الخطة مكتملة أو ملغاة ولا تقبل تعديلًا جديدًا.",
+  coaching_assignment_ended: "هذا التعيين منتهٍ. أنشئ تعيينًا جديدًا لمتابعة العمل.",
+  coaching_assignment_not_current: "يمكن نقل تعيين ساري فقط. راجع تاريخ بداية ونهاية التعيين.",
+  trainer_member_assignment_missing: "تأكد أن العضو نشط، وأنه مرتبط بالمدرب المختار، وأن القالب متاح للمؤسسة.",
+  trainer_branch_assignment_missing: "يجب تعيين المدرب إلى الفرع خلال مدة المتابعة المطلوبة أولًا.",
+  self_trainer_member_forbidden: "هذا المتدرب أو هذه الخطة خارج تعييناتك الحالية.",
+  commission_source_invalid: "اختر جلسة تدريب مكتملة أو فاتورة اشتراك مسددة، وحدّث القيمة من سجل المصدر.",
+  commission_plan_not_found: "لا توجد قاعدة عمولة نشطة لهذا المدرب بتاريخ الاستحقاق. راجع فترة السريان.",
+}
+
 export function toPublicApiProblem(payload: unknown, responseStatus: number, fallbackCorrelationId?: string): ApiProblem {
   const source = isRecord(payload) ? payload : {}
   const status = normalizeStatus(responseStatus)
@@ -40,7 +55,7 @@ export function toPublicApiProblem(payload: unknown, responseStatus: number, fal
     type: `https://gofitness.local/problems/${code}`,
     title: copy.title,
     status,
-    detail: copy.detail,
+    detail: status < 500 ? coachingDetails[code] ?? copy.detail : copy.detail,
     code,
     ...(correlationId ? { correlationId } : {}),
     ...(errors?.length ? { errors } : {}),

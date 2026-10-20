@@ -2798,5 +2798,59 @@
     "secured": true,
     "idempotent": true,
     "description": "Atomically cancel an erroneous item with a mandatory reason, immutable ledger and financial settlement. Partial payments are rejected."
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/trainer-branch-assignments/{id}",
+    "operationId": "updateTrainerBranchAssignment",
+    "description": "Coaching lifecycle update with optimistic concurrency."
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/trainer-member-assignments/{id}",
+    "operationId": "updateTrainerMemberAssignment",
+    "description": "Coaching lifecycle update with optimistic concurrency."
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/trainer-availability-rules/{id}",
+    "operationId": "updateTrainerAvailability",
+    "description": "Coaching lifecycle update with optimistic concurrency."
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/coaching-specialties/{id}",
+    "operationId": "updateCoachingSpecialty",
+    "description": "Coaching lifecycle update with optimistic concurrency."
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/training-plan-templates/{id}",
+    "operationId": "updateTrainingPlanTemplate",
+    "description": "Coaching lifecycle update with optimistic concurrency."
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/member-training-plans/{id}",
+    "operationId": "updateMemberTrainingPlan",
+    "description": "Coaching lifecycle update with optimistic concurrency."
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/organizations/{organizationId}/trainer-commission-plans/{id}",
+    "operationId": "updateTrainerCommissionPlan",
+    "description": "Coaching lifecycle update with optimistic concurrency."
+  },
+  {
+    "method": "patch",
+    "path": "/api/v1/self/organizations/{organizationId}/trainer/training-plans/{id}",
+    "operationId": "updateSelfTrainerTrainingPlan",
+    "description": "Update an owned training plan."
+  },
+  {
+    "method": "get",
+    "path": "/api/v1/organizations/{organizationId}/coaching-commission-sources",
+    "operationId": "listCoachingCommissionSources",
+    "description": "Eligible commission sources."
   }
 ]

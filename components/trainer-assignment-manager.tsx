@@ -9,6 +9,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { DateTimeInput } from "@/components/date-time-input"
 import { useToast } from "@/components/toast-provider"
+import { CoachingDialog, CoachingField, coachingSelectClass } from "@/components/coaching-ui"
+import { coachingLocalInstant, loadCoachingPages } from "@/lib/coaching"
 import { apiRequest } from "@/lib/api-client"
 import { humanError } from "@/lib/human-errors"
 
@@ -16,7 +18,7 @@ type Row = Record<string, unknown>
 type BranchAssignment = { id: string; branchId: string; validFrom: string; validUntil?: string; status: "ACTIVE" | "ENDED" }
 type Trainer = { id: string; displayName: string; status: "ACTIVE" | "INACTIVE"; assignments?: BranchAssignment[] }
 type Member = { id: string; name: string; memberNumber: string; phoneE164?: string; nationalId?: string; status: string }
-type MemberAssignment = { id: string; memberId: string; memberName?: string; memberNumber?: string; memberStatus?: string; branchId: string; branchName?: string; validFrom: string; validUntil?: string; status: string }
+type MemberAssignment = { version: number; id: string; memberId: string; memberName?: string; memberNumber?: string; memberStatus?: string; branchId: string; branchName?: string; validFrom: string; validUntil?: string; status: string }
 
 export function TrainerAssignmentManager() {
   const context = useAppContext()
@@ -36,6 +38,9 @@ export function TrainerAssignmentManager() {
   const [memberId, setMemberId] = useState("")
   const [validFrom, setValidFrom] = useState(() => localDateTime(new Date()))
   const [validUntil, setValidUntil] = useState("")
+  const [editingAssignment, setEditingAssignment] = useState<MemberAssignment>()
+  const [assignmentForm, setAssignmentForm] = useState({ trainerProfileId: "", validFrom: "", validUntil: "", status: "ACTIVE" })
+  const [editError, setEditError] = useState("")
 
   const branch = context.branches.find(item => item.id === context.branchId)
   const selectedTrainer = trainers.find(item => item.id === selectedTrainerId)
@@ -52,8 +57,8 @@ export function TrainerAssignmentManager() {
     setLoading(true); setError("")
     try {
       const [trainerResponse, memberResponse] = await Promise.all([
-        apiRequest<unknown>(`/organizations/${context.organizationId}/trainers?limit=100`),
-        apiRequest<unknown>(`/organizations/${context.organizationId}/members?branchId=${context.branchId}&limit=100`),
+        loadCoachingPages(`/organizations/${context.organizationId}/trainers?limit=100`).then(data => ({ data })),
+        loadCoachingPages(`/organizations/${context.organizationId}/members?branchId=${context.branchId}&limit=100`).then(data => ({ data })),
       ])
       const nextTrainers = list(trainerResponse.data).map(trainer)
       const nextMembers = list(memberResponse.data).map(member).filter(item => item.status === "ACTIVE")
@@ -70,7 +75,7 @@ export function TrainerAssignmentManager() {
     if (!trainerId || !context.organizationId || !context.branchId) { setAssignments([]); return }
     setAssignmentsLoading(true)
     try {
-      const response = await apiRequest<unknown>(`/organizations/${context.organizationId}/trainers/${trainerId}/member-assignments?branchId=${context.branchId}&limit=100`)
+      const response = { data: await loadCoachingPages(`/organizations/${context.organizationId}/trainers/${trainerId}/member-assignments?branchId=${context.branchId}&limit=100`) }
       setAssignments(list(response.data).map(memberAssignment))
     } catch (reason) {
       setAssignments([])
@@ -130,6 +135,14 @@ export function TrainerAssignmentManager() {
     } catch (reason) { toast.error(humanError(reason, "تعذر ربط العضو بالمدرب.")) } finally { setBusy(false) }
   }
 
+  async function saveAssignment(event: React.FormEvent) {
+    event.preventDefault(); if (!editingAssignment) return; setBusy(true); setEditError("")
+    try {
+      await apiRequest(`/organizations/${context.organizationId}/trainer-member-assignments/${editingAssignment.id}`, { method: "PATCH", body: JSON.stringify({ expectedVersion: editingAssignment.version, trainerProfileId: assignmentForm.trainerProfileId, status: assignmentForm.status, validFrom: new Date(assignmentForm.validFrom).toISOString(), validUntil: assignmentForm.validUntil ? new Date(assignmentForm.validUntil).toISOString() : null }) })
+      toast.success("تم حفظ تعيين المتدرب."); setEditingAssignment(undefined); await loadAssignments(selectedTrainerId)
+    } catch (reason) { setEditError(humanError(reason, "تعذر تعديل تعيين المتدرب.")) } finally { setBusy(false) }
+  }
+
   return <div className="fade-up space-y-6">
     <section className="overflow-hidden rounded-[2rem] border border-primary/20 bg-gradient-to-l from-primary/[.14] via-card to-card p-6 sm:p-8">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-center">
@@ -144,10 +157,11 @@ export function TrainerAssignmentManager() {
 
       <Card><CardContent className="p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-center"><div><h2 className="text-lg font-black">{selectedTrainer?.displayName ?? "اختر مدربًا"}</h2><p className="mt-1 text-xs text-muted-foreground">الأعضاء المرتبطون بهذا المدرب داخل الفرع الحالي فقط.</p></div><div className="flex flex-wrap gap-2 sm:mr-auto">{selectedTrainer && !isAssignedToBranch && <Button onClick={() => void assignTrainerToBranch()} disabled={busy}>{busy && <Loader2 className="animate-spin" />}تعيين للفرع</Button>}<Button onClick={() => setDialogOpen(true)} disabled={!selectedTrainer || !isAssignedToBranch}><UserPlus />ربط عضو بالمدرب</Button></div></div>
         {!isAssignedToBranch && selectedTrainer && <div className="mt-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700">يجب تعيين المدرب إلى الفرع الحالي قبل ربط أعضاء به.</div>}
-        <div className="mt-5 space-y-3">{assignmentsLoading ? <Loader2 className="mx-auto my-12 animate-spin text-primary" /> : assignments.map(item => <div key={item.id} className="rounded-2xl border p-4"><div className="flex flex-wrap items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-secondary font-black"><Users className="size-5" /></span><div><p className="font-black">{item.memberName ?? "عضو"}</p><p className="mt-1 text-xs text-muted-foreground">{item.memberNumber ?? item.memberId}</p></div><Badge className="mr-auto" variant={item.status === "ACTIVE" && isCurrent(item) ? "default" : "outline"}>{item.status === "ACTIVE" && isCurrent(item) ? "تعيين نشط" : "تعيين سابق"}</Badge></div><div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><CalendarRange className="size-4" />من {date(item.validFrom)}</span><span>إلى {item.validUntil ? date(item.validUntil) : "دون تاريخ نهاية"}</span></div></div>)}{!assignmentsLoading && selectedTrainer && !assignments.length && <Empty title="لا يوجد متدربون مرتبطون" description={isAssignedToBranch ? "ابدأ بربط عضو بالمدرب، وسيظهر فورًا في مساحة المدرب." : "عيّن المدرب للفرع أولًا، ثم أضف المتدربين."} />}</div>
+        <div className="mt-5 space-y-3">{assignmentsLoading ? <Loader2 className="mx-auto my-12 animate-spin text-primary" /> : assignments.map(item => <div key={item.id} className="rounded-2xl border p-4"><div className="flex flex-wrap items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-secondary font-black"><Users className="size-5" /></span><div><p className="font-black">{item.memberName ?? "عضو"}</p><p className="mt-1 text-xs text-muted-foreground">{item.memberNumber ?? item.memberId}</p></div><Badge className="mr-auto" variant={item.status === "ACTIVE" && isCurrent(item) ? "default" : "outline"}>{item.status === "ACTIVE" && isCurrent(item) ? "تعيين نشط" : "تعيين سابق"}</Badge></div><div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><CalendarRange className="size-4" />من {date(item.validFrom)}</span><span>إلى {item.validUntil ? date(item.validUntil) : "دون تاريخ نهاية"}</span></div>{item.status === "ACTIVE" && <Button className="mt-3" size="sm" variant="outline" onClick={() => { setEditingAssignment(item); setAssignmentForm({ trainerProfileId: selectedTrainerId, validFrom: coachingLocalInstant(item.validFrom), validUntil: item.validUntil ? coachingLocalInstant(item.validUntil) : "", status: item.status }); setEditError("") }}>تعديل أو نقل أو إنهاء التعيين</Button>}</div>)}{!assignmentsLoading && selectedTrainer && !assignments.length && <Empty title="لا يوجد متدربون مرتبطون" description={isAssignedToBranch ? "ابدأ بربط عضو بالمدرب، وسيظهر فورًا في مساحة المدرب." : "عيّن المدرب للفرع أولًا، ثم أضف المتدربين."} />}</div>
       </CardContent></Card>
     </div>}
 
+    {editingAssignment && <CoachingDialog title="إدارة تعيين المتدرب" description="نقل المتدرب ينهي تعيينه السابق ويحفظ سجله، وينقل خططه الحالية إلى المدرب الجديد." onClose={() => setEditingAssignment(undefined)} busy={busy}><form className="space-y-5" onSubmit={event => void saveAssignment(event)}><fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2"><CoachingField label="المدرب المسؤول"><select required className={coachingSelectClass} value={assignmentForm.trainerProfileId} onChange={event => setAssignmentForm(value => ({ ...value, trainerProfileId: event.target.value }))}>{trainers.filter(row => row.status === "ACTIVE").map(row => <option key={row.id} value={row.id}>{row.displayName}</option>)}</select></CoachingField><CoachingField label="حالة التعيين"><select className={coachingSelectClass} value={assignmentForm.status} onChange={event => setAssignmentForm(value => ({ ...value, status: event.target.value }))}><option value="ACTIVE">نشط</option><option value="ENDED">إنهاء التعيين</option></select></CoachingField><CoachingField label="بداية التعيين"><DateTimeInput required type="datetime-local" value={assignmentForm.validFrom} onChange={event => setAssignmentForm(value => ({ ...value, validFrom: event.target.value }))}/></CoachingField><CoachingField label="نهاية التعيين"><DateTimeInput type="datetime-local" min={assignmentForm.validFrom} value={assignmentForm.validUntil} onChange={event => setAssignmentForm(value => ({ ...value, validUntil: event.target.value }))}/></CoachingField></fieldset>{editError && <p role="alert" className="text-sm text-red-600">{editError}</p>}<Button type="submit" disabled={busy}>{busy && <Loader2 className="animate-spin"/>}حفظ تعيين المتدرب</Button></form></CoachingDialog>}
     {dialogOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="ربط عضو بالمدرب"><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[2rem] border bg-card shadow-2xl"><div className="flex items-start gap-4 border-b p-6"><div><Badge variant="outline">تعيين جديد</Badge><h2 className="mt-2 text-2xl font-black">ربط عضو بـ {selectedTrainer?.displayName}</h2><p className="mt-2 text-sm text-muted-foreground">سيتمكن المدرب من متابعة العضو وخطته وقياساته خلال مدة التعيين.</p></div><Button className="mr-auto" size="icon" variant="ghost" onClick={() => setDialogOpen(false)} aria-label="إغلاق"><X /></Button></div><div className="space-y-5 p-6"><label className="block"><span className="mb-2 block font-bold">ابحث عن العضو</span><span className="relative block"><Search className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="الاسم أو رقم العضوية أو الجوال أو رقم الهوية" className="pr-10" /></span></label><div className="max-h-56 space-y-2 overflow-y-auto rounded-2xl border p-2">{memberSearchLoading ? <div className="grid min-h-24 place-items-center"><Loader2 className="animate-spin text-primary" /></div> : filteredMembers.map(item => <button key={item.id} type="button" onClick={() => setMemberId(item.id)} className={`flex w-full items-center gap-3 rounded-xl p-3 text-right ${memberId === item.id ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}><span><span className="block font-black">{item.name}</span><span className="mt-1 block text-[11px] opacity-70" dir="ltr">{item.phoneE164 ?? item.nationalId ?? ""}</span></span><span className="mr-auto text-xs opacity-75">{item.memberNumber}</span>{memberId === item.id && <CheckCircle2 className="size-4" />}</button>)}{!memberSearchLoading && !filteredMembers.length && <p className="p-5 text-center text-sm text-muted-foreground">لا توجد نتائج مطابقة في الفرع الحالي.</p>}</div><div className="grid gap-4 sm:grid-cols-2"><label><span className="mb-2 block font-bold">بداية التعيين</span><DateTimeInput type="datetime-local" value={validFrom} onChange={event => setValidFrom(event.target.value)} /></label><label><span className="mb-2 block font-bold">نهاية التعيين (اختياري)</span><DateTimeInput type="datetime-local" value={validUntil} min={validFrom} onChange={event => setValidUntil(event.target.value)} /></label></div></div><div className="flex flex-wrap gap-2 border-t p-6"><Button onClick={() => void assignMember()} disabled={busy || !memberId}>{busy ? <Loader2 className="animate-spin" /> : <Plus />}اعتماد التعيين</Button><Button variant="outline" onClick={() => setDialogOpen(false)}>إلغاء</Button></div></div></div>}
   </div>
 }
@@ -156,7 +170,7 @@ function Empty({ title, description }: { title: string; description: string }) {
 function list(value: unknown): Row[] { if (Array.isArray(value)) return value as Row[]; if (value && typeof value === "object" && "items" in value && Array.isArray((value as { items?: unknown }).items)) return (value as { items: Row[] }).items; return [] }
 function trainer(row: Row): Trainer { return { id: String(row.id ?? ""), displayName: String(row.displayName ?? "مدرب"), status: row.status === "INACTIVE" ? "INACTIVE" : "ACTIVE", assignments: Array.isArray(row.assignments) ? row.assignments.map(value => ({ id: String((value as Row).id ?? ""), branchId: String((value as Row).branchId ?? ""), validFrom: String((value as Row).validFrom ?? ""), ...((value as Row).validUntil ? { validUntil: String((value as Row).validUntil) } : {}), status: (value as Row).status === "ENDED" ? "ENDED" : "ACTIVE" })) : [] } }
 function member(row: Row): Member { return { id: String(row.id ?? row.memberId ?? ""), name: String(row.name ?? row.memberName ?? "عضو"), memberNumber: String(row.memberNumber ?? "—"), phoneE164: row.phoneE164 ? String(row.phoneE164) : undefined, nationalId: row.nationalId ? String(row.nationalId) : undefined, status: String(row.status ?? "") } }
-function memberAssignment(row: Row): MemberAssignment { return { id: String(row.id ?? ""), memberId: String(row.memberId ?? ""), memberName: row.memberName ? String(row.memberName) : undefined, memberNumber: row.memberNumber ? String(row.memberNumber) : undefined, memberStatus: row.memberStatus ? String(row.memberStatus) : undefined, branchId: String(row.branchId ?? ""), branchName: row.branchName ? String(row.branchName) : undefined, validFrom: String(row.validFrom ?? ""), validUntil: row.validUntil ? String(row.validUntil) : undefined, status: String(row.status ?? "") } }
+function memberAssignment(row: Row): MemberAssignment { return { version: Number(row.version ?? 1), id: String(row.id ?? ""), memberId: String(row.memberId ?? ""), memberName: row.memberName ? String(row.memberName) : undefined, memberNumber: row.memberNumber ? String(row.memberNumber) : undefined, memberStatus: row.memberStatus ? String(row.memberStatus) : undefined, branchId: String(row.branchId ?? ""), branchName: row.branchName ? String(row.branchName) : undefined, validFrom: String(row.validFrom ?? ""), validUntil: row.validUntil ? String(row.validUntil) : undefined, status: String(row.status ?? "") } }
 function isCurrent(value: { validFrom: string; validUntil?: string; status: string }) { const now = Date.now(); const from = new Date(value.validFrom).getTime(); const until = value.validUntil ? new Date(value.validUntil).getTime() : Number.POSITIVE_INFINITY; return value.status === "ACTIVE" && from <= now && until > now }
 function date(value: string) { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? "—" : new Intl.DateTimeFormat("ar-SA", { day: "numeric", month: "short", year: "numeric" }).format(parsed) }
 function localDateTime(value: Date) { const offset = value.getTimezoneOffset(); return new Date(value.getTime() - offset * 60_000).toISOString().slice(0, 16) }

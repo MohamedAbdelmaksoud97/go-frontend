@@ -1,0 +1,76 @@
+{
+  "runAt": "2026-10-20T09:12:33.401Z",
+  "database": "isolated local PostgreSQL (PGlite), real migrations and business services",
+  "browser": "Playwright Chromium",
+  "browserVersion": "156.0.8078.4",
+  "checks": [
+    {
+      "name": "profile-specialty-branch-and-availability-through-ui",
+      "passed": true,
+      "durationMs": 14574
+    },
+    {
+      "name": "member-assignment-through-ui",
+      "passed": true,
+      "durationMs": 1543
+    },
+    {
+      "name": "template-and-administrative-plan-through-ui",
+      "passed": true,
+      "durationMs": 3129
+    },
+    {
+      "name": "multiple-measurements-and-immediate-history-refresh-through-ui",
+      "passed": true,
+      "durationMs": 5371
+    },
+    {
+      "name": "trainer-creates-and-edits-plan-from-template-through-ui",
+      "passed": true,
+      "durationMs": 2367
+    },
+    {
+      "name": "member-reads-exercises-and-records-completion-through-ui",
+      "passed": true,
+      "durationMs": 2416
+    },
+    {
+      "name": "recorded-progress-is-preserved-and-plan-can-close-through-ui",
+      "passed": true,
+      "durationMs": 3260
+    },
+    {
+      "name": "member-transfer-retains-history-and-moves-active-plan-through-ui",
+      "passed": true,
+      "durationMs": 4229
+    },
+    {
+      "name": "commission-rule-accrual-approval-and-payment-through-ui",
+      "passed": true,
+      "durationMs": 4254
+    },
+    {
+      "name": "assignment-ending-and-branch-ending-through-ui",
+      "passed": true,
+      "durationMs": 2490
+    },
+    {
+      "name": "permissions-and-stale-version-protection-through-real-api",
+      "passed": true,
+      "durationMs": 253
+    },
+    {
+      "name": "detailed-guide-and-mobile-layout-through-ui",
+      "passed": true,
+      "durationMs": 3848
+    }
+  ],
+  "browserErrors": [],
+  "failedResponses": [],
+  "cleanup": {
+    "localOnly": true,
+    "seededMembersBeforeCleanup": 2,
+    "remainingTestTables": 0
+  },
+  "passed": true
+}
