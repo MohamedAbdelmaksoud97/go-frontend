@@ -1,75 +1,85 @@
 {
-  "runAt": "2026-10-20T09:12:33.401Z",
+  "runAt": "2026-10-20T09:31:53.653Z",
   "database": "isolated local PostgreSQL (PGlite), real migrations and business services",
   "browser": "Playwright Chromium",
   "browserVersion": "156.0.8078.4",
   "checks": [
     {
+      "name": "assignment-screen-opens-without-downloading-branch-members",
+      "passed": true,
+      "durationMs": 2969
+    },
+    {
       "name": "profile-specialty-branch-and-availability-through-ui",
       "passed": true,
-      "durationMs": 14574
+      "durationMs": 9908
+    },
+    {
+      "name": "member-picker-loads-bounded-pages-and-searches-beyond-the-first-page",
+      "passed": true,
+      "durationMs": 2764
     },
     {
       "name": "member-assignment-through-ui",
       "passed": true,
-      "durationMs": 1543
+      "durationMs": 1216
     },
     {
       "name": "template-and-administrative-plan-through-ui",
       "passed": true,
-      "durationMs": 3129
+      "durationMs": 2751
     },
     {
       "name": "multiple-measurements-and-immediate-history-refresh-through-ui",
       "passed": true,
-      "durationMs": 5371
+      "durationMs": 4109
     },
     {
       "name": "trainer-creates-and-edits-plan-from-template-through-ui",
       "passed": true,
-      "durationMs": 2367
+      "durationMs": 2211
     },
     {
       "name": "member-reads-exercises-and-records-completion-through-ui",
       "passed": true,
-      "durationMs": 2416
+      "durationMs": 2441
     },
     {
       "name": "recorded-progress-is-preserved-and-plan-can-close-through-ui",
       "passed": true,
-      "durationMs": 3260
+      "durationMs": 2849
     },
     {
       "name": "member-transfer-retains-history-and-moves-active-plan-through-ui",
       "passed": true,
-      "durationMs": 4229
+      "durationMs": 3989
     },
     {
       "name": "commission-rule-accrual-approval-and-payment-through-ui",
       "passed": true,
-      "durationMs": 4254
+      "durationMs": 4348
     },
     {
       "name": "assignment-ending-and-branch-ending-through-ui",
       "passed": true,
-      "durationMs": 2490
+      "durationMs": 2744
     },
     {
       "name": "permissions-and-stale-version-protection-through-real-api",
       "passed": true,
-      "durationMs": 253
+      "durationMs": 141
     },
     {
       "name": "detailed-guide-and-mobile-layout-through-ui",
       "passed": true,
-      "durationMs": 3848
+      "durationMs": 2754
     }
   ],
   "browserErrors": [],
   "failedResponses": [],
   "cleanup": {
     "localOnly": true,
-    "seededMembersBeforeCleanup": 2,
+    "seededMembersBeforeCleanup": 153,
     "remainingTestTables": 0
   },
   "passed": true

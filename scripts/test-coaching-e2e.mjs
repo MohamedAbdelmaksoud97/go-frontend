@@ -63,7 +63,16 @@ try {
   browserVersion = browser.version()
   const { page: admin } = await contextFor(environment.tokens.admin)
   activePage = admin
+  const assignmentMemberRequests = []
+  admin.on("request", request => {
+    const url = new URL(request.url())
+    if (url.pathname === `/api/backend/api/v1/organizations/${environment.ids.organization}/members`) assignmentMemberRequests.push(url)
+  })
   await admin.goto(`${baseUrl}/trainer`)
+  await check("assignment-screen-opens-without-downloading-branch-members", async () => {
+    await expect(admin.getByRole("heading", { name: "مدربو الفرع", exact: true })).toBeVisible()
+    assert.equal(assignmentMemberRequests.length, 0, "Opening assignments must not download the branch member directory")
+  })
   await check("profile-specialty-branch-and-availability-through-ui", async () => {
     await selectConfiguration(admin)
     await admin.getByRole("button", { name: "إضافة تخصص", exact: true }).click()
@@ -104,6 +113,34 @@ try {
     await saveDialog(admin)
     await expect(admin.getByText("09:00 — 18:00", { exact: true })).toBeVisible()
     await capture(admin, "01-coaching-configuration")
+  })
+
+  await check("member-picker-loads-bounded-pages-and-searches-beyond-the-first-page", async () => {
+    await environment.pg.query("insert into app.members(id,organization_id,member_number,name,gender,registration_branch_id,registration_origin,registered_on,status) select ('00000000-0000-4000-8000-'||lpad(to_hex(n),12,'0'))::uuid,$1,'GO'||(910000+n),'متدرب بحث تجريبي '||n,'MALE',$2,'ADMIN',current_date,'ACTIVE' from generate_series(1,151) n", [environment.ids.organization, environment.ids.branch])
+    await admin.getByRole("button", { name: "تعيينات المدربين", exact: true }).click()
+    await admin.getByRole("button", { name: /مدرب اختبار أول/ }).first().click()
+    const before = assignmentMemberRequests.length
+    assert.equal(before, 0, "Switching back to assignments must not load members either")
+    await admin.getByRole("button", { name: "ربط عضو بالمدرب", exact: true }).click()
+    const dialog = admin.getByRole("dialog")
+    await expect(dialog.locator("button[aria-pressed]")).toHaveCount(50)
+    assert.equal(assignmentMemberRequests.length - before, 1, "Member picker must fetch only the first page on open")
+    assert.equal(assignmentMemberRequests.at(-1).searchParams.get("limit"), "50")
+    assert.equal(assignmentMemberRequests.at(-1).searchParams.get("status"), "ACTIVE")
+    await expect(dialog.getByRole("button", { name: /متدرب بحث تجريبي 1 GO910001/ })).toHaveCount(0)
+    await dialog.getByRole("button", { name: "عرض المزيد من الأعضاء", exact: true }).click()
+    await expect(dialog.locator("button[aria-pressed]")).toHaveCount(100)
+    assert.equal(assignmentMemberRequests.length - before, 2, "Only an explicit load-more action may fetch another page")
+    assert.ok(assignmentMemberRequests.at(-1).searchParams.get("cursor"))
+    await dialog.getByLabel("ابحث عن العضو", { exact: true }).fill("GO910001")
+    await expect(dialog.locator("button[aria-pressed]")).toHaveCount(1)
+    await expect(dialog.getByRole("button", { name: /متدرب بحث تجريبي 1 GO910001/ })).toBeVisible()
+    assert.equal(assignmentMemberRequests.at(-1).searchParams.get("search"), "GO910001")
+    assert.equal(assignmentMemberRequests.at(-1).searchParams.has("cursor"), false)
+    await dialog.getByLabel("ابحث عن العضو", { exact: true }).fill("GO910001 ")
+    await expect(dialog.getByRole("button", { name: /متدرب بحث تجريبي 1 GO910001/ })).toBeVisible()
+    assert.equal(assignmentMemberRequests.length - before, 3, "Whitespace must not restart or abort an identical search")
+    await dialog.getByRole("button", { name: "إلغاء", exact: true }).click()
   })
 
   await check("member-assignment-through-ui", async () => {
